@@ -1,4 +1,4 @@
-# RAG LangGraph Local Project
+# Simple RAG LangGraph Local Project
 
 This is a multi-file Python version of the original `rag-langgraph.ipynb` notebook.
 

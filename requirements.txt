@@ -1,0 +1,14 @@
+beautifulsoup4
+chromadb
+dashscope
+langchain
+langchain-community
+langchain-core
+langchain-huggingface
+langchain-text-splitters
+langgraph
+pydantic
+python-dotenv
+sentence-transformers
+tiktoken
+typing-extensions

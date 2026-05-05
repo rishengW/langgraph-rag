@@ -1,0 +1,16 @@
+beautifulsoup4
+chromadb
+dashscope
+fastapi
+langchain
+langchain-community
+langchain-core
+langchain-huggingface
+langchain-text-splitters
+langgraph
+pydantic
+python-dotenv
+sentence-transformers
+tiktoken
+typing-extensions
+uvicorn

@@ -1,6 +1,7 @@
 beautifulsoup4
 chromadb
 dashscope
+fastapi
 langchain
 langchain-community
 langchain-core
@@ -12,3 +13,4 @@ python-dotenv
 sentence-transformers
 tiktoken
 typing-extensions
+uvicorn

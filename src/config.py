@@ -30,6 +30,10 @@ class Settings:
     langchain_tracing_v2: str = "false"
     langchain_api_key: str = ""
     langchain_project: str = "rag-langgraph-local"
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+    allow_low_relevance_generate: bool = False
+    min_keyword_matches: int = 2
 
 
 def _parse_urls(raw_value: str | None) -> list[str]:
@@ -40,8 +44,13 @@ def _parse_urls(raw_value: str | None) -> list[str]:
     return urls or DEFAULT_URLS.copy()
 
 
-def load_settings(env_file: str | Path = ".env") -> Settings:
-    """Load settings from `.env` and export values needed by LangChain clients."""
+def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) -> Settings:
+    """Load settings from `.env` and export values needed by LangChain clients.
+    
+    Args:
+        env_file: Path to the .env file to load.
+        urls: Optional list of source URLs. If provided, overrides env vars and defaults.
+    """
 
     load_dotenv(env_file)
 
@@ -50,6 +59,10 @@ def load_settings(env_file: str | Path = ".env") -> Settings:
         raise RuntimeError(
             "DASHSCOPE_API_KEY is missing. Copy .env.example to .env and add your key."
         )
+
+    # Use provided urls, or fall back to env var, or use defaults
+    if urls is None:
+        urls = _parse_urls(os.getenv("SOURCE_URLS"))
 
     settings = Settings(
         dashscope_api_key=dashscope_api_key,
@@ -62,11 +75,17 @@ def load_settings(env_file: str | Path = ".env") -> Settings:
         collection_name=os.getenv("COLLECTION_NAME", "rag-chroma").strip() or "rag-chroma",
         chunk_size=int(os.getenv("CHUNK_SIZE", "100")),
         chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "50")),
-        source_urls=_parse_urls(os.getenv("SOURCE_URLS")),
+        source_urls=urls,
         langchain_tracing_v2=os.getenv("LANGCHAIN_TRACING_V2", "false").strip() or "false",
         langchain_api_key=os.getenv("LANGCHAIN_API_KEY", "").strip(),
         langchain_project=os.getenv("LANGCHAIN_PROJECT", "rag-langgraph-local").strip()
         or "rag-langgraph-local",
+        api_host=os.getenv("API_HOST", "127.0.0.1").strip() or "127.0.0.1",
+        api_port=int(os.getenv("API_PORT", "8000")),
+        allow_low_relevance_generate=(
+            os.getenv("ALLOW_LOW_RELEVANCE_GENERATE", "false").lower() in ("true", "1", "yes")
+        ),
+        min_keyword_matches=int(os.getenv("MIN_KEYWORD_MATCHES", "2")),
     )
 
     os.environ["DASHSCOPE_API_KEY"] = settings.dashscope_api_key

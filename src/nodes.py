@@ -1,7 +1,8 @@
 \
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Optional
+import re
 
 from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -34,9 +35,9 @@ def grade_documents_factory(settings: Settings):
 
     def grade_documents(state) -> Literal["generate", "rewrite"]:
         print("---CHECK RELEVANCE---")
-
         class Grade(BaseModel):
             binary_score: str = Field(description="Relevance score: 'yes' or 'no'")
+            explanation: Optional[str] = Field(None, description="Optional short explanation")
 
         model = ChatTongyi(model=settings.qwen_model)
         llm_with_tool = model.with_structured_output(Grade)
@@ -47,7 +48,8 @@ def grade_documents_factory(settings: Settings):
                 "Retrieved document:\n{context}\n\n"
                 "User question: {question}\n\n"
                 "If the document contains keyword(s) or semantic meaning related to the user "
-                "question, grade it as relevant. Give a binary score 'yes' or 'no'."
+                "question, grade it as relevant. Give a binary score 'yes' or 'no'.\n"
+                "Also provide a short explanation of your judgement."
             ),
             input_variables=["context", "question"],
         )
@@ -58,14 +60,26 @@ def grade_documents_factory(settings: Settings):
         question = messages[0].content
         retrieved_docs_text = messages[-1].content
 
-        scored_result = chain.invoke(
-            {"question": question, "context": retrieved_docs_text}
-        )
+        scored_result = chain.invoke({"question": question, "context": retrieved_docs_text})
 
         score = scored_result.binary_score.strip().lower()
+        explanation = getattr(scored_result, "explanation", "") or ""
 
+        # Simple keyword overlap heuristic as a fallback
+        question_tokens = set(w.lower() for w in re.findall(r"\w+", question) if len(w) > 2)
+        retrieved_lower = (retrieved_docs_text or "").lower()
+        keyword_matches = sum(1 for t in question_tokens if t in retrieved_lower) if question_tokens else 0
+
+        print(f"Grader output: score={score}; explanation={explanation}")
+        print(f"Keyword matches: {keyword_matches} (threshold={settings.min_keyword_matches})")
+
+        # Decision rules: accept yes; otherwise allow generation if setting enabled and keywords match
         if score.startswith("y"):
             print("---DECISION: DOCS RELEVANT---")
+            return "generate"
+
+        if settings.allow_low_relevance_generate and keyword_matches >= settings.min_keyword_matches:
+            print("---DECISION: DOCS MAYBE RELEVANT (FORCED GENERATE BY SETTINGS)---")
             return "generate"
 
         print("---DECISION: DOCS NOT RELEVANT---")

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -50,6 +51,7 @@ class QueryResponse(BaseModel):
 # Global state
 _graph = None
 _settings = None
+_rebuild_lock = None
 
 
 def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: int = 8000):
@@ -75,11 +77,15 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
     # Initialize settings and graph on startup
     @app.on_event("startup")
     async def startup_event():
-        global _graph, _settings
+        global _graph, _settings, _rebuild_lock
         try:
             logger.info("Loading settings and building graph...")
             _settings = load_settings()
             _graph = build_graph(_settings, rebuild_vectorstore=rebuild_db)
+            # Lazily created module-level lock to avoid import-time asyncio creation.
+            import asyncio
+
+            _rebuild_lock = asyncio.Lock()
             logger.info("Graph built successfully")
         except Exception as e:
             logger.error(f"Failed to initialize: {e}")
@@ -116,6 +122,8 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
         Returns:
             QueryResponse with answer or error message.
         """
+
+        global _graph, _settings, _rebuild_lock
         
         if not _graph or not _settings:
             raise HTTPException(
@@ -125,21 +133,61 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
         
         try:
             # Parse URLs if provided
-            urls = None
+            urls: list[str] | None = None
             if request.urls and request.urls.strip():
                 urls = [url.strip() for url in request.urls.split(",") if url.strip()]
+
+            # Decide whether we must rebuild/refresh the graph.
+            # Important: `_graph` is built with a specific retriever (and URL set). If a
+            # request asks for a rebuild, or supplies a different URL list, we must rebuild
+            # the graph so the retriever tool points at the right Chroma collection.
+            urls_changed = urls is not None and urls != _settings.source_urls
+            needs_new_graph = request.rebuild or urls_changed
+
+            # If the user supplied different URLs but forgot to tick rebuild, auto-upgrade.
+            # Otherwise Chroma would be loaded from disk and the new URLs would never be ingested.
+            effective_rebuild = request.rebuild or urls_changed
+            if urls_changed and not request.rebuild:
+                logger.info("URLs changed; enabling rebuild to ingest them")
             
             logger.info(f"Processing query: {request.question}")
             if urls:
                 logger.info(f"Using {len(urls)} custom URLs")
+
+            # Build a per-request graph when required; optionally promote it to the global graph
+            # after a rebuild so subsequent requests use the refreshed database.
+            graph_to_use = _graph
+            settings_to_use = _settings
+
+            if needs_new_graph:
+                settings_to_use = replace(_settings, source_urls=urls) if urls is not None else _settings
+
+                if effective_rebuild:
+                    logger.info(
+                        "Rebuilding vector DB in %s (collection=%s)",
+                        str(settings_to_use.chroma_dir),
+                        settings_to_use.collection_name,
+                    )
+
+                # Serialize rebuilds to avoid concurrent deletion/recreation of the Chroma dir.
+                if effective_rebuild and _rebuild_lock is not None:
+                    async with _rebuild_lock:
+                        graph_to_use = build_graph(settings_to_use, rebuild_vectorstore=True)
+                else:
+                    graph_to_use = build_graph(settings_to_use, rebuild_vectorstore=effective_rebuild)
+
+                if effective_rebuild:
+                    # Promote rebuilt graph/settings globally.
+                    _graph = graph_to_use
+                    _settings = settings_to_use
             
             # Run the query
             result = run_rag_query(
                 question=request.question,
                 urls=urls,
-                settings=_settings,
-                rebuild_vectorstore=request.rebuild,
-                graph=_graph,
+                settings=settings_to_use,
+                rebuild_vectorstore=False,
+                graph=graph_to_use,
                 verbose=request.debug,
             )
             

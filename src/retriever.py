@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import shutil
 import logging
+import time
+import os
+import gc
+import stat
 from pathlib import Path
 
 from langchain_core.tools.retriever import create_retriever_tool
@@ -21,11 +25,91 @@ def _persisted_chroma_exists(chroma_dir: Path) -> bool:
     return chroma_dir.exists() and any(chroma_dir.iterdir())
 
 
+def _rmtree_with_retry(path: Path, max_retries: int = 10, delay: float = 1.0):
+    """Remove a directory tree with aggressive retries for Windows file locking.
+    
+    On Windows, Chroma database files can be locked even after the vectorstore
+    is closed. This function uses retries, garbage collection, and per-file
+    deletion fallback.
+    """
+    if not path.exists():
+        return
+    
+    def handle_remove_error(func, fpath, exc_info):
+        """Error handler for shutil.rmtree to handle locked files on Windows."""
+        try:
+            # Make file writable
+            if os.path.exists(fpath):
+                os.chmod(fpath, stat.S_IWUSR | stat.S_IRUSR)
+                os.unlink(fpath)
+                logger.debug("Force-removed locked file: %s", fpath)
+        except Exception as e:
+            logger.warning("Could not force-remove %s: %s", fpath, e)
+    
+    def remove_tree_manually(dirpath):
+        """Manually remove all files and directories in a tree."""
+        try:
+            for root, dirs, files in os.walk(dirpath, topdown=False):
+                for name in files:
+                    filepath = os.path.join(root, name)
+                    try:
+                        os.chmod(filepath, stat.S_IWUSR | stat.S_IRUSR)
+                        os.unlink(filepath)
+                    except Exception as e:
+                        logger.warning("Failed to remove file %s: %s", filepath, e)
+                for name in dirs:
+                    dirpath_inner = os.path.join(root, name)
+                    try:
+                        os.rmdir(dirpath_inner)
+                    except Exception as e:
+                        logger.warning("Failed to remove dir %s: %s", dirpath_inner, e)
+            # Try to remove the root directory
+            if os.path.exists(dirpath):
+                os.rmdir(dirpath)
+                return True
+        except Exception as e:
+            logger.warning("Manual tree removal failed: %s", e)
+        return False
+    
+    for attempt in range(max_retries):
+        try:
+            # Force garbage collection to release any file handles
+            gc.collect()
+            time.sleep(0.1)
+            
+            # Try normal removal with error handler
+            shutil.rmtree(str(path), onerror=handle_remove_error)
+            
+            # Check if it's actually gone
+            if not path.exists():
+                logger.info("Successfully removed .chroma directory after %d attempt(s)", attempt + 1)
+                return
+        except (PermissionError, OSError) as e:
+            if attempt < max_retries - 1:
+                logger.warning(
+                    "Failed to remove %s (attempt %d/%d), retrying in %.1f seconds: %s",
+                    path,
+                    attempt + 1,
+                    max_retries,
+                    delay,
+                    e,
+                )
+                time.sleep(delay)
+            else:
+                # Last attempt - try manual removal
+                logger.warning("Standard removal failed, attempting manual file-by-file removal")
+                if remove_tree_manually(str(path)):
+                    logger.info("Manual removal succeeded")
+                    return
+                logger.error("Failed to remove %s after %d attempts and manual removal", path, max_retries)
+                raise
+
+
 def build_retriever(settings: Settings, rebuild: bool = False):
     """Build or load the Chroma retriever used by the RAG tool."""
 
     if rebuild and settings.chroma_dir.exists():
-        shutil.rmtree(settings.chroma_dir)
+        _rmtree_with_retry(settings.chroma_dir)
 
     embeddings = HuggingFaceEmbeddings(model_name=settings.embedding_model)
 

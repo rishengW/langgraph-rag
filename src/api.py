@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import gc
 from dataclasses import replace
 from pathlib import Path
 from typing import Optional
@@ -191,10 +192,20 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                         settings_to_use.collection_name,
                     )
 
-                # Serialize rebuilds to avoid concurrent deletion/recreation of the Chroma dir.
                 if effective_rebuild and _rebuild_lock is not None:
                     async with _rebuild_lock:
-                        graph_to_use = build_graph(settings_to_use, rebuild_vectorstore=True)
+                        # Save settings before cleanup
+                        new_settings = settings_to_use
+                        
+                        # Clear old graph reference and force garbage collection to release file handles
+                        if _graph is not None:
+                            logger.debug("Clearing old graph to release file handles")
+                            del graph_to_use
+                        gc.collect()
+                        
+                        # Rebuild with fresh graph
+                        graph_to_use = build_graph(new_settings, rebuild_vectorstore=True)
+                        settings_to_use = new_settings
                 else:
                     graph_to_use = build_graph(settings_to_use, rebuild_vectorstore=effective_rebuild)
 

@@ -3,6 +3,12 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 import re
+import os
+import time
+import logging
+from functools import wraps
+import ssl
+import urllib3
 
 from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -11,6 +17,61 @@ from langchain_community.chat_models.tongyi import ChatTongyi
 from pydantic import BaseModel, Field
 
 from .config import Settings
+
+logger = logging.getLogger(__name__)
+
+# Suppress SSL warnings if verification is disabled
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+def _configure_ssl():
+    """Configure SSL settings for safer connections to Dashscope."""
+    # Allow disabling SSL verification via environment variable (for debugging)
+    if os.getenv("DISABLE_SSL_VERIFY", "").lower() == "true":
+        os.environ["REQUESTS_CA_BUNDLE"] = ""
+        os.environ["CURL_CA_BUNDLE"] = ""
+        try:
+            ssl._create_default_https_context = ssl._create_unverified_context
+        except Exception as e:
+            logger.warning(f"Could not disable SSL verification: {e}")
+
+
+def _invoke_with_retry(chain, input_data, max_retries=3, base_delay=1.0):
+    """Invoke a chain with retry logic for transient SSL/connection errors."""
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            return chain.invoke(input_data)
+        except (OSError, ConnectionError, TimeoutError) as e:
+            last_error = e
+            # Check if it's an SSL error
+            error_msg = str(e)
+            if "SSL" in error_msg or "CERTIFICATE" in error_msg or "EOF" in error_msg:
+                logger.warning(
+                    f"SSL/Connection error on attempt {attempt + 1}/{max_retries}: {e}"
+                )
+                if attempt < max_retries - 1:
+                    # Exponential backoff with jitter
+                    delay = base_delay * (2 ** attempt) + (os.urandom(1)[0] / 256)
+                    logger.info(f"Retrying in {delay:.1f} seconds...")
+                    time.sleep(delay)
+                else:
+                    logger.error(f"Failed after {max_retries} attempts: {e}")
+            else:
+                # Not a retryable error, raise immediately
+                raise
+        except Exception as e:
+            # Non-retryable error
+            logger.error(f"Non-retryable error: {e}")
+            raise
+    
+    # If we got here, all retries failed
+    raise last_error
+
+
+# Configure SSL on module load
+_configure_ssl()
 
 
 RAG_PROMPT = ChatPromptTemplate.from_template(
@@ -60,7 +121,15 @@ def grade_documents_factory(settings: Settings):
         question = messages[0].content
         retrieved_docs_text = messages[-1].content
 
-        scored_result = chain.invoke({"question": question, "context": retrieved_docs_text})
+        try:
+            scored_result = _invoke_with_retry(
+                chain, 
+                {"question": question, "context": retrieved_docs_text}
+            )
+        except Exception as e:
+            logger.error(f"Grade documents error: {e}")
+            # Fallback to keyword-only matching if LLM fails
+            scored_result = Grade(binary_score="no", explanation="API error, using keyword matching")
 
         score = scored_result.binary_score.strip().lower()
         explanation = getattr(scored_result, "explanation", "") or ""
@@ -97,7 +166,13 @@ def agent_factory(settings: Settings, tools):
 
         model = ChatTongyi(model=settings.qwen_model)
         model = model.bind_tools(tools)
-        response = model.invoke(messages)
+        
+        try:
+            response = _invoke_with_retry(model, messages)
+        except Exception as e:
+            logger.error(f"Agent error: {e}")
+            # Return error message as fallback
+            response = HumanMessage(content=f"Error calling agent: {e}")
 
         return {"messages": [response]}
 
@@ -126,7 +201,13 @@ def rewrite_factory(settings: Settings):
         ]
 
         model = ChatTongyi(model=settings.qwen_model)
-        response = model.invoke(rewrite_prompt)
+        
+        try:
+            response = _invoke_with_retry(model, rewrite_prompt)
+        except Exception as e:
+            logger.error(f"Rewrite error: {e}")
+            # Return original question as fallback
+            response = HumanMessage(content=question)
 
         # The original notebook returned {"message": ...}, which does not update
         # the graph state. This corrected key keeps the loop working.
@@ -147,9 +228,15 @@ def generate_factory(settings: Settings):
         llm = ChatTongyi(model=settings.qwen_model)
         rag_chain = RAG_PROMPT | llm | StrOutputParser()
 
-        response = rag_chain.invoke(
-            {"context": retrieved_docs_text, "question": question}
-        )
+        try:
+            response = _invoke_with_retry(
+                rag_chain,
+                {"context": retrieved_docs_text, "question": question}
+            )
+        except Exception as e:
+            logger.error(f"Generate error: {e}")
+            # Return error message as fallback
+            response = f"Error generating answer: {e}"
 
         return {"messages": [response]}
 

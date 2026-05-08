@@ -5,6 +5,7 @@
 const form = document.getElementById('queryForm');
 const questionField = document.getElementById('question');
 const urlsField = document.getElementById('urls');
+const webSearchCheckbox = document.getElementById('webSearch');
 const rebuildCheckbox = document.getElementById('rebuild');
 const debugCheckbox = document.getElementById('debug');
 const submitButton = form.querySelector('.btn-submit');
@@ -56,9 +57,15 @@ function showLoading() {
 /**
  * Display success result
  */
-function showSuccess(answer) {
+function showSuccess(answer, sourceUrls = []) {
     statusBadge.innerHTML = '<span class="status-badge badge-success">✓ Success</span>';
     answerContainer.innerHTML = `<div class="answer-box">${escapeHtml(answer)}</div>`;
+    if (sourceUrls.length) {
+        const links = sourceUrls
+            .map(url => `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a></li>`)
+            .join('');
+        answerContainer.innerHTML += `<div class="help-text"><strong>Sources used:</strong><ul>${links}</ul></div>`;
+    }
     submitButton.disabled = false;
     submitText.textContent = 'Ask Question';
 }
@@ -95,6 +102,7 @@ form.addEventListener('submit', async (e) => {
 
     const question = questionField.value.trim();
     const urls = urlsField.value.trim();
+    const webSearch = webSearchCheckbox ? webSearchCheckbox.checked : true;
     const rebuild = rebuildCheckbox.checked;
     const debug = debugCheckbox ? debugCheckbox.checked : false;
 
@@ -115,6 +123,7 @@ form.addEventListener('submit', async (e) => {
             body: JSON.stringify({
                 question: question,
                 urls: urls || null,
+                web_search: webSearch,
                 rebuild: rebuild,
                 debug: debug,
             }),
@@ -149,11 +158,11 @@ form.addEventListener('submit', async (e) => {
 
         if (data.messages && data.messages.length) {
             // Show answer plus debug messages if present
-            showSuccess(data.answer);
+            showSuccess(data.answer, data.source_urls || []);
             const msgs = data.messages.map(m => `<pre>${escapeHtml(m)}</pre>`).join('\n');
             answerContainer.innerHTML += `<div class="help-text">${msgs}</div>`;
         } else {
-            showSuccess(data.answer);
+            showSuccess(data.answer, data.source_urls || []);
         }
     } catch (error) {
         console.error('Request error:', error);

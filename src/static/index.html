@@ -258,7 +258,7 @@
                     placeholder="Enter your question here... (e.g., What is prompt engineering?)"
                     required
                 ></textarea>
-                <div class="help-text">Ask anything about the content from your provided URLs</div>
+                <div class="help-text">Ask anything; sources can be discovered automatically</div>
             </div>
 
             <div class="form-group">
@@ -269,12 +269,25 @@
                     name="urls" 
                     placeholder="Enter comma-separated URLs (e.g., https://example.com, https://another.com)"
                 >
-                <div class="help-text">If empty, uses URLs from environment configuration</div>
+                <div class="help-text">If empty, the app searches the web. Disable web search to use configured defaults.</div>
             </div>
 
             <div class="form-group">
                 <div class="checkbox-group">
                     <input 
+                        type="checkbox"
+                        id="webSearch"
+                        name="webSearch"
+                        checked
+                    >
+                    <label for="webSearch" class="checkbox-label">Search web when URLs are empty</label>
+                </div>
+                <div class="help-text">Automatically finds pages related to your question and builds a temporary RAG index</div>
+            </div>
+
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input
                         type="checkbox" 
                         id="rebuild" 
                         name="rebuild"

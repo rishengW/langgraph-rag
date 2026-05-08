@@ -1,6 +1,7 @@
 beautifulsoup4
 chromadb
 dashscope
+ddgs
 fastapi
 langchain
 langchain-community

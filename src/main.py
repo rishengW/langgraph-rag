@@ -35,6 +35,12 @@ def parse_args() -> argparse.Namespace:
         default=default_rebuild,
         help="Delete and rebuild the local Chroma vector database.",
     )
+    cli_parser.add_argument(
+        "--web-search",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Search the web for source URLs when --urls is omitted.",
+    )
     
     # Server mode
     server_parser = subparsers.add_parser("serve", help="Start the web server")
@@ -128,13 +134,23 @@ def main() -> None:
             urls = [url.strip() for url in args.urls.split(",") if url.strip()]
         
         settings = load_settings(urls=urls)
-        graph = build_graph(settings, rebuild_vectorstore=args.rebuild)
+        discovered_from_search = False
+        if urls is None and args.web_search and settings.web_search_enabled:
+            from .web_search import discover_urls_from_web, settings_for_discovered_urls
+
+            discovered_urls = discover_urls_from_web(args.question, settings)
+            if discovered_urls:
+                urls = discovered_urls
+                settings = settings_for_discovered_urls(settings, urls)
+                discovered_from_search = True
+
+        graph = build_graph(settings, rebuild_vectorstore=args.rebuild or discovered_from_search)
         
         result = run_rag_query(
             question=args.question,
             urls=urls,
             settings=settings,
-            rebuild_vectorstore=args.rebuild,
+            rebuild_vectorstore=args.rebuild or discovered_from_search,
             graph=graph,
             verbose=True,
         )

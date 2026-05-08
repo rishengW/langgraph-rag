@@ -34,6 +34,11 @@ class Settings:
     api_port: int = 8000
     allow_low_relevance_generate: bool = False
     min_keyword_matches: int = 2
+    web_search_enabled: bool = True
+    web_search_max_results: int = 5
+    web_search_region: str = "wt-wt"
+    web_search_timelimit: str | None = None
+    web_search_verify_ssl: bool = True
 
 
 def _parse_urls(raw_value: str | None) -> list[str]:
@@ -86,6 +91,17 @@ def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) 
             os.getenv("ALLOW_LOW_RELEVANCE_GENERATE", "false").lower() in ("true", "1", "yes")
         ),
         min_keyword_matches=int(os.getenv("MIN_KEYWORD_MATCHES", "2")),
+        web_search_enabled=(
+            os.getenv("WEB_SEARCH_ENABLED", "true").lower() in ("true", "1", "yes")
+        ),
+        web_search_max_results=int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5")),
+        web_search_region=os.getenv("WEB_SEARCH_REGION", "wt-wt").strip() or "wt-wt",
+        web_search_timelimit=(
+            os.getenv("WEB_SEARCH_TIMELIMIT", "").strip() or None
+        ),
+        web_search_verify_ssl=(
+            os.getenv("WEB_SEARCH_VERIFY_SSL", "true").lower() in ("true", "1", "yes")
+        ),
     )
 
     os.environ["DASHSCOPE_API_KEY"] = settings.dashscope_api_key

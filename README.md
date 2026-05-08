@@ -4,7 +4,7 @@ This is a multi-file Python version of the original `rag-langgraph.ipynb` notebo
 
 It builds a LangGraph RAG agent that:
 
-1. Loads Lilian Weng blog posts from the web.
+1. Loads configured URLs, custom URLs, or web-search results from the web.
 2. Splits the pages into chunks.
 3. Stores embeddings in a local Chroma vector database.
 4. Uses a retriever tool inside a LangGraph agent.
@@ -97,7 +97,7 @@ python -m src.main query "What does Lilian Weng say about the types of agent mem
 
 Options:
 - `query`: Run a single query
-- `--urls`: Comma-separated URLs (overrides env defaults)
+- `--urls`: Comma-separated URLs (overrides web search and env defaults)
 - `--rebuild`: Rebuild vector database from scratch
 
 Example with custom URLs:
@@ -145,10 +145,11 @@ python -m src.main serve --reload
 Then open your browser to the printed URL and:
 
 1. Enter your question in the text area
-2. (Optional) Provide comma-separated URLs for custom sources
-3. (Optional) Check "Rebuild vector database" to force rebuild
-4. Click "Ask Question"
-5. View the answer and any errors
+2. Leave Source URLs empty to search the web automatically, or provide comma-separated URLs for custom sources
+3. (Optional) Disable web search to use the configured `SOURCE_URLS` defaults when Source URLs is empty
+4. (Optional) Check "Rebuild vector database" to force rebuild
+5. Click "Ask Question"
+6. View the answer, sources used, and any errors
 
 **API Endpoints:**
 
@@ -160,6 +161,7 @@ Then open your browser to the printed URL and:
 {
   "question": "Your question here",
   "urls": "https://example.com,https://another.com",
+  "web_search": true,
   "rebuild": false
 }
 ```
@@ -171,7 +173,14 @@ You can configure the API server via environment variables:
 ```text
 API_HOST=0.0.0.0
 API_PORT=8000
+WEB_SEARCH_ENABLED=true
+WEB_SEARCH_MAX_RESULTS=5
+WEB_SEARCH_REGION=wt-wt
+WEB_SEARCH_TIMELIMIT=
+WEB_SEARCH_VERIFY_SSL=true
 ```
+
+When `urls` is empty and `web_search` is true, the API searches the web using the question, builds an isolated temporary Chroma index for the discovered URLs, and answers from those pages. If `web_search` is false, the app uses `SOURCE_URLS` from `.env` or the built-in default URLs.
 
 ## First run
 

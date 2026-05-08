@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+import logging
 from pathlib import Path
 
 from langchain_core.tools.retriever import create_retriever_tool
@@ -11,6 +12,9 @@ from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from .config import Settings
+
+
+logger = logging.getLogger(__name__)
 
 
 def _persisted_chroma_exists(chroma_dir: Path) -> bool:
@@ -34,8 +38,20 @@ def build_retriever(settings: Settings, rebuild: bool = False):
         return vectorstore.as_retriever()
 
     print("---LOAD WEB DOCUMENTS---")
-    docs_nested = [WebBaseLoader(url).load() for url in settings.source_urls]
+    docs_nested = []
+    failed_urls: list[str] = []
+
+    for url in settings.source_urls:
+        try:
+            docs_nested.append(WebBaseLoader(url).load())
+        except Exception as exc:
+            failed_urls.append(url)
+            logger.warning("Failed to load URL %s: %s", url, exc)
+
     docs = [doc for sublist in docs_nested for doc in sublist]
+    if not docs:
+        failed = ", ".join(failed_urls) if failed_urls else "none"
+        raise RuntimeError(f"No source documents could be loaded. Failed URLs: {failed}")
 
     print("---SPLIT DOCUMENTS---")
     text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(

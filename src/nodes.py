@@ -1,4 +1,3 @@
-\
 from __future__ import annotations
 
 from typing import Literal, Optional
@@ -9,6 +8,7 @@ import logging
 from functools import wraps
 import ssl
 import urllib3
+from requests.exceptions import RequestException
 
 from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -43,7 +43,7 @@ def _invoke_with_retry(chain, input_data, max_retries=3, base_delay=1.0):
     for attempt in range(max_retries):
         try:
             return chain.invoke(input_data)
-        except (OSError, ConnectionError, TimeoutError) as e:
+        except (OSError, ConnectionError, TimeoutError, RequestException, ssl.SSLError) as e:
             last_error = e
             # Check if it's an SSL error
             error_msg = str(e)
@@ -171,8 +171,7 @@ def agent_factory(settings: Settings, tools):
             response = _invoke_with_retry(model, messages)
         except Exception as e:
             logger.error(f"Agent error: {e}")
-            # Return error message as fallback
-            response = HumanMessage(content=f"Error calling agent: {e}")
+            raise
 
         return {"messages": [response]}
 
@@ -235,8 +234,7 @@ def generate_factory(settings: Settings):
             )
         except Exception as e:
             logger.error(f"Generate error: {e}")
-            # Return error message as fallback
-            response = f"Error generating answer: {e}"
+            raise
 
         return {"messages": [response]}
 

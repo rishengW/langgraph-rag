@@ -1,4 +1,3 @@
-\
 from __future__ import annotations
 
 import shutil
@@ -23,6 +22,42 @@ logger = logging.getLogger(__name__)
 
 def _persisted_chroma_exists(chroma_dir: Path) -> bool:
     return chroma_dir.exists() and any(chroma_dir.iterdir())
+
+
+def _paths_match(left: str | os.PathLike | None, right: Path) -> bool:
+    if not left:
+        return False
+
+    try:
+        return Path(left).resolve() == right.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return str(left) == str(right)
+
+
+def _release_chroma_system(chroma_dir: Path) -> None:
+    """Stop Chroma's shared persistent client for a directory before deletion."""
+
+    try:
+        from chromadb.api.shared_system_client import SharedSystemClient
+    except Exception as exc:
+        logger.debug("Could not import Chroma shared-system client: %s", exc)
+        return
+
+    systems_to_stop = []
+    with SharedSystemClient._refcount_lock:
+        for identifier, system in list(SharedSystemClient._identifier_to_system.items()):
+            persist_directory = getattr(system.settings, "persist_directory", None)
+            if _paths_match(identifier, chroma_dir) or _paths_match(persist_directory, chroma_dir):
+                systems_to_stop.append((identifier, system))
+                SharedSystemClient._identifier_to_system.pop(identifier, None)
+                SharedSystemClient._identifier_to_refcount.pop(identifier, None)
+
+    for identifier, system in systems_to_stop:
+        try:
+            system.stop()
+            logger.info("Released Chroma system for %s before rebuild", identifier)
+        except Exception as exc:
+            logger.warning("Failed to stop Chroma system for %s: %s", identifier, exc)
 
 
 def _rmtree_with_retry(path: Path, max_retries: int = 10, delay: float = 1.0):
@@ -104,11 +139,19 @@ def _rmtree_with_retry(path: Path, max_retries: int = 10, delay: float = 1.0):
                 logger.error("Failed to remove %s after %d attempts and manual removal", path, max_retries)
                 raise
 
+    if path.exists():
+        logger.warning("Standard removal did not delete %s; attempting manual file-by-file removal", path)
+        if remove_tree_manually(str(path)):
+            logger.info("Manual removal succeeded")
+            return
+        raise OSError(f"Failed to remove {path} after {max_retries} attempts")
+
 
 def build_retriever(settings: Settings, rebuild: bool = False):
     """Build or load the Chroma retriever used by the RAG tool."""
 
     if rebuild and settings.chroma_dir.exists():
+        _release_chroma_system(settings.chroma_dir)
         _rmtree_with_retry(settings.chroma_dir)
 
     embeddings = HuggingFaceEmbeddings(model_name=settings.embedding_model)

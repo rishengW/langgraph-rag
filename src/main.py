@@ -1,4 +1,3 @@
-\
 from __future__ import annotations
 
 import argparse
@@ -13,6 +12,12 @@ def parse_args() -> argparse.Namespace:
     default_rebuild = os.getenv("RAG_REBUILD_DB", "false").lower() in ("true", "1", "yes")
     
     parser = argparse.ArgumentParser(description="Run the local LangGraph RAG agent.")
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        default=default_rebuild,
+        help="With no subcommand, rebuild the local Chroma vector database and exit.",
+    )
     
     # Create subparsers for CLI vs server mode
     subparsers = parser.add_subparsers(dest="mode", help="Operation mode")
@@ -73,6 +78,9 @@ def parse_args() -> argparse.Namespace:
     args, unknown = parser.parse_known_args()
     
     # If no subcommand and there are positional args, assume it's a query
+    if args.mode is None and args.rebuild and not unknown:
+        args.mode = "rebuild"
+
     if args.mode is None and unknown:
         # Reconstruct as query mode
         question = unknown[0]
@@ -119,6 +127,10 @@ def main() -> None:
             reload=args.reload,
             log_level="info",
         )
+    elif args.mode == "rebuild":
+        settings = load_settings()
+        build_graph(settings, rebuild_vectorstore=True)
+        print("Rebuilt Chroma vector database.")
     else:
         # CLI mode (default, for backward compatibility)
         from .graph_executor import run_rag_query

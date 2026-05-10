@@ -1,4 +1,3 @@
-\
 from __future__ import annotations
 
 import os
@@ -20,7 +19,7 @@ class Settings:
     """Runtime configuration loaded from environment variables."""
 
     dashscope_api_key: str
-    qwen_model: str = "qwen-vl-max"
+    qwen_model: str = "qwen-plus"
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
     chroma_dir: Path = Path(".chroma")
     collection_name: str = "rag-chroma"
@@ -71,7 +70,7 @@ def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) 
 
     settings = Settings(
         dashscope_api_key=dashscope_api_key,
-        qwen_model=os.getenv("QWEN_MODEL", "qwen-vl-max").strip() or "qwen-vl-max",
+        qwen_model=os.getenv("QWEN_MODEL", "qwen-plus").strip() or "qwen-plus",
         embedding_model=(
             os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-mpnet-base-v2").strip()
             or "sentence-transformers/all-mpnet-base-v2"

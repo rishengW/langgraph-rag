@@ -63,24 +63,24 @@ _rebuild_lock = None
 
 def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: int = 8000):
     """Create and configure the FastAPI application.
-    
+
     Args:
         rebuild_db: Whether to rebuild the vector database on startup.
         api_host: Host to bind to.
         api_port: Port to bind to.
-    
+
     Returns:
         Configured FastAPI app instance.
     """
-    
+
     global _graph, _settings
-    
+
     app = FastAPI(
         title="RAG LangGraph API",
         description="API for the local RAG LangGraph agent",
         version="1.0.0",
     )
-    
+
     # Initialize settings and graph on startup
     @app.on_event("startup")
     async def startup_event():
@@ -97,12 +97,12 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
         except Exception as e:
             logger.error(f"Failed to initialize: {e}")
             raise
-    
+
     # Serve static files
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-    
+
     # Root endpoint - serve index.html
     @app.get("/")
     async def root():
@@ -111,33 +111,33 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
         if index_file.exists():
             return FileResponse(index_file, media_type="text/html")
         return {"message": "RAG LangGraph API - Use /query to ask questions"}
-    
+
     # Health check
     @app.get("/health")
     async def health_check():
         """Health check endpoint."""
         return {"status": "ok", "graph_ready": _graph is not None}
-    
+
     # Main query endpoint
     @app.post("/query")
     async def query(request: QueryRequest) -> QueryResponse:
         """Execute a RAG query.
-        
+
         Args:
             request: Query request with question and optional URLs.
-        
+
         Returns:
             QueryResponse with answer or error message.
         """
 
         global _graph, _settings, _rebuild_lock
-        
+
         if not _graph or not _settings:
             raise HTTPException(
                 status_code=503,
                 detail="Graph not initialized. Try again in a moment.",
             )
-        
+
         try:
             # Parse URLs if provided
             urls: list[str] | None = None
@@ -169,7 +169,7 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
             effective_rebuild = request.rebuild or urls_changed or discovered_from_search
             if urls_changed and not request.rebuild:
                 logger.info("URLs changed; enabling rebuild to ingest them")
-            
+
             logger.info(f"Processing query: {request.question}")
             if urls:
                 logger.info(f"Using {len(urls)} custom URLs")
@@ -194,18 +194,25 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
 
                 if effective_rebuild and _rebuild_lock is not None:
                     async with _rebuild_lock:
-                        # Save settings before cleanup
                         new_settings = settings_to_use
-                        
-                        # Clear old graph reference and force garbage collection to release file handles
-                        if _graph is not None:
-                            logger.debug("Clearing old graph to release file handles")
-                            del graph_to_use
-                        gc.collect()
-                        
-                        # Rebuild with fresh graph
-                        graph_to_use = build_graph(new_settings, rebuild_vectorstore=True)
-                        settings_to_use = new_settings
+                        replacing_global_graph = not discovered_from_search
+
+                        try:
+                            if replacing_global_graph:
+                                # Drop the global graph before deleting Chroma so Windows can
+                                # release SQLite/file handles held by the old retriever.
+                                _graph = None
+                                graph_to_use = None
+                                gc.collect()
+
+                            graph_to_use = build_graph(new_settings, rebuild_vectorstore=True)
+                            settings_to_use = new_settings
+                        except Exception:
+                            if replacing_global_graph:
+                                _settings = new_settings
+                            raise
+                        finally:
+                            gc.collect()
                 else:
                     graph_to_use = build_graph(settings_to_use, rebuild_vectorstore=effective_rebuild)
 
@@ -213,7 +220,7 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                     # Promote rebuilt graph/settings globally.
                     _graph = graph_to_use
                     _settings = settings_to_use
-            
+
             # Run the query
             result = run_rag_query(
                 question=request.question,
@@ -223,7 +230,7 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                 graph=graph_to_use,
                 verbose=request.debug,
             )
-            
+
             if result["error"]:
                 logger.error(f"Query error: {result['error']}")
                 return QueryResponse(
@@ -253,12 +260,12 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                 messages=messages,
                 source_urls=settings_to_use.source_urls,
             )
-        
+
         except Exception as e:
             logger.error(f"Unexpected error during query: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail=f"Internal server error: {str(e)}",
             )
-    
+
     return app

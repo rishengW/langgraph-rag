@@ -229,5 +229,5 @@ This attempts to write `graph.png`. Graph rendering may require internet access 
 ## Notes
 
 - This still calls DashScope/Tongyi through an API. The code runs locally, but the LLM is not local unless you replace `ChatTongyi` with a local chat model.
-- The default model is `qwen-vl-max` to preserve the notebook behavior. For a cheaper text-only model, set `QWEN_MODEL=qwen-plus` or another DashScope chat model you have access to.
+- The default model is `qwen-plus`, a text chat model suitable for RAG. Use a `qwen-vl-*` model only if your workflow needs multimodal input.
 - The default embeddings model is `sentence-transformers/all-mpnet-base-v2`. It is downloaded the first time it is used.

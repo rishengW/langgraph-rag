@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 import re
 import os
 import time
 import logging
-from functools import wraps
 import ssl
 import urllib3
 from requests.exceptions import RequestException
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_community.chat_models.tongyi import ChatTongyi
@@ -36,18 +35,48 @@ def _configure_ssl():
             logger.warning(f"Could not disable SSL verification: {e}")
 
 
+def _new_chat_model(settings: Settings) -> ChatTongyi:
+    """Create a DashScope chat model with project-level network settings."""
+
+    model_kwargs: dict[str, Any] = {
+        "request_timeout": settings.dashscope_request_timeout,
+    }
+    if settings.dashscope_http_base_url:
+        model_kwargs["base_address"] = settings.dashscope_http_base_url
+
+    return ChatTongyi(
+        model=settings.qwen_model,
+        max_retries=settings.dashscope_max_retries,
+        model_kwargs=model_kwargs,
+    )
+
+
+def _is_retryable_connection_error(error: Exception) -> bool:
+    error_msg = str(error).upper()
+    retry_markers = (
+        "SSL",
+        "CERTIFICATE",
+        "EOF",
+        "CONNECTION",
+        "MAX RETRIES",
+        "TIMEOUT",
+        "REMOTE END",
+        "TEMPORARILY UNAVAILABLE",
+    )
+    return any(marker in error_msg for marker in retry_markers)
+
+
 def _invoke_with_retry(chain, input_data, max_retries=3, base_delay=1.0):
     """Invoke a chain with retry logic for transient SSL/connection errors."""
     last_error = None
+    max_retries = max(1, max_retries)
     
     for attempt in range(max_retries):
         try:
             return chain.invoke(input_data)
         except (OSError, ConnectionError, TimeoutError, RequestException, ssl.SSLError) as e:
             last_error = e
-            # Check if it's an SSL error
-            error_msg = str(e)
-            if "SSL" in error_msg or "CERTIFICATE" in error_msg or "EOF" in error_msg:
+            if _is_retryable_connection_error(e):
                 logger.warning(
                     f"SSL/Connection error on attempt {attempt + 1}/{max_retries}: {e}"
                 )
@@ -68,6 +97,111 @@ def _invoke_with_retry(chain, input_data, max_retries=3, base_delay=1.0):
     
     # If we got here, all retries failed
     raise last_error
+
+
+def _message_text(message: Any) -> str:
+    if hasattr(message, "content"):
+        return str(message.content)
+    if isinstance(message, (tuple, list)) and len(message) >= 2:
+        return str(message[1])
+    return str(message)
+
+
+def _question_from_state(state) -> str:
+    messages = state["messages"]
+    return _message_text(messages[0])
+
+
+def _question_tokens(question: str) -> set[str]:
+    stopwords = {
+        "about",
+        "after",
+        "article",
+        "author",
+        "based",
+        "does",
+        "from",
+        "provided",
+        "query",
+        "say",
+        "says",
+        "that",
+        "the",
+        "this",
+        "what",
+        "when",
+        "where",
+        "which",
+        "with",
+    }
+    return {
+        token
+        for token in re.findall(r"[a-zA-Z][a-zA-Z0-9_-]+", question.lower())
+        if len(token) > 2 and token not in stopwords
+    }
+
+
+def _split_context_sentences(context: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", context).strip()
+    if not normalized:
+        return []
+
+    sentences = []
+    for part in re.split(r"(?<=[.!?])\s+", normalized):
+        text = part.strip()
+        if len(text) < 40:
+            continue
+        if len(text) > 700:
+            chunks = re.split(r";\s+|,\s+(?=[A-Z])", text)
+            sentences.extend(chunk.strip() for chunk in chunks if len(chunk.strip()) >= 40)
+        else:
+            sentences.append(text)
+    return sentences
+
+
+def _build_extractive_answer(question: str, context: str) -> str:
+    """Create a best-effort answer when the chat model is unreachable."""
+
+    context = context or ""
+    sentences = _split_context_sentences(context)
+    if not sentences:
+        return (
+            "I could not reach DashScope to synthesize a final answer, and the "
+            "retriever did not return usable article text."
+        )
+
+    tokens = _question_tokens(question)
+    scored: list[tuple[int, int, str]] = []
+    for index, sentence in enumerate(sentences):
+        lower = sentence.lower()
+        score = sum(1 for token in tokens if token in lower)
+        if "reinforcement learning" in lower and {"reinforcement", "learning"} <= tokens:
+            score += 2
+        if score > 0:
+            scored.append((score, index, sentence))
+
+    if scored:
+        top = sorted(scored, key=lambda item: (-item[0], item[1]))[:5]
+        selected = [sentence for _, _, sentence in sorted(top, key=lambda item: item[1])]
+    else:
+        selected = sentences[:5]
+
+    lines = []
+    total_chars = 0
+    for sentence in selected:
+        remaining = 1800 - total_chars
+        if remaining <= 0:
+            break
+        snippet = sentence[:remaining].strip()
+        if snippet:
+            lines.append(f"- {snippet}")
+            total_chars += len(snippet)
+
+    return (
+        "I could not reach DashScope to synthesize the final answer, so here is "
+        "an extractive answer from the retrieved article context:\n\n"
+        + "\n".join(lines)
+    )
 
 
 # Configure SSL on module load
@@ -100,7 +234,7 @@ def grade_documents_factory(settings: Settings):
             binary_score: str = Field(description="Relevance score: 'yes' or 'no'")
             explanation: Optional[str] = Field(None, description="Optional short explanation")
 
-        model = ChatTongyi(model=settings.qwen_model)
+        model = _new_chat_model(settings)
         llm_with_tool = model.with_structured_output(Grade)
 
         prompt = PromptTemplate(
@@ -121,14 +255,16 @@ def grade_documents_factory(settings: Settings):
         question = messages[0].content
         retrieved_docs_text = messages[-1].content
 
+        llm_failed = False
         try:
             scored_result = _invoke_with_retry(
                 chain, 
-                {"question": question, "context": retrieved_docs_text}
+                {"question": question, "context": retrieved_docs_text},
+                max_retries=settings.dashscope_max_retries,
             )
         except Exception as e:
             logger.error(f"Grade documents error: {e}")
-            # Fallback to keyword-only matching if LLM fails
+            llm_failed = True
             scored_result = Grade(binary_score="no", explanation="API error, using keyword matching")
 
         score = scored_result.binary_score.strip().lower()
@@ -145,6 +281,10 @@ def grade_documents_factory(settings: Settings):
         # Decision rules: accept yes; otherwise allow generation if setting enabled and keywords match
         if score.startswith("y"):
             print("---DECISION: DOCS RELEVANT---")
+            return "generate"
+
+        if llm_failed and retrieved_docs_text.strip():
+            print("---DECISION: SKIP REWRITE (LLM GRADER UNAVAILABLE)---")
             return "generate"
 
         if settings.allow_low_relevance_generate and keyword_matches >= settings.min_keyword_matches:
@@ -164,14 +304,32 @@ def agent_factory(settings: Settings, tools):
         print("---CALL AGENT---")
         messages = state["messages"]
 
-        model = ChatTongyi(model=settings.qwen_model)
+        model = _new_chat_model(settings)
         model = model.bind_tools(tools)
         
         try:
-            response = _invoke_with_retry(model, messages)
+            response = _invoke_with_retry(
+                model,
+                messages,
+                max_retries=settings.dashscope_max_retries,
+            )
         except Exception as e:
             logger.error(f"Agent error: {e}")
-            raise
+            question = _question_from_state(state)
+            tool_name = getattr(tools[0], "name", "retrieve_source_documents")
+            response = AIMessage(
+                content=(
+                    "DashScope was unreachable while selecting a tool, so the "
+                    "retriever is being called directly."
+                ),
+                tool_calls=[
+                    {
+                        "name": tool_name,
+                        "args": {"query": question},
+                        "id": "fallback_retrieve",
+                    }
+                ],
+            )
 
         return {"messages": [response]}
 
@@ -199,10 +357,14 @@ def rewrite_factory(settings: Settings):
             )
         ]
 
-        model = ChatTongyi(model=settings.qwen_model)
+        model = _new_chat_model(settings)
         
         try:
-            response = _invoke_with_retry(model, rewrite_prompt)
+            response = _invoke_with_retry(
+                model,
+                rewrite_prompt,
+                max_retries=settings.dashscope_max_retries,
+            )
         except Exception as e:
             logger.error(f"Rewrite error: {e}")
             # Return original question as fallback
@@ -224,17 +386,18 @@ def generate_factory(settings: Settings):
         question = messages[0].content
         retrieved_docs_text = messages[-1].content
 
-        llm = ChatTongyi(model=settings.qwen_model)
+        llm = _new_chat_model(settings)
         rag_chain = RAG_PROMPT | llm | StrOutputParser()
 
         try:
             response = _invoke_with_retry(
                 rag_chain,
-                {"context": retrieved_docs_text, "question": question}
+                {"context": retrieved_docs_text, "question": question},
+                max_retries=settings.dashscope_max_retries,
             )
         except Exception as e:
             logger.error(f"Generate error: {e}")
-            raise
+            response = _build_extractive_answer(question, retrieved_docs_text)
 
         return {"messages": [response]}
 

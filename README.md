@@ -85,6 +85,21 @@ Then edit `.env` and set:
 DASHSCOPE_API_KEY=your_real_key_here
 ```
 
+Optional DashScope network settings:
+
+```text
+EMBEDDING_MODEL=text-embedding-v4
+EMBEDDING_DIMENSION=1024
+EMBEDDING_BATCH_SIZE=10
+DASHSCOPE_REQUEST_TIMEOUT=120
+DASHSCOPE_MAX_RETRIES=3
+DASHSCOPE_HTTP_BASE_URL=
+```
+
+`text-embedding-v4` uses the same `DASHSCOPE_API_KEY` as Tongyi/Qwen. Use
+`DASHSCOPE_HTTP_BASE_URL` only if your DashScope account or network requires a
+non-default endpoint.
+
 ## Running the application
 
 ### Command-line interface (CLI)
@@ -184,7 +199,7 @@ When `urls` is empty and `web_search` is true, the API searches the web using th
 
 ## First run
 
-The first run downloads web pages, downloads the embedding model, and builds the local Chroma database.
+The first run downloads web pages, calls DashScope `text-embedding-v4`, and builds the local Chroma database.
 
 **CLI:**
 
@@ -228,6 +243,6 @@ This attempts to write `graph.png`. Graph rendering may require internet access 
 
 ## Notes
 
-- This still calls DashScope/Tongyi through an API. The code runs locally, but the LLM is not local unless you replace `ChatTongyi` with a local chat model.
+- This still calls DashScope/Tongyi through an API. The code runs locally, but the LLM and default embeddings are not local unless you replace `ChatTongyi` and `text-embedding-v4` with local models.
 - The default model is `qwen-plus`, a text chat model suitable for RAG. Use a `qwen-vl-*` model only if your workflow needs multimodal input.
-- The default embeddings model is `sentence-transformers/all-mpnet-base-v2`. It is downloaded the first time it is used.
+- The default embeddings model is `text-embedding-v4`. Existing Chroma stores without matching embedding metadata are rebuilt automatically so vector dimensions stay consistent.

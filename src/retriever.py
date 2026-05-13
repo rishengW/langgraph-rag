@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import logging
 import time
@@ -9,19 +10,71 @@ import stat
 from pathlib import Path
 
 from langchain_core.tools.retriever import create_retriever_tool
+
+os.environ.setdefault("USER_AGENT", "rag-langgraph-local/1.0")
+
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_community.vectorstores import Chroma
-from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from .config import Settings
+from .embeddings import build_embeddings
 
 
 logger = logging.getLogger(__name__)
 
+EMBEDDING_CONFIG_FILENAME = "embedding_config.json"
+
 
 def _persisted_chroma_exists(chroma_dir: Path) -> bool:
     return chroma_dir.exists() and any(chroma_dir.iterdir())
+
+
+def _embedding_config_path(chroma_dir: Path) -> Path:
+    return chroma_dir / EMBEDDING_CONFIG_FILENAME
+
+
+def _embedding_config(settings: Settings) -> dict[str, int | str | None]:
+    return {
+        "embedding_model": settings.embedding_model,
+        "embedding_dimension": settings.embedding_dimension,
+    }
+
+
+def _embedding_config_matches(settings: Settings) -> bool:
+    path = _embedding_config_path(settings.chroma_dir)
+    if not path.exists():
+        logger.info(
+            "Existing Chroma store has no embedding metadata; rebuilding for %s",
+            settings.embedding_model,
+        )
+        return False
+
+    try:
+        stored_config = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.info("Could not read Chroma embedding metadata; rebuilding: %s", exc)
+        return False
+
+    expected_config = _embedding_config(settings)
+    if stored_config != expected_config:
+        logger.info(
+            "Embedding config changed from %s to %s; rebuilding Chroma",
+            stored_config,
+            expected_config,
+        )
+        return False
+
+    return True
+
+
+def _write_embedding_config(settings: Settings) -> None:
+    settings.chroma_dir.mkdir(parents=True, exist_ok=True)
+    path = _embedding_config_path(settings.chroma_dir)
+    path.write_text(
+        json.dumps(_embedding_config(settings), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def _paths_match(left: str | os.PathLike | None, right: Path) -> bool:
@@ -150,11 +203,14 @@ def _rmtree_with_retry(path: Path, max_retries: int = 10, delay: float = 1.0):
 def build_retriever(settings: Settings, rebuild: bool = False):
     """Build or load the Chroma retriever used by the RAG tool."""
 
+    if not rebuild and _persisted_chroma_exists(settings.chroma_dir):
+        rebuild = not _embedding_config_matches(settings)
+
     if rebuild and settings.chroma_dir.exists():
         _release_chroma_system(settings.chroma_dir)
         _rmtree_with_retry(settings.chroma_dir)
 
-    embeddings = HuggingFaceEmbeddings(model_name=settings.embedding_model)
+    embeddings = build_embeddings(settings)
 
     if _persisted_chroma_exists(settings.chroma_dir):
         vectorstore = Chroma(
@@ -194,6 +250,7 @@ def build_retriever(settings: Settings, rebuild: bool = False):
         embedding=embeddings,
         persist_directory=str(settings.chroma_dir),
     )
+    _write_embedding_config(settings)
 
     return vectorstore.as_retriever()
 
@@ -202,12 +259,14 @@ def build_retriever_tool(settings: Settings, rebuild: bool = False):
     """Create the LangChain retriever tool used by the LangGraph ToolNode."""
 
     retriever = build_retriever(settings=settings, rebuild=rebuild)
+    source_count = len(settings.source_urls)
 
     return create_retriever_tool(
         retriever,
-        "retrieve_blog_posts",
+        "retrieve_source_documents",
         (
-            "Search and return information about Lilian Weng blog posts on "
-            "LLM agents, prompt engineering, and adversarial attacks on LLMs."
+            "Search and return relevant passages from the configured source "
+            f"document set ({source_count} URL(s)). Use this for questions "
+            "about the provided article or custom links."
         ),
     )

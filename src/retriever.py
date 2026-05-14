@@ -14,11 +14,15 @@ from langchain_core.tools.retriever import create_retriever_tool
 os.environ.setdefault("USER_AGENT", "rag-langgraph-local/1.0")
 
 from langchain_community.document_loaders import WebBaseLoader
-from langchain_community.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from .config import Settings
 from .embeddings import build_embeddings
+
+try:
+    from langchain_chroma import Chroma
+except ImportError:
+    from langchain_community.vectorstores import Chroma
 
 
 logger = logging.getLogger(__name__)

@@ -27,9 +27,12 @@ class QueryRequest(BaseModel):
     """Request model for RAG queries."""
 
     question: str = Field(..., min_length=1, description="The question to ask")
-    urls: Optional[str] = Field(
+    urls: Optional[str | list[str]] = Field(
         None,
-        description="Comma-separated URLs for RAG sources. If not provided, uses defaults from .env",
+        description=(
+            "Comma-separated URLs or a URL list for RAG sources. "
+            "If not provided or empty, web search can discover sources."
+        ),
     )
     rebuild: bool = Field(
         False,
@@ -59,6 +62,28 @@ class QueryResponse(BaseModel):
 _graph = None
 _settings = None
 _rebuild_lock = None
+
+
+def _parse_request_urls(raw_urls: str | list[str] | None) -> list[str] | None:
+    """Normalize request URL input.
+
+    Empty UI fields usually arrive as null or an empty string, while API
+    clients may send an empty list. Treat all of those as "no URLs supplied"
+    so the web-search path can run.
+    """
+
+    if raw_urls is None:
+        return None
+
+    if isinstance(raw_urls, str):
+        candidates = raw_urls.split(",")
+    else:
+        candidates = []
+        for raw_url in raw_urls:
+            candidates.extend(str(raw_url).split(","))
+
+    urls = [url.strip() for url in candidates if url and url.strip()]
+    return urls or None
 
 
 def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: int = 8000):
@@ -139,10 +164,7 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
             )
 
         try:
-            # Parse URLs if provided
-            urls: list[str] | None = None
-            if request.urls and request.urls.strip():
-                urls = [url.strip() for url in request.urls.split(",") if url.strip()]
+            urls = _parse_request_urls(request.urls)
 
             discovered_from_search = False
             search_error: str | None = None
@@ -153,6 +175,8 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                     if discovered_urls:
                         urls = discovered_urls
                         discovered_from_search = True
+                    else:
+                        search_error = "web search returned no usable URLs"
                 except Exception as exc:
                     search_error = str(exc)
                     logger.warning("Web search failed; falling back to configured URLs: %s", exc)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -90,6 +91,18 @@ def _configure_dashscope_base_url(base_url: str) -> None:
         dashscope.base_http_api_url = effective_url
     except Exception:
         pass
+
+
+def secret_fingerprint(secret: str) -> str:
+    """Return a non-sensitive fingerprint for checking which secret was loaded."""
+
+    value = (secret or "").strip()
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:10] if value else "none"
+    if len(value) <= 8:
+        preview = "***"
+    else:
+        preview = f"{value[:3]}...{value[-4:]}"
+    return f"{preview} (len={len(value)}, sha256={digest})"
 
 
 def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) -> Settings:

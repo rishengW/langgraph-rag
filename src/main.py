@@ -5,7 +5,7 @@ import os
 import pprint
 from typing import Iterable
 
-from .config import load_settings
+from .config import load_settings, secret_fingerprint
 from .graph import build_graph
 
 
@@ -153,6 +153,7 @@ def main() -> None:
             urls = [url.strip() for url in args.urls.split(",") if url.strip()]
         
         settings = load_settings(urls=urls)
+        print(f"DashScope API key loaded: {secret_fingerprint(settings.dashscope_api_key)}")
         discovered_from_search = False
         if urls is None and args.web_search and settings.web_search_enabled:
             from .web_search import discover_urls_from_web, settings_for_discovered_urls

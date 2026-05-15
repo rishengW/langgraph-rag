@@ -78,6 +78,8 @@ On Windows PowerShell, use:
 ```powershell
 Copy-Item .env.example .env
 ```
+```Linux
+cp .env.example .env
 
 Then edit `.env` and set:
 

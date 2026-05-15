@@ -31,9 +31,9 @@ SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol
 
 2. **Error Handling in All LLM Calls**
    - `grade_documents_factory()`: Falls back to keyword-only matching on API error
-   - `agent_factory()`: Returns error message on failure
+   - `agent_factory()`: Calls the retriever directly if tool selection fails
    - `rewrite_factory()`: Returns original question on failure
-   - `generate_factory()`: Returns error message on failure
+   - `generate_factory()`: Returns an extractive answer from retrieved context on failure
 
 3. **SSL Configuration**
    - Added `_configure_ssl()` function for safer SSL handling
@@ -72,6 +72,12 @@ python -m src.main
 ## Environment Variables
 
 - `DISABLE_SSL_VERIFY`: Set to `true` to disable SSL verification (not recommended for production)
+- `EMBEDDING_MODEL`: Defaults to `text-embedding-v4` for DashScope embeddings
+- `EMBEDDING_DIMENSION`: Optional dense vector size for `text-embedding-v4`
+- `EMBEDDING_BATCH_SIZE`: Batch size for synchronous DashScope embedding calls
+- `DASHSCOPE_REQUEST_TIMEOUT`: Request timeout in seconds for DashScope calls
+- `DASHSCOPE_MAX_RETRIES`: Number of app-level retries for transient connection errors
+- `DASHSCOPE_HTTP_BASE_URL`: Optional DashScope endpoint override
 - Standard Dashscope configuration via `DASHSCOPE_API_KEY` in `.env`
 
 ## Testing

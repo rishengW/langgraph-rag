@@ -4,6 +4,7 @@ dashscope
 ddgs
 fastapi
 langchain
+langchain-chroma
 langchain-community
 langchain-core
 langchain-huggingface

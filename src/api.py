@@ -27,9 +27,12 @@ class QueryRequest(BaseModel):
     """Request model for RAG queries."""
 
     question: str = Field(..., min_length=1, description="The question to ask")
-    urls: Optional[str] = Field(
+    urls: Optional[str | list[str]] = Field(
         None,
-        description="Comma-separated URLs for RAG sources. If not provided, uses defaults from .env",
+        description=(
+            "Comma-separated URLs or a URL list for RAG sources. "
+            "If not provided or empty, web search can discover sources."
+        ),
     )
     rebuild: bool = Field(
         False,
@@ -63,26 +66,48 @@ _settings = None
 _rebuild_lock = None
 
 
+def _parse_request_urls(raw_urls: str | list[str] | None) -> list[str] | None:
+    """Normalize request URL input.
+
+    Empty UI fields usually arrive as null or an empty string, while API
+    clients may send an empty list. Treat all of those as "no URLs supplied"
+    so the web-search path can run.
+    """
+
+    if raw_urls is None:
+        return None
+
+    if isinstance(raw_urls, str):
+        candidates = raw_urls.split(",")
+    else:
+        candidates = []
+        for raw_url in raw_urls:
+            candidates.extend(str(raw_url).split(","))
+
+    urls = [url.strip() for url in candidates if url and url.strip()]
+    return urls or None
+
+
 def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: int = 8000):
     """Create and configure the FastAPI application.
-    
+
     Args:
         rebuild_db: Whether to rebuild the vector database on startup.
         api_host: Host to bind to.
         api_port: Port to bind to.
-    
+
     Returns:
         Configured FastAPI app instance.
     """
-    
+
     global _graph, _settings
-    
+
     app = FastAPI(
         title="RAG LangGraph API",
         description="API for the local RAG LangGraph agent",
         version="1.0.0",
     )
-    
+
     # Initialize settings and graph on startup
     @app.on_event("startup")
     async def startup_event():
@@ -99,12 +124,12 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
         except Exception as e:
             logger.error(f"Failed to initialize: {e}")
             raise
-    
+
     # Serve static files
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-    
+
     # Root endpoint - serve index.html
     @app.get("/")
     async def root():
@@ -113,38 +138,35 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
         if index_file.exists():
             return FileResponse(index_file, media_type="text/html")
         return {"message": "RAG LangGraph API - Use /query to ask questions"}
-    
+
     # Health check
     @app.get("/health")
     async def health_check():
         """Health check endpoint."""
         return {"status": "ok", "graph_ready": _graph is not None}
-    
+
     # Main query endpoint
     @app.post("/query")
     async def query(request: QueryRequest) -> QueryResponse:
         """Execute a RAG query.
-        
+
         Args:
             request: Query request with question and optional URLs.
-        
+
         Returns:
             QueryResponse with answer or error message.
         """
 
         global _graph, _settings, _rebuild_lock
-        
+
         if not _graph or not _settings:
             raise HTTPException(
                 status_code=503,
                 detail="Graph not initialized. Try again in a moment.",
             )
-        
+
         try:
-            # Parse URLs if provided
-            urls: list[str] | None = None
-            if request.urls and request.urls.strip():
-                urls = [url.strip() for url in request.urls.split(",") if url.strip()]
+            urls = _parse_request_urls(request.urls)
 
             discovered_from_search = False
             search_error: str | None = None
@@ -155,6 +177,8 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                     if discovered_urls:
                         urls = discovered_urls
                         discovered_from_search = True
+                    else:
+                        search_error = "web search returned no usable URLs"
                 except Exception as exc:
                     search_error = str(exc)
                     logger.warning("Web search failed; falling back to configured URLs: %s", exc)
@@ -187,7 +211,7 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
             effective_rebuild = request.rebuild or urls_changed or discovered_from_search
             if urls_changed and not request.rebuild:
                 logger.info("URLs changed; enabling rebuild to ingest them")
-            
+
             logger.info(f"Processing query: {request.question}")
             if urls:
                 logger.info(f"Using {len(urls)} custom URLs")
@@ -212,18 +236,25 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
 
                 if effective_rebuild and _rebuild_lock is not None:
                     async with _rebuild_lock:
-                        # Save settings before cleanup
                         new_settings = settings_to_use
-                        
-                        # Clear old graph reference and force garbage collection to release file handles
-                        if _graph is not None:
-                            logger.debug("Clearing old graph to release file handles")
-                            del graph_to_use
-                        gc.collect()
-                        
-                        # Rebuild with fresh graph
-                        graph_to_use = build_graph(new_settings, rebuild_vectorstore=True)
-                        settings_to_use = new_settings
+                        replacing_global_graph = not discovered_from_search
+
+                        try:
+                            if replacing_global_graph:
+                                # Drop the global graph before deleting Chroma so Windows can
+                                # release SQLite/file handles held by the old retriever.
+                                _graph = None
+                                graph_to_use = None
+                                gc.collect()
+
+                            graph_to_use = build_graph(new_settings, rebuild_vectorstore=True)
+                            settings_to_use = new_settings
+                        except Exception:
+                            if replacing_global_graph:
+                                _settings = new_settings
+                            raise
+                        finally:
+                            gc.collect()
                 else:
                     graph_to_use = build_graph(settings_to_use, rebuild_vectorstore=effective_rebuild)
 
@@ -231,7 +262,7 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                     # Promote rebuilt graph/settings globally.
                     _graph = graph_to_use
                     _settings = settings_to_use
-            
+
             # Run the query
             result = run_rag_query(
                 question=request.question,
@@ -241,7 +272,7 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                 graph=graph_to_use,
                 verbose=request.debug,
             )
-            
+
             if result["error"]:
                 logger.error(f"Query error: {result['error']}")
                 return QueryResponse(
@@ -275,12 +306,12 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                 source_mode=source_mode,
                 source_note=source_note,
             )
-        
+
         except Exception as e:
             logger.error(f"Unexpected error during query: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail=f"Internal server error: {str(e)}",
             )
-    
+
     return app

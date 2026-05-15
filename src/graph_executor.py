@@ -80,13 +80,18 @@ def run_rag_query(
         answer = None
         if final_output and "generate" in final_output:
             final_messages = final_output["generate"].get("messages", [])
-            if final_messages:
-                # Convert message object to string
-                last_msg = final_messages[-1]
-                if hasattr(last_msg, "content"):
-                    answer = last_msg.content
-                else:
-                    answer = str(last_msg)
+        elif final_output and "agent" in final_output:
+            final_messages = final_output["agent"].get("messages", [])
+        else:
+            final_messages = []
+
+        if final_messages:
+            # Convert message object to string
+            last_msg = final_messages[-1]
+            if hasattr(last_msg, "content"):
+                answer = last_msg.content
+            else:
+                answer = str(last_msg)
         
         return {
             "answer": answer or "No answer generated",

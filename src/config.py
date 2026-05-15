@@ -1,4 +1,3 @@
-\
 from __future__ import annotations
 
 import os
@@ -9,9 +8,8 @@ from dotenv import load_dotenv
 
 
 DEFAULT_URLS = [
-    "https://lilianweng.github.io/posts/2023-06-23-agent/",
-    "https://lilianweng.github.io/posts/2023-03-15-prompt-engineering/",
-    "https://lilianweng.github.io/posts/2023-10-25-adv-attack-llm/",
+    "https://help.aliyun.com/zh/pai/user-guide/use-pai-model-guidelines-in-claude-code?spm=a2c4g.11186623.help-menu-30347.d_3_2_4.3d354f74THB0pK&scm=20140722.H_2990607._.OR_help-T_cn~zh-V_1",
+    "https://help.aliyun.com/zh/pai/user-guide/llm-fine-tuning-experience?spm=5176.30275541.aillm.1.17b42f3dcoHCyA&scm=20140722.S_%E6%88%91%E8%AE%B0%E5%BE%97%E6%9C%89%E4%B8%AA%E6%96%87%E6%A1%A3%E9%A1%B5%E9%9D%A2%E4%B8%93%E9%97%A8%E5%B0%86%E5%BE%AE%E8%B0%83%E7%9A%84%E5%90%84%E4%B8%AA%E6%96%B9%E6%B3%95%E7%9A%84%E5%9C%A8%E5%93%AA%E9%87%8C%E6%B2%A1%E6%89%BE%E5%88%B0._.RL_%E6%88%91%E8%AE%B0%E5%BE%97%E6%9C%89%E4%B8%AA%E6%96%87%E6%A1%A3%E9%A1%B5%E9%9D%A2%E4%B8%93%E9%97%A8%E5%B0%86%E5%BE%AE%E8%B0%83%E7%9A%84%E5%90%84%E4%B8%AA%E6%96%B9%E6%B3%95%E7%9A%84%E5%9C%A8%E5%93%AA%E9%87%8C%E6%B2%A1%E6%89%BE%E5%88%B0-LOC_aillm-OR_chat-V_3-RC_llm",
 ]
 
 
@@ -20,8 +18,10 @@ class Settings:
     """Runtime configuration loaded from environment variables."""
 
     dashscope_api_key: str
-    qwen_model: str = "qwen-vl-max"
-    embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
+    qwen_model: str = "qwen-plus"
+    embedding_model: str = "text-embedding-v4"
+    embedding_dimension: int | None = 1024
+    embedding_batch_size: int = 10
     chroma_dir: Path = Path(".chroma")
     collection_name: str = "rag-chroma"
     chunk_size: int = 100
@@ -40,6 +40,9 @@ class Settings:
     web_search_region: str = "wt-wt"
     web_search_timelimit: str | None = None
     web_search_verify_ssl: bool = True
+    dashscope_request_timeout: int = 120
+    dashscope_max_retries: int = 3
+    dashscope_http_base_url: str = ""
 
 
 def _parse_urls(raw_value: str | None) -> list[str]:
@@ -48,6 +51,15 @@ def _parse_urls(raw_value: str | None) -> list[str]:
 
     urls = [url.strip() for url in raw_value.split(",") if url.strip()]
     return urls or DEFAULT_URLS.copy()
+
+
+def _parse_optional_int(raw_value: str | None, default: int | None) -> int | None:
+    if raw_value is None:
+        return default
+    value = raw_value.strip()
+    if not value:
+        return None
+    return int(value)
 
 
 def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) -> Settings:
@@ -72,11 +84,13 @@ def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) 
 
     settings = Settings(
         dashscope_api_key=dashscope_api_key,
-        qwen_model=os.getenv("QWEN_MODEL", "qwen-vl-max").strip() or "qwen-vl-max",
+        qwen_model=os.getenv("QWEN_MODEL", "qwen-plus").strip() or "qwen-plus",
         embedding_model=(
-            os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-mpnet-base-v2").strip()
-            or "sentence-transformers/all-mpnet-base-v2"
+            os.getenv("EMBEDDING_MODEL", "text-embedding-v4").strip()
+            or "text-embedding-v4"
         ),
+        embedding_dimension=_parse_optional_int(os.getenv("EMBEDDING_DIMENSION"), 1024),
+        embedding_batch_size=int(os.getenv("EMBEDDING_BATCH_SIZE", "10")),
         chroma_dir=Path(os.getenv("CHROMA_DIR", ".chroma")).expanduser(),
         collection_name=os.getenv("COLLECTION_NAME", "rag-chroma").strip() or "rag-chroma",
         chunk_size=int(os.getenv("CHUNK_SIZE", "100")),
@@ -106,9 +120,20 @@ def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) 
         web_search_verify_ssl=(
             os.getenv("WEB_SEARCH_VERIFY_SSL", "true").lower() in ("true", "1", "yes")
         ),
+        dashscope_request_timeout=int(os.getenv("DASHSCOPE_REQUEST_TIMEOUT", "120")),
+        dashscope_max_retries=max(1, int(os.getenv("DASHSCOPE_MAX_RETRIES", "3"))),
+        dashscope_http_base_url=os.getenv("DASHSCOPE_HTTP_BASE_URL", "").strip(),
     )
 
     os.environ["DASHSCOPE_API_KEY"] = settings.dashscope_api_key
+    if settings.dashscope_http_base_url:
+        os.environ["DASHSCOPE_HTTP_BASE_URL"] = settings.dashscope_http_base_url
+        try:
+            import dashscope
+
+            dashscope.base_http_api_url = settings.dashscope_http_base_url
+        except Exception:
+            pass
     os.environ["LANGCHAIN_TRACING_V2"] = settings.langchain_tracing_v2
 
     if settings.langchain_api_key:

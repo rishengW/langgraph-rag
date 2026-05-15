@@ -3,9 +3,16 @@ from __future__ import annotations
 import argparse
 import os
 import pprint
+from typing import Iterable
 
 from .config import load_settings
 from .graph import build_graph
+
+
+def _print_urls(label: str, urls: Iterable[str]) -> None:
+    print(label)
+    for index, url in enumerate(urls, start=1):
+        print(f"  {index}. {url}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -150,11 +157,24 @@ def main() -> None:
         if urls is None and args.web_search and settings.web_search_enabled:
             from .web_search import discover_urls_from_web, settings_for_discovered_urls
 
-            discovered_urls = discover_urls_from_web(args.question, settings)
+            print(f"---WEB SEARCH ({settings.web_search_provider})---")
+            try:
+                discovered_urls = discover_urls_from_web(args.question, settings)
+            except Exception as exc:
+                discovered_urls = []
+                print(f"Web search failed; using configured source URLs instead: {exc}")
+
             if discovered_urls:
                 urls = discovered_urls
                 settings = settings_for_discovered_urls(settings, urls)
                 discovered_from_search = True
+                _print_urls("Discovered source URLs:", urls)
+            else:
+                _print_urls("No web search results; using configured source URLs:", settings.source_urls)
+        elif urls is not None:
+            _print_urls("Using explicit source URLs:", urls)
+        else:
+            _print_urls("Using configured source URLs:", settings.source_urls)
 
         graph = build_graph(settings, rebuild_vectorstore=args.rebuild or discovered_from_search)
         

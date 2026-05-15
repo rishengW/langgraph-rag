@@ -13,6 +13,7 @@ const submitText = document.getElementById('submitText');
 
 const resultsSection = document.getElementById('resultsSection');
 const statusBadge = document.getElementById('statusBadge');
+const sourceModeContainer = document.getElementById('sourceMode');
 const answerContainer = document.getElementById('answerContainer');
 const errorContainer = document.getElementById('errorContainer');
 
@@ -41,6 +42,46 @@ function clearResults() {
     answerContainer.innerHTML = '';
     errorContainer.innerHTML = '';
     statusBadge.innerHTML = '';
+    if (sourceModeContainer) {
+        sourceModeContainer.innerHTML = '';
+    }
+}
+
+/**
+ * Display source mode hint
+ */
+function renderSourceMode(mode, note, sourceUrls = []) {
+    if (!sourceModeContainer) {
+        return;
+    }
+
+    if (!mode) {
+        sourceModeContainer.textContent = '';
+        return;
+    }
+
+    const modeLabels = {
+        explicit: 'Explicit URLs',
+        web_search: 'Web search',
+        defaults: 'Configured defaults',
+    };
+
+    const noteLabels = {
+        web_search_failed: 'web search failed, used defaults',
+        web_search_no_results: 'no search results, used defaults',
+        web_search_disabled: 'web search disabled, used defaults',
+    };
+
+    const label = modeLabels[mode] || mode;
+    const count = Array.isArray(sourceUrls) ? sourceUrls.length : 0;
+    let text = `Source mode: ${label}`;
+    if (count > 0) {
+        text += ` (${count} URL${count === 1 ? '' : 's'})`;
+    }
+    if (note && noteLabels[note]) {
+        text += ` - ${noteLabels[note]}`;
+    }
+    sourceModeContainer.textContent = text;
 }
 
 /**
@@ -57,8 +98,9 @@ function showLoading() {
 /**
  * Display success result
  */
-function showSuccess(answer, sourceUrls = []) {
+function showSuccess(answer, sourceUrls = [], sourceMode = null, sourceNote = null) {
     statusBadge.innerHTML = '<span class="status-badge badge-success">✓ Success</span>';
+    renderSourceMode(sourceMode, sourceNote, sourceUrls);
     answerContainer.innerHTML = `<div class="answer-box">${escapeHtml(answer)}</div>`;
     if (sourceUrls.length) {
         const links = sourceUrls
@@ -73,8 +115,9 @@ function showSuccess(answer, sourceUrls = []) {
 /**
  * Display error result
  */
-function showError(error) {
+function showError(error, sourceMode = null, sourceNote = null, sourceUrls = []) {
     statusBadge.innerHTML = '<span class="status-badge badge-error">✗ Error</span>';
+    renderSourceMode(sourceMode, sourceNote, sourceUrls);
     errorContainer.innerHTML = `<div class="error-box">${escapeHtml(error)}</div>`;
     submitButton.disabled = false;
     submitText.textContent = 'Ask Question';
@@ -131,19 +174,24 @@ form.addEventListener('submit', async (e) => {
 
         const data = await response.json();
 
+        const sourceUrls = data.source_urls || [];
+        const sourceMode = data.source_mode || null;
+        const sourceNote = data.source_note || null;
+
         if (!response.ok) {
-            showError(formatError(data));
+            showError(formatError(data), sourceMode, sourceNote, sourceUrls);
             return;
         }
 
         if (data.error) {
-            showError(data.error);
+            showError(data.error, sourceMode, sourceNote, sourceUrls);
             return;
         }
 
         if (!data.answer) {
             // If debug info is available, show it to help diagnosis
             if (data.messages && data.messages.length) {
+                renderSourceMode(sourceMode, sourceNote, sourceUrls);
                 answerContainer.innerHTML = `<div class="answer-box">No answer was generated. Debug messages below:</div>`;
                 const msgs = data.messages.map(m => `<pre>${escapeHtml(m)}</pre>`).join('\n');
                 answerContainer.innerHTML += `<div class="help-text">${msgs}</div>`;
@@ -152,17 +200,17 @@ form.addEventListener('submit', async (e) => {
                 return;
             }
 
-            showError('No answer was generated. Please try again.');
+            showError('No answer was generated. Please try again.', sourceMode, sourceNote, sourceUrls);
             return;
         }
 
         if (data.messages && data.messages.length) {
             // Show answer plus debug messages if present
-            showSuccess(data.answer, data.source_urls || []);
+            showSuccess(data.answer, sourceUrls, sourceMode, sourceNote);
             const msgs = data.messages.map(m => `<pre>${escapeHtml(m)}</pre>`).join('\n');
             answerContainer.innerHTML += `<div class="help-text">${msgs}</div>`;
         } else {
-            showSuccess(data.answer, data.source_urls || []);
+            showSuccess(data.answer, sourceUrls, sourceMode, sourceNote);
         }
     } catch (error) {
         console.error('Request error:', error);

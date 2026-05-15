@@ -53,6 +53,8 @@ class QueryResponse(BaseModel):
     success: bool = Field(True, description="Whether the query was successful")
     messages: Optional[list[str]] = Field(None, description="Intermediate messages (debug)")
     source_urls: Optional[list[str]] = Field(None, description="URLs used for retrieval")
+    source_mode: Optional[str] = Field(None, description="Source mode used (explicit, web_search, defaults)")
+    source_note: Optional[str] = Field(None, description="Additional detail about source selection")
 
 
 # Global state
@@ -157,6 +159,22 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                     search_error = str(exc)
                     logger.warning("Web search failed; falling back to configured URLs: %s", exc)
 
+            source_mode: str | None = None
+            source_note: str | None = None
+            if request.urls and request.urls.strip():
+                source_mode = "explicit"
+            elif discovered_from_search:
+                source_mode = "web_search"
+            else:
+                source_mode = "defaults"
+                if request.web_search and _settings.web_search_enabled:
+                    if search_error:
+                        source_note = "web_search_failed"
+                    else:
+                        source_note = "web_search_no_results"
+                elif request.web_search and not _settings.web_search_enabled:
+                    source_note = "web_search_disabled"
+
             # Decide whether we must rebuild/refresh the graph.
             # Important: `_graph` is built with a specific retriever (and URL set). If a
             # request asks for a rebuild, or supplies a different URL list, we must rebuild
@@ -231,6 +249,8 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                     error=result["error"],
                     success=False,
                     source_urls=settings_to_use.source_urls,
+                    source_mode=source_mode,
+                    source_note=source_note,
                 )
 
             # Optionally include simplified intermediate messages for debugging
@@ -252,6 +272,8 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                 success=True,
                 messages=messages,
                 source_urls=settings_to_use.source_urls,
+                source_mode=source_mode,
+                source_note=source_note,
             )
         
         except Exception as e:

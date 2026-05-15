@@ -35,6 +35,7 @@ class Settings:
     allow_low_relevance_generate: bool = False
     min_keyword_matches: int = 2
     web_search_enabled: bool = True
+    web_search_provider: str = "duckduckgo"
     web_search_max_results: int = 5
     web_search_region: str = "wt-wt"
     web_search_timelimit: str | None = None
@@ -93,6 +94,9 @@ def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) 
         min_keyword_matches=int(os.getenv("MIN_KEYWORD_MATCHES", "2")),
         web_search_enabled=(
             os.getenv("WEB_SEARCH_ENABLED", "true").lower() in ("true", "1", "yes")
+        ),
+        web_search_provider=(
+            os.getenv("WEB_SEARCH_PROVIDER", "duckduckgo").strip().lower() or "duckduckgo"
         ),
         web_search_max_results=int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5")),
         web_search_region=os.getenv("WEB_SEARCH_REGION", "wt-wt").strip() or "wt-wt",

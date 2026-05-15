@@ -174,6 +174,7 @@ You can configure the API server via environment variables:
 API_HOST=0.0.0.0
 API_PORT=8000
 WEB_SEARCH_ENABLED=true
+WEB_SEARCH_PROVIDER=duckduckgo
 WEB_SEARCH_MAX_RESULTS=5
 WEB_SEARCH_REGION=wt-wt
 WEB_SEARCH_TIMELIMIT=
@@ -181,6 +182,8 @@ WEB_SEARCH_VERIFY_SSL=true
 ```
 
 When `urls` is empty and `web_search` is true, the API searches the web using the question, builds an isolated temporary Chroma index for the discovered URLs, and answers from those pages. If `web_search` is false, the app uses `SOURCE_URLS` from `.env` or the built-in default URLs.
+
+Set `WEB_SEARCH_PROVIDER=baidu` to use Baidu instead of DuckDuckGo for automatic source discovery. This can be useful when DashScope/Qwen works best without a proxy but DuckDuckGo search does not.
 
 ## First run
 

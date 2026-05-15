@@ -9,7 +9,7 @@ from typing import Any
 from langchain_core.embeddings import Embeddings
 from requests.exceptions import RequestException
 
-from .config import Settings
+from .config import DEFAULT_DASHSCOPE_HTTP_BASE_URL, Settings
 
 
 logger = logging.getLogger(__name__)
@@ -41,10 +41,9 @@ class DashScopeTextEmbeddings(Embeddings):
         self.max_retries = max(1, max_retries)
         self.base_url = base_url
 
-        if self.base_url:
-            import dashscope
+        import dashscope
 
-            dashscope.base_http_api_url = self.base_url
+        dashscope.base_http_api_url = self.base_url or DEFAULT_DASHSCOPE_HTTP_BASE_URL
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         embeddings: list[list[float]] = []

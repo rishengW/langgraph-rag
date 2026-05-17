@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+
+DEFAULT_DASHSCOPE_HTTP_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
 
 DEFAULT_URLS = [
     "https://help.aliyun.com/zh/pai/user-guide/use-pai-model-guidelines-in-claude-code?spm=a2c4g.11186623.help-menu-30347.d_3_2_4.3d354f74THB0pK&scm=20140722.H_2990607._.OR_help-T_cn~zh-V_1",
@@ -35,7 +38,8 @@ class Settings:
     allow_low_relevance_generate: bool = False
     min_keyword_matches: int = 2
     web_search_enabled: bool = True
-    web_search_max_results: int = 5
+    web_search_provider: str = "duckduckgo"
+    web_search_max_results: int = 20
     web_search_region: str = "wt-wt"
     web_search_timelimit: str | None = None
     web_search_verify_ssl: bool = True
@@ -59,6 +63,46 @@ def _parse_optional_int(raw_value: str | None, default: int | None) -> int | Non
     if not value:
         return None
     return int(value)
+
+
+def _parse_dashscope_base_url(raw_value: str | None) -> str:
+    value = (raw_value or "").strip().rstrip("/")
+    if not value:
+        return ""
+    if not value.startswith(("http://", "https://")):
+        raise RuntimeError(
+            "DASHSCOPE_HTTP_BASE_URL must start with http:// or https://. "
+            f"Got: {value!r}"
+        )
+    return value
+
+
+def _configure_dashscope_base_url(base_url: str) -> None:
+    if base_url:
+        os.environ["DASHSCOPE_HTTP_BASE_URL"] = base_url
+        effective_url = base_url
+    else:
+        os.environ.pop("DASHSCOPE_HTTP_BASE_URL", None)
+        effective_url = DEFAULT_DASHSCOPE_HTTP_BASE_URL
+
+    try:
+        import dashscope
+
+        dashscope.base_http_api_url = effective_url
+    except Exception:
+        pass
+
+
+def secret_fingerprint(secret: str) -> str:
+    """Return a non-sensitive fingerprint for checking which secret was loaded."""
+
+    value = (secret or "").strip()
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:10] if value else "none"
+    if len(value) <= 8:
+        preview = "***"
+    else:
+        preview = f"{value[:3]}...{value[-4:]}"
+    return f"{preview} (len={len(value)}, sha256={digest})"
 
 
 def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) -> Settings:
@@ -108,7 +152,10 @@ def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) 
         web_search_enabled=(
             os.getenv("WEB_SEARCH_ENABLED", "true").lower() in ("true", "1", "yes")
         ),
-        web_search_max_results=int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5")),
+        web_search_provider=(
+            os.getenv("WEB_SEARCH_PROVIDER", "duckduckgo").strip().lower() or "duckduckgo"
+        ),
+        web_search_max_results=int(os.getenv("WEB_SEARCH_MAX_RESULTS", "20")),
         web_search_region=os.getenv("WEB_SEARCH_REGION", "wt-wt").strip() or "wt-wt",
         web_search_timelimit=(
             os.getenv("WEB_SEARCH_TIMELIMIT", "").strip() or None
@@ -118,18 +165,13 @@ def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) 
         ),
         dashscope_request_timeout=int(os.getenv("DASHSCOPE_REQUEST_TIMEOUT", "120")),
         dashscope_max_retries=max(1, int(os.getenv("DASHSCOPE_MAX_RETRIES", "3"))),
-        dashscope_http_base_url=os.getenv("DASHSCOPE_HTTP_BASE_URL", "").strip(),
+        dashscope_http_base_url=_parse_dashscope_base_url(
+            os.getenv("DASHSCOPE_HTTP_BASE_URL")
+        ),
     )
 
     os.environ["DASHSCOPE_API_KEY"] = settings.dashscope_api_key
-    if settings.dashscope_http_base_url:
-        os.environ["DASHSCOPE_HTTP_BASE_URL"] = settings.dashscope_http_base_url
-        try:
-            import dashscope
-
-            dashscope.base_http_api_url = settings.dashscope_http_base_url
-        except Exception:
-            pass
+    _configure_dashscope_base_url(settings.dashscope_http_base_url)
     os.environ["LANGCHAIN_TRACING_V2"] = settings.langchain_tracing_v2
 
     if settings.langchain_api_key:

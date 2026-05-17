@@ -2,26 +2,33 @@
 
 from __future__ import annotations
 
-import logging
 import hashlib
+import logging
 import ssl
 from dataclasses import replace
 from typing import Iterable
-from urllib.parse import parse_qs, unquote, urlencode, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
+
+from bs4 import BeautifulSoup
 
 from .config import Settings
 
 
 logger = logging.getLogger(__name__)
 
+BAIDU_BASE_URL = "https://www.baidu.com"
+DUCKDUCKGO_BASE_URL = "https://duckduckgo.com"
+SEARCH_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0 Safari/537.36"
+)
+
 
 def _load_ddgs():
-    """Import the installed DuckDuckGo search client.
-
-    The package was renamed from `duckduckgo-search` to `ddgs` in newer
-    releases. Supporting both keeps the app usable across environments.
-    """
+    """Import the installed DuckDuckGo search client."""
 
     import_errors: list[str] = []
     try:
@@ -61,6 +68,23 @@ def _normalize_urls(urls: Iterable[str]) -> list[str]:
     return normalized
 
 
+def _urlopen_context(settings: Settings) -> ssl.SSLContext | None:
+    if settings.web_search_verify_ssl:
+        return None
+    return ssl._create_unverified_context()
+
+
+def _search_request(url: str) -> Request:
+    return Request(
+        url,
+        headers={
+            "User-Agent": SEARCH_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        },
+    )
+
+
 def _ddgs_search(question: str, settings: Settings) -> list[str]:
     DDGS = _load_ddgs()
 
@@ -87,7 +111,7 @@ def _unwrap_duckduckgo_redirect(href: str) -> str:
     if href.startswith("//"):
         href = f"https:{href}"
     elif href.startswith("/"):
-        href = f"https://duckduckgo.com{href}"
+        href = f"{DUCKDUCKGO_BASE_URL}{href}"
 
     parsed = urlparse(href)
     if parsed.netloc.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
@@ -98,8 +122,6 @@ def _unwrap_duckduckgo_redirect(href: str) -> str:
 
 
 def _duckduckgo_html_search(question: str, settings: Settings) -> list[str]:
-    from bs4 import BeautifulSoup
-
     params = {
         "q": question,
         "kl": settings.web_search_region,
@@ -107,19 +129,15 @@ def _duckduckgo_html_search(question: str, settings: Settings) -> list[str]:
     if settings.web_search_timelimit:
         params["df"] = settings.web_search_timelimit
 
-    ssl_context = None
-    if not settings.web_search_verify_ssl:
-        ssl_context = ssl._create_unverified_context()
-
     html = ""
     last_error: Exception | None = None
     for base_url in ("https://html.duckduckgo.com/html/", "https://duckduckgo.com/html/"):
-        request = Request(
-            f"{base_url}?{urlencode(params)}",
-            headers={"User-Agent": "rag-langgraph-local/1.0"},
-        )
         try:
-            with urlopen(request, timeout=30, context=ssl_context) as response:
+            with urlopen(
+                _search_request(f"{base_url}?{urlencode(params)}"),
+                timeout=30,
+                context=_urlopen_context(settings),
+            ) as response:
                 html = response.read().decode("utf-8", errors="replace")
             break
         except Exception as exc:
@@ -128,24 +146,18 @@ def _duckduckgo_html_search(question: str, settings: Settings) -> list[str]:
     if not html:
         raise RuntimeError(f"DuckDuckGo HTML search failed: {last_error}")
 
-    soup = BeautifulSoup(html, "html.parser")
     urls: list[str] = []
-    for anchor in soup.select("a.result__a"):
+    for anchor in BeautifulSoup(html, "html.parser").select("a.result__a"):
         href = anchor.get("href", "")
         if href:
             urls.append(_unwrap_duckduckgo_redirect(href))
-        if len(urls) >= settings.web_search_max_results:
+        if len(_normalize_urls(urls)) >= settings.web_search_max_results:
             break
 
     return urls
 
 
-def discover_urls_from_web(question: str, settings: Settings) -> list[str]:
-    """Search the web for pages that can be used as RAG sources."""
-
-    if not settings.web_search_enabled:
-        return []
-
+def _discover_urls_from_duckduckgo(question: str, settings: Settings) -> list[str]:
     ddgs_error: Exception | None = None
     try:
         urls = _normalize_urls(_ddgs_search(question, settings))
@@ -154,18 +166,133 @@ def discover_urls_from_web(question: str, settings: Settings) -> list[str]:
         logger.warning("DDGS search failed; trying DuckDuckGo HTML fallback: %s", exc)
         urls = []
 
-    if not urls:
-        try:
-            urls = _normalize_urls(_duckduckgo_html_search(question, settings))
-        except Exception as exc:
-            if ddgs_error:
-                raise RuntimeError(
-                    f"DDGS search failed ({ddgs_error}); "
-                    f"DuckDuckGo HTML fallback also failed ({exc})"
-                ) from exc
-            raise
+    if urls:
+        return urls[: settings.web_search_max_results]
 
-    logger.info("Discovered %s URL(s) from web search", len(urls))
+    try:
+        return _normalize_urls(_duckduckgo_html_search(question, settings))[
+            : settings.web_search_max_results
+        ]
+    except Exception as exc:
+        if ddgs_error:
+            raise RuntimeError(
+                f"DDGS search failed ({ddgs_error}); "
+                f"DuckDuckGo HTML fallback also failed ({exc})"
+            ) from exc
+        raise
+
+
+def _is_baidu_url(url: str) -> bool:
+    hostname = (urlparse(url).hostname or "").lower()
+    return hostname == "baidu.com" or hostname.endswith(".baidu.com")
+
+
+def _is_baidu_result_redirect(url: str) -> bool:
+    parsed = urlparse(url)
+    return _is_baidu_url(url) and parsed.path.rstrip("/") == "/link"
+
+
+def _resolve_baidu_redirect(url: str, settings: Settings) -> str:
+    """Resolve Baidu's result redirect URL to the target page when possible."""
+
+    if not _is_baidu_result_redirect(url):
+        return url
+
+    try:
+        with urlopen(
+            _search_request(url),
+            timeout=8,
+            context=_urlopen_context(settings),
+        ) as response:
+            final_url = response.geturl()
+    except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        logger.debug("Could not resolve Baidu redirect %s: %s", url, exc)
+        return url
+
+    return final_url if final_url.startswith(("http://", "https://")) else url
+
+
+def _candidate_baidu_hrefs(soup: BeautifulSoup) -> list[str]:
+    selectors = [
+        "h3.t a[href]",
+        ".result h3 a[href]",
+        ".result-op h3 a[href]",
+        "div.c-container h3 a[href]",
+    ]
+    hrefs: list[str] = []
+    seen: set[str] = set()
+
+    for selector in selectors:
+        for anchor in soup.select(selector):
+            href = anchor.get("href", "")
+            if href and href not in seen:
+                seen.add(href)
+                hrefs.append(href)
+
+    if hrefs:
+        return hrefs
+
+    for anchor in soup.select('a[href*="/link?"]'):
+        href = anchor.get("href", "")
+        if href and href not in seen:
+            seen.add(href)
+            hrefs.append(href)
+
+    return hrefs
+
+
+def _discover_urls_from_baidu(question: str, settings: Settings) -> list[str]:
+    query = urlencode(
+        {
+            "wd": question,
+            "rn": max(1, settings.web_search_max_results),
+        }
+    )
+    search_url = f"{BAIDU_BASE_URL}/s?{query}"
+
+    with urlopen(
+        _search_request(search_url),
+        timeout=10,
+        context=_urlopen_context(settings),
+    ) as response:
+        encoding = response.headers.get_content_charset() or "utf-8"
+        html = response.read().decode(encoding, errors="replace")
+
+    urls: list[str] = []
+    for href in _candidate_baidu_hrefs(BeautifulSoup(html, "html.parser")):
+        absolute_url = urljoin(BAIDU_BASE_URL, href)
+        if _is_baidu_result_redirect(absolute_url):
+            absolute_url = _resolve_baidu_redirect(absolute_url, settings)
+        urls.append(absolute_url)
+
+        if len(_normalize_urls(urls)) >= settings.web_search_max_results:
+            break
+
+    return _normalize_urls(urls)[: settings.web_search_max_results]
+
+
+def discover_urls_from_web(question: str, settings: Settings) -> list[str]:
+    """Search the web for pages that can be used as RAG sources."""
+
+    if not settings.web_search_enabled:
+        return []
+
+    provider = getattr(settings, "web_search_provider", "duckduckgo").strip().lower()
+    if provider in ("duckduckgo", "ddg"):
+        urls = _discover_urls_from_duckduckgo(question, settings)
+    elif provider == "baidu":
+        urls = _discover_urls_from_baidu(question, settings)
+    else:
+        raise ValueError(
+            "Unsupported WEB_SEARCH_PROVIDER "
+            f"{settings.web_search_provider!r}; use 'duckduckgo' or 'baidu'."
+        )
+
+    logger.info(
+        "Discovered %s URL(s) from %s web search",
+        len(urls),
+        "duckduckgo" if provider == "ddg" else provider,
+    )
     return urls
 
 

@@ -47,13 +47,13 @@ SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol
 
 ### Normal Operation (with SSL verification)
 ```bash
-python -m src.main
+python -m src.qa.main
 ```
 
 ### Debugging (disable SSL verification, only if needed)
 ```bash
 export DISABLE_SSL_VERIFY=true
-python -m src.main
+python -m src.qa.main
 ```
 
 ## Technical Details
@@ -86,8 +86,8 @@ To verify the fixes are working:
 
 ```python
 # In Python REPL
-from src.config import load_settings
-from src.graph import build_graph
+from src.core.config import load_settings
+from src.core.graph import build_graph
 
 settings = load_settings()
 graph = build_graph(settings)

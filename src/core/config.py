@@ -32,17 +32,28 @@ class Settings:
     source_urls: list[str] = field(default_factory=lambda: DEFAULT_URLS.copy())
     langchain_tracing_v2: str = "false"
     langchain_api_key: str = ""
-    langchain_project: str = "rag-langgraph-local"
+    langchain_project: str = "only-subcribers"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     allow_low_relevance_generate: bool = False
     min_keyword_matches: int = 2
+    max_rewrites: int = 2
     web_search_enabled: bool = True
-    web_search_provider: str = "duckduckgo"
+    web_search_provider: str = "baidu"
     web_search_max_results: int = 20
+    # Of the URLs returned by the search engine, how many of the top-ranked
+    # ones to actually fetch and index. The search engine already ranks by
+    # relevance; lowering this keeps indexing fast and avoids letting noisy
+    # low-ranked pages dilute the answer. Set to 0 (or a value >=
+    # web_search_max_results) to use everything.
+    web_search_top_k: int = 3
     web_search_region: str = "wt-wt"
     web_search_timelimit: str | None = None
     web_search_verify_ssl: bool = True
+    # Per-URL timeout (seconds) when fetching source pages with WebBaseLoader.
+    # Without this, a hung TCP connection to a blocked or unreachable host can
+    # stall indexing for tens of seconds before failing.
+    page_load_timeout: int = 15
     dashscope_request_timeout: int = 120
     dashscope_max_retries: int = 3
     dashscope_http_base_url: str = ""
@@ -141,21 +152,23 @@ def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) 
         source_urls=urls,
         langchain_tracing_v2=os.getenv("LANGCHAIN_TRACING_V2", "false").strip() or "false",
         langchain_api_key=os.getenv("LANGCHAIN_API_KEY", "").strip(),
-        langchain_project=os.getenv("LANGCHAIN_PROJECT", "rag-langgraph-local").strip()
-        or "rag-langgraph-local",
+        langchain_project=os.getenv("LANGCHAIN_PROJECT", "only-subcribers").strip()
+        or "only-subcribers",
         api_host=os.getenv("API_HOST", "127.0.0.1").strip() or "127.0.0.1",
         api_port=int(os.getenv("API_PORT", "8000")),
         allow_low_relevance_generate=(
             os.getenv("ALLOW_LOW_RELEVANCE_GENERATE", "false").lower() in ("true", "1", "yes")
         ),
         min_keyword_matches=int(os.getenv("MIN_KEYWORD_MATCHES", "2")),
+        max_rewrites=max(0, int(os.getenv("MAX_REWRITES", "2"))),
         web_search_enabled=(
             os.getenv("WEB_SEARCH_ENABLED", "true").lower() in ("true", "1", "yes")
         ),
         web_search_provider=(
-            os.getenv("WEB_SEARCH_PROVIDER", "duckduckgo").strip().lower() or "duckduckgo"
+            os.getenv("WEB_SEARCH_PROVIDER", "baidu").strip().lower() or "baidu"
         ),
         web_search_max_results=int(os.getenv("WEB_SEARCH_MAX_RESULTS", "20")),
+        web_search_top_k=max(0, int(os.getenv("WEB_SEARCH_TOP_K", "3"))),
         web_search_region=os.getenv("WEB_SEARCH_REGION", "wt-wt").strip() or "wt-wt",
         web_search_timelimit=(
             os.getenv("WEB_SEARCH_TIMELIMIT", "").strip() or None
@@ -163,6 +176,7 @@ def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) 
         web_search_verify_ssl=(
             os.getenv("WEB_SEARCH_VERIFY_SSL", "true").lower() in ("true", "1", "yes")
         ),
+        page_load_timeout=max(1, int(os.getenv("PAGE_LOAD_TIMEOUT", "15"))),
         dashscope_request_timeout=int(os.getenv("DASHSCOPE_REQUEST_TIMEOUT", "120")),
         dashscope_max_retries=max(1, int(os.getenv("DASHSCOPE_MAX_RETRIES", "3"))),
         dashscope_http_base_url=_parse_dashscope_base_url(
@@ -179,6 +193,6 @@ def load_settings(env_file: str | Path = ".env", urls: list[str] | None = None) 
         os.environ["LANGCHAIN_PROJECT"] = settings.langchain_project
 
     # WebBaseLoader emits a warning if no user agent is set.
-    os.environ.setdefault("USER_AGENT", "rag-langgraph-local/1.0")
+    os.environ.setdefault("USER_AGENT", "only-subcribers/1.0")
 
     return settings

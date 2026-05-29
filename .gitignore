@@ -1,6 +1,27 @@
+# Secrets and local config
 .env
+
+# Python
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+
+# Vector database
 .chroma/
+
+# Jupyter scratch
+.ipynb_checkpoints/
+
+# Editor / IDE state
+.idea/
+.vscode/
+.kilo/
+
+# Generated artifacts
+graph.png
+
+# OS noise
 .DS_Store
+Thumbs.db

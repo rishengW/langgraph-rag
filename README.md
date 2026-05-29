@@ -1,6 +1,6 @@
-# RAG LangGraph Local Project
+# only Subcribers
 
-This is a multi-file Python version of the original `rag-langgraph.ipynb` notebook.
+A multi-file Python version of the original `rag-langgraph.ipynb` notebook.
 
 It builds a LangGraph RAG agent that:
 
@@ -18,25 +18,39 @@ The notebook contained hard-coded API keys. They were intentionally removed from
 ## Project structure
 
 ```text
-rag_langgraph_local/
+only-subcribers/
 ├── .env.example
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
 └── src/
     ├── __init__.py
-    ├── api.py
-    ├── config.py
-    ├── draw_graph.py
-    ├── graph.py
-    ├── graph_executor.py
-    ├── main.py
-    ├── nodes.py
-    ├── retriever.py
-    ├── state.py
-    └── static/
-        ├── index.html
-        └── script.js
+    ├── core/                 # Shared engine
+    │   ├── config.py
+    │   ├── embeddings.py
+    │   ├── graph.py
+    │   ├── graph_executor.py
+    │   ├── nodes.py
+    │   ├── retriever.py
+    │   ├── state.py
+    │   └── web_search.py
+    ├── qa/                   # Single-shot Q&A app (port 8000)
+    │   ├── api.py
+    │   ├── draw_graph.py
+    │   ├── main.py
+    │   └── static/
+    │       ├── index.html
+    │       └── script.js
+    └── chat/                 # Multi-turn chat app (port 8001)
+        ├── api.py
+        ├── graph.py
+        ├── main.py
+        ├── nodes.py
+        ├── sessions.py
+        ├── state.py
+        └── static/
+            ├── index.html
+            └── script.js
 ```
 
 ## Setup
@@ -104,12 +118,21 @@ non-default endpoint.
 
 ## Running the application
 
+The project ships two front ends that share the same engine:
+
+* **`src.qa`** — single-shot Q&A. One question, one answer, no memory.
+* **`src.chat`** — multi-turn chat. Memory across turns, follow-up
+  questions stay scoped to the same source set.
+
+The original commands all live under `python -m src.qa.*`. The chat app
+is `python -m src.chat.*`.
+
 ### Command-line interface (CLI)
 
 Ask a question directly from the terminal:
 
 ```bash
-python -m src.main query "What does Lilian Weng say about the types of agent memory?" --rebuild
+python -m src.qa.main query "What does Lilian Weng say about the types of agent memory?" --rebuild
 ```
 
 Options:
@@ -120,7 +143,7 @@ Options:
 Example with custom URLs:
 
 ```bash
-python -m src.main query "Your question here" --urls "https://example.com,https://another.com" --rebuild
+python -m src.qa.main query "Your question here" --urls "https://example.com,https://another.com" --rebuild
 ```
 
 ### Web interface
@@ -128,7 +151,7 @@ python -m src.main query "Your question here" --urls "https://example.com,https:
 Start the FastAPI web server:
 
 ```bash
-python -m src.main serve
+python -m src.qa.main serve
 ```
 
 This starts the server at `http://127.0.0.1:8000` by default.
@@ -144,19 +167,19 @@ This starts the server at `http://127.0.0.1:8000` by default.
 Start server on localhost:
 
 ```bash
-python -m src.main serve
+python -m src.qa.main serve
 ```
 
 Start on all interfaces on port 5000:
 
 ```bash
-python -m src.main serve --host 0.0.0.0 --port 5000
+python -m src.qa.main serve --host 0.0.0.0 --port 5000
 ```
 
 Development mode with auto-reload:
 
 ```bash
-python -m src.main serve --reload
+python -m src.qa.main serve --reload
 ```
 
 Then open your browser to the printed URL and:
@@ -191,7 +214,7 @@ You can configure the API server via environment variables:
 API_HOST=0.0.0.0
 API_PORT=8000
 WEB_SEARCH_ENABLED=true
-WEB_SEARCH_PROVIDER=duckduckgo
+WEB_SEARCH_PROVIDER=baidu
 WEB_SEARCH_MAX_RESULTS=20
 WEB_SEARCH_REGION=wt-wt
 WEB_SEARCH_TIMELIMIT=
@@ -200,7 +223,57 @@ WEB_SEARCH_VERIFY_SSL=true
 
 When `urls` is empty and `web_search` is true, the API searches the web using the question, builds an isolated temporary Chroma index for the discovered URLs, and answers from those pages. If `web_search` is false, the app uses `SOURCE_URLS` from `.env` or the built-in default URLs.
 
-Set `WEB_SEARCH_PROVIDER=baidu` to use Baidu instead of DuckDuckGo for automatic source discovery. This can be useful when DashScope/Qwen works best without a proxy but DuckDuckGo search does not.
+Set `WEB_SEARCH_PROVIDER=duckduckgo` to use DuckDuckGo instead of Baidu for automatic source discovery. The default is Baidu, which works without a proxy from networks where DuckDuckGo is unreachable.
+
+## Chat app
+
+`src.chat` exposes the same engine through a multi-turn chat interface.
+Each chat session has a fixed source set (chosen when the chat starts);
+follow-up turns reuse the same Chroma index and inherit the conversation
+history via LangGraph's in-memory checkpointer.
+
+### Web UI
+
+```bash
+python -m src.chat.main serve
+```
+
+Defaults to `http://127.0.0.1:8001`. Override with `--host`/`--port` or
+`CHAT_API_HOST` / `CHAT_API_PORT`. Open the URL in a browser, choose your
+sources (URLs or web search), and start chatting. Refreshing the page
+restores the active session via `localStorage`.
+
+### Terminal REPL
+
+```bash
+python -m src.chat.main chat --urls "https://example.com,https://another.com"
+```
+
+Or seed sources from a one-time web search:
+
+```bash
+python -m src.chat.main chat --seed-question "Qwen fine-tuning best practices"
+```
+
+Type `exit`, `quit`, or Ctrl-D to end the session.
+
+### API endpoints
+
+* `POST /chat` — start a new chat thread. Returns a `thread_id`.
+* `POST /chat/{thread_id}/message` — send a user turn, get the reply.
+* `GET /chat/{thread_id}/history` — fetch the full transcript.
+* `DELETE /chat/{thread_id}` — drop the session from memory.
+
+### Notes
+
+* Memory is held in-process. Restarting the chat server clears all
+  active sessions.
+* Each session with explicit URLs or web-discovered sources gets its
+  own isolated Chroma index under `.chroma/chat/<thread_id>/`. Sessions
+  that fall back to the configured defaults share the global store.
+* A condense step rewrites multi-turn follow-ups into standalone
+  questions before retrieval, so the embedding lookup stays focused
+  even when the user says things like "what about that?".
 
 ## First run
 
@@ -209,13 +282,13 @@ The first run downloads web pages, calls DashScope `text-embedding-v4`, and buil
 **CLI:**
 
 ```bash
-python -m src.main query "What does Lilian Weng say about the types of agent memory?" --rebuild
+python -m src.qa.main query "What does Lilian Weng say about the types of agent memory?" --rebuild
 ```
 
 **Or via web interface:**
 
 ```bash
-python -m src.main serve --rebuild
+python -m src.qa.main serve --rebuild
 ```
 
 Then open http://127.0.0.1:8000 and check the "Rebuild vector database" checkbox when asking your first question.
@@ -227,13 +300,13 @@ Once `.chroma/` exists, you can run without rebuilding:
 **CLI:**
 
 ```bash
-python -m src.main query "What are common prompt engineering techniques?"
+python -m src.qa.main query "What are common prompt engineering techniques?"
 ```
 
 **Web interface:**
 
 ```bash
-python -m src.main serve
+python -m src.qa.main serve
 ```
 
 Then open http://127.0.0.1:8000 and ask questions directly through the web UI.
@@ -241,7 +314,7 @@ Then open http://127.0.0.1:8000 and ask questions directly through the web UI.
 ## Optional: draw the graph
 
 ```bash
-python -m src.draw_graph
+python -m src.qa.draw_graph
 ```
 
 This attempts to write `graph.png`. Graph rendering may require internet access or optional rendering dependencies depending on your LangGraph installation.

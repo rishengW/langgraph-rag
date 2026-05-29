@@ -1,18 +1,33 @@
-\
 from __future__ import annotations
 
 import argparse
 import os
-import pprint
+from typing import Iterable
 
-from .config import load_settings
-from .graph import build_graph
+from ..core.config import load_settings, secret_fingerprint
+from ..core.graph import build_graph
+
+
+def _print_urls(label: str, urls: Iterable[str]) -> None:
+    print(label)
+    for index, url in enumerate(urls, start=1):
+        print(f"  {index}. {url}")
 
 
 def parse_args() -> argparse.Namespace:
     default_rebuild = os.getenv("RAG_REBUILD_DB", "false").lower() in ("true", "1", "yes")
     
     parser = argparse.ArgumentParser(description="Run the local LangGraph RAG agent.")
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        default=default_rebuild,
+        help=(
+            "When used without a subcommand, rebuild the local Chroma vector "
+            "database and exit. Ignored when a subcommand has its own "
+            "--rebuild flag."
+        ),
+    )
     
     # Create subparsers for CLI vs server mode
     subparsers = parser.add_subparsers(dest="mode", help="Operation mode")
@@ -33,7 +48,14 @@ def parse_args() -> argparse.Namespace:
         "--rebuild",
         action="store_true",
         default=default_rebuild,
-        help="Delete and rebuild the local Chroma vector database.",
+        dest="query_rebuild",
+        help="Delete and rebuild the local Chroma vector database before querying.",
+    )
+    cli_parser.add_argument(
+        "--web-search",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Search the web for source URLs when --urls is omitted.",
     )
     
     # Server mode
@@ -60,32 +82,56 @@ def parse_args() -> argparse.Namespace:
         "--rebuild",
         action="store_true",
         default=default_rebuild,
+        dest="serve_rebuild",
         help="Rebuild vector database on startup",
     )
     
     # For backward compatibility, allow positional argument without subcommand
     args, unknown = parser.parse_known_args()
-    
+
     # If no subcommand and there are positional args, assume it's a query
+    if args.mode is None and args.rebuild and not unknown:
+        args.mode = "rebuild"
+
     if args.mode is None and unknown:
         # Reconstruct as query mode
         question = unknown[0]
         urls = ""
         rebuild = default_rebuild
-        
-        # Look for --urls and --rebuild flags in unknown
-        for i, arg in enumerate(unknown):
+        web_search = True
+
+        # Look for --urls, --rebuild, and web-search flags in unknown
+        i = 0
+        while i < len(unknown):
+            arg = unknown[i]
             if arg == "--urls" and i + 1 < len(unknown):
                 urls = unknown[i + 1]
-            elif arg == "--rebuild":
+                i += 2
+                continue
+            if arg == "--rebuild":
                 rebuild = True
-        
+            elif arg == "--no-web-search":
+                web_search = False
+            elif arg == "--web-search":
+                web_search = True
+            i += 1
+
         # Create a namespace to mimic old behavior
         args.mode = "query"
         args.question = question
         args.urls = urls
-        args.rebuild = rebuild
-    
+        args.web_search = web_search
+        args.query_rebuild = rebuild
+
+    # Normalize: expose a single `rebuild` attr so callers don't have to know
+    # which subparser was used. The top-level --rebuild only applies in the
+    # bare-rebuild case; subcommands have their own dest.
+    if args.mode == "query":
+        args.rebuild = bool(getattr(args, "query_rebuild", False))
+    elif args.mode == "serve":
+        args.rebuild = bool(getattr(args, "serve_rebuild", False))
+    # else: leave args.rebuild as parsed at the top level
+
     return args
 
 
@@ -96,14 +142,13 @@ def main() -> None:
         # Start the FastAPI server
         from .api import create_app
         import uvicorn
-        
         app = create_app(
             rebuild_db=args.rebuild,
             api_host=args.host,
             api_port=args.port,
         )
         
-        print(f"🚀 Starting RAG LangGraph web server at http://{args.host}:{args.port}")
+        print(f"🚀 Starting only Subcribers web server at http://{args.host}:{args.port}")
         print(f"📖 Open your browser and navigate to http://{args.host}:{args.port}")
         
         uvicorn.run(
@@ -113,9 +158,13 @@ def main() -> None:
             reload=args.reload,
             log_level="info",
         )
+    elif args.mode == "rebuild":
+        settings = load_settings()
+        build_graph(settings, rebuild_vectorstore=True)
+        print("Rebuilt Chroma vector database.")
     else:
         # CLI mode (default, for backward compatibility)
-        from .graph_executor import run_rag_query
+        from ..core.graph_executor import run_rag_query
         
         if not hasattr(args, 'question'):
             print("Error: No mode specified. Use 'query' or 'serve'.")
@@ -128,13 +177,37 @@ def main() -> None:
             urls = [url.strip() for url in args.urls.split(",") if url.strip()]
         
         settings = load_settings(urls=urls)
-        graph = build_graph(settings, rebuild_vectorstore=args.rebuild)
+        print(f"DashScope API key loaded: {secret_fingerprint(settings.dashscope_api_key)}")
+        discovered_from_search = False
+        if urls is None and args.web_search and settings.web_search_enabled:
+            from ..core.web_search import discover_urls_from_web, settings_for_discovered_urls
+
+            print(f"---WEB SEARCH ({settings.web_search_provider})---")
+            try:
+                discovered_urls = discover_urls_from_web(args.question, settings)
+            except Exception as exc:
+                discovered_urls = []
+                print(f"Web search failed; using configured source URLs instead: {exc}")
+
+            if discovered_urls:
+                urls = discovered_urls
+                settings = settings_for_discovered_urls(settings, urls)
+                discovered_from_search = True
+                _print_urls("Discovered source URLs:", urls)
+            else:
+                _print_urls("No web search results; using configured source URLs:", settings.source_urls)
+        elif urls is not None:
+            _print_urls("Using explicit source URLs:", urls)
+        else:
+            _print_urls("Using configured source URLs:", settings.source_urls)
+
+        graph = build_graph(settings, rebuild_vectorstore=args.rebuild or discovered_from_search)
         
         result = run_rag_query(
             question=args.question,
             urls=urls,
             settings=settings,
-            rebuild_vectorstore=args.rebuild,
+            rebuild_vectorstore=args.rebuild or discovered_from_search,
             graph=graph,
             verbose=True,
         )

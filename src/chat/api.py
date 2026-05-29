@@ -1,0 +1,342 @@
+"""FastAPI application for the only Subcribers chat agent.
+
+Endpoints
+---------
+
+* ``POST /chat``  — start a new chat session. Optionally accepts
+  ``urls`` (explicit sources) or triggers a one-time web search.
+  Returns a ``thread_id`` the client uses for subsequent turns.
+* ``POST /chat/{thread_id}/message`` — send the next user turn,
+  receive the assistant's reply.
+* ``GET  /chat/{thread_id}/history`` — read the full transcript so
+  the UI can repaint after a reload.
+* ``DELETE /chat/{thread_id}`` — drop a session from memory.
+* ``GET /health``  — liveness probe.
+* ``GET /``        — serves the chat UI.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from langchain_core.messages import HumanMessage
+from pydantic import BaseModel, Field
+
+from ..core.config import Settings, load_settings
+from ..core.web_search import discover_urls_from_web, settings_for_discovered_urls
+from .graph import build_chat_graph
+from .sessions import ChatSession, ChatSessionRegistry
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+# ---- request / response schemas -------------------------------------------
+
+
+class StartChatRequest(BaseModel):
+    urls: Optional[str | list[str]] = Field(
+        None,
+        description=(
+            "Comma-separated URLs or a URL list to use as RAG sources. "
+            "If empty and ``web_search`` is true, a one-time search runs."
+        ),
+    )
+    web_search: bool = Field(
+        True,
+        description="If true and URLs are empty, discover sources via web search",
+    )
+    seed_question: Optional[str] = Field(
+        None,
+        description=(
+            "Optional first question to use for web-search discovery. "
+            "If omitted, the configured default URLs are used instead."
+        ),
+    )
+
+
+class StartChatResponse(BaseModel):
+    thread_id: str
+    source_urls: list[str]
+    source_mode: str
+    source_note: Optional[str] = None
+
+
+class MessageRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+
+
+class MessageResponse(BaseModel):
+    thread_id: str
+    answer: str
+    error: Optional[str] = None
+
+
+class HistoryTurn(BaseModel):
+    role: str  # "user" | "assistant" | "tool"
+    content: str
+
+
+class HistoryResponse(BaseModel):
+    thread_id: str
+    turns: list[HistoryTurn]
+    source_urls: list[str]
+    source_mode: str
+
+
+# ---- module state ---------------------------------------------------------
+
+
+_settings: Settings | None = None
+_default_graph_factory_lock: asyncio.Lock = asyncio.Lock()
+_sessions = ChatSessionRegistry()
+
+
+# ---- helpers --------------------------------------------------------------
+
+
+def _parse_urls(raw: str | list[str] | None) -> list[str] | None:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        candidates = raw.split(",")
+    else:
+        candidates = []
+        for item in raw:
+            candidates.extend(str(item).split(","))
+    out = [u.strip() for u in candidates if u and u.strip()]
+    return out or None
+
+
+def _settings_for_session(base: Settings, urls: list[str], thread_id: str, isolated: bool) -> Settings:
+    """Build per-session settings.
+
+    For sessions whose sources came from web search or explicit URLs, we
+    isolate Chroma into ``.chroma/chat/<thread_id>/`` so different threads
+    don't trample each other's vectors and so deleting a session can clean
+    up its index. Sessions falling back to the configured defaults share
+    the global Chroma store (it is keyed on ``settings.chroma_dir``)."""
+
+    from dataclasses import replace
+
+    if not isolated:
+        return replace(base, source_urls=urls)
+
+    return replace(
+        base,
+        source_urls=urls,
+        chroma_dir=base.chroma_dir / "chat" / thread_id,
+        collection_name=f"{base.collection_name}-chat-{thread_id}",
+    )
+
+
+def _serialize_messages(messages) -> list[HistoryTurn]:
+    """Convert LangChain message objects to the wire format."""
+
+    turns: list[HistoryTurn] = []
+    for msg in messages:
+        kind = getattr(msg, "type", None) or msg.__class__.__name__.lower()
+        content = getattr(msg, "content", str(msg))
+        if kind.startswith("human") or kind == "user":
+            role = "user"
+        elif kind.startswith("ai") or kind == "assistant":
+            role = "assistant"
+        elif kind in ("tool", "function"):
+            role = "tool"
+        else:
+            role = kind
+        # Tool messages and empty AI messages (tool-call carriers) are
+        # uninteresting to the UI; skip them so the transcript stays clean.
+        if role == "tool":
+            continue
+        if role == "assistant" and not (content or "").strip():
+            continue
+        turns.append(HistoryTurn(role=role, content=content if isinstance(content, str) else str(content)))
+    return turns
+
+
+# ---- app factory ----------------------------------------------------------
+
+
+def create_app(api_host: str = "127.0.0.1", api_port: int = 8001) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        global _settings
+        try:
+            logger.info("Loading settings for chat app...")
+            _settings = load_settings()
+            logger.info("Chat app ready (no graph built yet; graphs are per-session)")
+        except Exception as exc:
+            logger.error(f"Failed to initialize chat app: {exc}")
+            raise
+        yield
+
+    app = FastAPI(
+        title="only Subcribers Chat API",
+        description="Multi-turn chat API on top of the only Subcribers RAG engine",
+        version="1.0.0",
+        lifespan=lifespan,
+    )
+
+    # ---- static UI ------------------------------------------------------
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    @app.get("/")
+    async def root():
+        index = static_dir / "index.html"
+        if index.exists():
+            return FileResponse(index, media_type="text/html")
+        return {"message": "only Subcribers Chat API - POST /chat to start"}
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok", "settings_loaded": _settings is not None, "sessions": len(_sessions)}
+
+    # ---- chat endpoints -------------------------------------------------
+    @app.post("/chat", response_model=StartChatResponse)
+    async def start_chat(request: StartChatRequest) -> StartChatResponse:
+        if _settings is None:
+            raise HTTPException(503, "Chat app not ready")
+
+        urls = _parse_urls(request.urls)
+        discovered_from_search = False
+        search_error: str | None = None
+
+        if urls is None and request.web_search and _settings.web_search_enabled:
+            seed = (request.seed_question or "").strip()
+            if not seed:
+                search_error = "web_search requires seed_question or explicit urls"
+            else:
+                try:
+                    found = discover_urls_from_web(seed, _settings)
+                    if found:
+                        urls = found
+                        discovered_from_search = True
+                    else:
+                        search_error = "web search returned no usable URLs"
+                except Exception as exc:
+                    search_error = str(exc)
+                    logger.warning(f"Web search failed during chat start: {exc}")
+
+        if request.urls:
+            source_mode = "explicit"
+        elif discovered_from_search:
+            source_mode = "web_search"
+        else:
+            source_mode = "defaults"
+
+        # Settle on the URL list. For "defaults" we fall back to the configured
+        # source URLs from ``Settings``.
+        if urls is None:
+            urls = list(_settings.source_urls)
+            isolated = False
+        else:
+            isolated = True
+
+        # Allocate a thread id, then build a graph against settings keyed on it
+        # so isolated-session Chroma directories live under .chroma/chat/<id>/.
+        from uuid import uuid4
+
+        thread_id = uuid4().hex
+        session_settings = _settings_for_session(_settings, urls, thread_id, isolated)
+
+        # Build the graph (this triggers indexing if Chroma needs to be created).
+        # Run in a thread so we don't block the event loop.
+        async with _default_graph_factory_lock:
+            graph = await asyncio.to_thread(
+                build_chat_graph,
+                session_settings,
+                isolated,  # rebuild_vectorstore for fresh isolated stores
+            )
+
+        session = _sessions.create(
+            graph=graph,
+            settings=session_settings,
+            source_urls=urls,
+            source_mode=source_mode,
+            thread_id=thread_id,
+        )
+
+        note: str | None = None
+        if search_error and source_mode == "defaults":
+            note = "web_search_failed"
+
+        return StartChatResponse(
+            thread_id=session.thread_id,
+            source_urls=session.source_urls,
+            source_mode=session.source_mode,
+            source_note=note,
+        )
+
+    @app.post("/chat/{thread_id}/message", response_model=MessageResponse)
+    async def post_message(thread_id: str, request: MessageRequest) -> MessageResponse:
+        session = _sessions.get(thread_id)
+        if session is None:
+            raise HTTPException(404, f"Unknown chat thread {thread_id!r}")
+
+        config = {"configurable": {"thread_id": thread_id}}
+        inputs = {"messages": [HumanMessage(content=request.message)]}
+
+        try:
+            # Run the graph in a thread (LangGraph invocation is sync-bound).
+            result = await asyncio.to_thread(session.graph.invoke, inputs, config)
+        except Exception as exc:
+            logger.error(f"Chat invocation error in thread {thread_id}: {exc}", exc_info=True)
+            return MessageResponse(thread_id=thread_id, answer="", error=str(exc))
+
+        messages = result.get("messages", []) if isinstance(result, dict) else []
+        # The assistant's reply is the last AI message with non-empty content.
+        answer = ""
+        for msg in reversed(messages):
+            kind = getattr(msg, "type", None) or msg.__class__.__name__.lower()
+            content = getattr(msg, "content", "")
+            if (kind.startswith("ai") or kind == "assistant") and (content or "").strip():
+                answer = content if isinstance(content, str) else str(content)
+                break
+
+        if not answer:
+            return MessageResponse(
+                thread_id=thread_id,
+                answer="",
+                error="No assistant reply was produced.",
+            )
+
+        return MessageResponse(thread_id=thread_id, answer=answer)
+
+    @app.get("/chat/{thread_id}/history", response_model=HistoryResponse)
+    async def get_history(thread_id: str) -> HistoryResponse:
+        session = _sessions.get(thread_id)
+        if session is None:
+            raise HTTPException(404, f"Unknown chat thread {thread_id!r}")
+
+        config = {"configurable": {"thread_id": thread_id}}
+        # Pull the latest checkpoint state from MemorySaver.
+        snapshot = await asyncio.to_thread(session.graph.get_state, config)
+        values = getattr(snapshot, "values", {}) or {}
+        messages = values.get("messages", []) if isinstance(values, dict) else []
+
+        return HistoryResponse(
+            thread_id=thread_id,
+            turns=_serialize_messages(messages),
+            source_urls=session.source_urls,
+            source_mode=session.source_mode,
+        )
+
+    @app.delete("/chat/{thread_id}")
+    async def delete_chat(thread_id: str):
+        deleted = _sessions.delete(thread_id)
+        if not deleted:
+            raise HTTPException(404, f"Unknown chat thread {thread_id!r}")
+        return {"status": "deleted", "thread_id": thread_id}
+
+    return app

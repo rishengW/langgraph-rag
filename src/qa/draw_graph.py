@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .config import load_settings
-from .graph import build_graph
+from ..core.config import load_settings
+from ..core.graph import build_graph
 
 
 def main() -> None:

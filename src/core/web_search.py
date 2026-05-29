@@ -104,7 +104,16 @@ def _ddgs_search(question: str, settings: Settings) -> list[str]:
     with client as ddgs:
         results = list(ddgs.text(question, **search_kwargs))
 
-    return [result.get("href", "") for result in results]
+    # DDGS clients have used several field names across versions
+    # ("href", "link", "url"). Read the first one that's present.
+    extracted: list[str] = []
+    for result in results:
+        for key in ("href", "link", "url"):
+            value = result.get(key) if isinstance(result, dict) else None
+            if value:
+                extracted.append(value)
+                break
+    return extracted
 
 
 def _unwrap_duckduckgo_redirect(href: str) -> str:
@@ -271,13 +280,55 @@ def _discover_urls_from_baidu(question: str, settings: Settings) -> list[str]:
     return _normalize_urls(urls)[: settings.web_search_max_results]
 
 
+# Hostnames that almost never produce article-like content useful for RAG.
+# These tend to be search-results-of-search-results, login walls, image
+# galleries, or tag/category pages. Filter them before fetching so the
+# top-K sees real candidate articles.
+NOISE_HOSTNAMES = {
+    "image.baidu.com",
+    "tieba.baidu.com",
+    "zhidao.baidu.com",
+    "fanyi.baidu.com",
+    "map.baidu.com",
+    "v.baidu.com",
+    "video.baidu.com",
+    "wenku.baidu.com",
+    "passport.baidu.com",
+    "login.baidu.com",
+}
+
+
+def _is_noise_url(url: str) -> bool:
+    hostname = (urlparse(url).hostname or "").lower()
+    if not hostname:
+        return True
+    if hostname in NOISE_HOSTNAMES:
+        return True
+    # Baidu's own search-of-search pages are not article content.
+    if hostname.endswith(".baidu.com") and urlparse(url).path.startswith("/s"):
+        return True
+    return False
+
+
+def _select_top_urls(urls: list[str], settings: Settings) -> list[str]:
+    """Drop noise hosts and keep the top-K most relevant URLs as ranked by
+    the search engine. The engine's ordering is treated as the relevance
+    ranking; we just trim and de-noise."""
+
+    filtered = [url for url in urls if not _is_noise_url(url)]
+    top_k = getattr(settings, "web_search_top_k", 0) or 0
+    if top_k > 0:
+        return filtered[:top_k]
+    return filtered
+
+
 def discover_urls_from_web(question: str, settings: Settings) -> list[str]:
     """Search the web for pages that can be used as RAG sources."""
 
     if not settings.web_search_enabled:
         return []
 
-    provider = getattr(settings, "web_search_provider", "duckduckgo").strip().lower()
+    provider = getattr(settings, "web_search_provider", "baidu").strip().lower()
     if provider in ("duckduckgo", "ddg"):
         urls = _discover_urls_from_duckduckgo(question, settings)
     elif provider == "baidu":
@@ -288,12 +339,15 @@ def discover_urls_from_web(question: str, settings: Settings) -> list[str]:
             f"{settings.web_search_provider!r}; use 'duckduckgo' or 'baidu'."
         )
 
+    selected = _select_top_urls(urls, settings)
+
     logger.info(
-        "Discovered %s URL(s) from %s web search",
+        "Discovered %s URL(s) from %s; keeping top %s after filtering",
         len(urls),
         "duckduckgo" if provider == "ddg" else provider,
+        len(selected),
     )
-    return urls
+    return selected
 
 
 def settings_for_discovered_urls(settings: Settings, urls: list[str]) -> Settings:

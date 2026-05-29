@@ -254,6 +254,7 @@ def grade_documents_factory(settings: Settings):
         messages = state["messages"]
         question = messages[0].content
         retrieved_docs_text = messages[-1].content
+        rewrite_count = int(state.get("rewrite_count", 0) or 0)
 
         llm_failed = False
         try:
@@ -277,6 +278,7 @@ def grade_documents_factory(settings: Settings):
 
         print(f"Grader output: score={score}; explanation={explanation}")
         print(f"Keyword matches: {keyword_matches} (threshold={settings.min_keyword_matches})")
+        print(f"Rewrite count: {rewrite_count}/{settings.max_rewrites}")
 
         # Decision rules: accept yes; otherwise allow generation if setting enabled and keywords match
         if score.startswith("y"):
@@ -289,6 +291,16 @@ def grade_documents_factory(settings: Settings):
 
         if settings.allow_low_relevance_generate and keyword_matches >= settings.min_keyword_matches:
             print("---DECISION: DOCS MAYBE RELEVANT (FORCED GENERATE BY SETTINGS)---")
+            return "generate"
+
+        # Hard cap on rewrites: once we've burned our rewrite budget, stop looping
+        # and let `generate` produce an answer (or its extractive fallback) from
+        # whatever context we have rather than spinning forever.
+        if rewrite_count >= settings.max_rewrites:
+            print(
+                f"---DECISION: REWRITE BUDGET EXHAUSTED ({rewrite_count}/{settings.max_rewrites}); "
+                "GENERATING WITH AVAILABLE CONTEXT---"
+            )
             return "generate"
 
         print("---DECISION: DOCS NOT RELEVANT---")
@@ -343,6 +355,7 @@ def rewrite_factory(settings: Settings):
         print("---TRANSFORM QUERY---")
         messages = state["messages"]
         question = messages[0].content
+        rewrite_count = int(state.get("rewrite_count", 0) or 0)
 
         rewrite_prompt = [
             HumanMessage(
@@ -358,7 +371,7 @@ def rewrite_factory(settings: Settings):
         ]
 
         model = _new_chat_model(settings)
-        
+
         try:
             response = _invoke_with_retry(
                 model,
@@ -367,12 +380,18 @@ def rewrite_factory(settings: Settings):
             )
         except Exception as e:
             logger.error(f"Rewrite error: {e}")
-            # Return original question as fallback
-            response = HumanMessage(content=question)
+            # Fallback: emit an AIMessage so the graph treats this as a model
+            # turn (not a fresh user turn) and the agent re-invokes the
+            # retriever with the original question. Returning a HumanMessage
+            # here would disguise a fallback as user input and confuse tracing.
+            response = AIMessage(content=question)
 
         # The original notebook returned {"message": ...}, which does not update
         # the graph state. This corrected key keeps the loop working.
-        return {"messages": [response]}
+        return {
+            "messages": [response],
+            "rewrite_count": rewrite_count + 1,
+        }
 
     return rewrite
 
@@ -397,7 +416,7 @@ def generate_factory(settings: Settings):
             )
         except Exception as e:
             logger.error(f"Generate error: {e}")
-            response = _build_extractive_answer(question, retrieved_docs_text)
+            response = AIMessage(content=_build_extractive_answer(question, retrieved_docs_text))
 
         return {"messages": [response]}
 

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from langchain_core.tools.retriever import create_retriever_tool
 
-os.environ.setdefault("USER_AGENT", "rag-langgraph-local/1.0")
+os.environ.setdefault("USER_AGENT", "only-subcribers/1.0")
 
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -227,18 +227,35 @@ def build_retriever(settings: Settings, rebuild: bool = False):
     print("---LOAD WEB DOCUMENTS---")
     docs_nested = []
     failed_urls: list[str] = []
+    page_timeout = max(1, int(getattr(settings, "page_load_timeout", 15)))
 
     for url in settings.source_urls:
         try:
-            docs_nested.append(WebBaseLoader(url).load())
+            loader = WebBaseLoader(
+                url,
+                requests_kwargs={"timeout": page_timeout},
+            )
+            docs_nested.append(loader.load())
         except Exception as exc:
             failed_urls.append(url)
-            logger.warning("Failed to load URL %s: %s", url, exc)
+            logger.warning(
+                "Skipping unreachable source URL %s after %ss timeout: %s",
+                url,
+                page_timeout,
+                exc,
+            )
 
     docs = [doc for sublist in docs_nested for doc in sublist]
     if not docs:
         failed = ", ".join(failed_urls) if failed_urls else "none"
         raise RuntimeError(f"No source documents could be loaded. Failed URLs: {failed}")
+
+    if failed_urls:
+        logger.warning(
+            "Indexing continued without %d unreachable URL(s): %s",
+            len(failed_urls),
+            ", ".join(failed_urls),
+        )
 
     print("---SPLIT DOCUMENTS---")
     text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(

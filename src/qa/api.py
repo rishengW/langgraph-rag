@@ -191,7 +191,11 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
 
             source_mode: str | None = None
             source_note: str | None = None
-            if request.urls and request.urls.strip():
+            # `urls` here is the normalized list from _parse_request_urls.
+            # Don't call .strip() on request.urls directly — it may be a list,
+            # which would raise AttributeError for API clients that send an array.
+            explicit_urls = urls is not None and not discovered_from_search
+            if explicit_urls:
                 source_mode = "explicit"
             elif discovered_from_search:
                 source_mode = "web_search"
@@ -244,6 +248,8 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                     async with _rebuild_lock:
                         new_settings = settings_to_use
                         replacing_global_graph = not discovered_from_search
+                        previous_graph = _graph
+                        previous_settings = _settings
 
                         try:
                             if replacing_global_graph:
@@ -256,8 +262,15 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                             graph_to_use = build_graph(new_settings, rebuild_vectorstore=True)
                             settings_to_use = new_settings
                         except Exception:
+                            # Rebuild failed (e.g., all source URLs unreachable).
+                            # Restore the previous global graph so the server
+                            # stays usable instead of being permanently bricked
+                            # with _graph = None.
                             if replacing_global_graph:
-                                _settings = new_settings
+                                _graph = previous_graph
+                                _settings = previous_settings
+                                graph_to_use = previous_graph
+                                settings_to_use = previous_settings
                             raise
                         finally:
                             gc.collect()

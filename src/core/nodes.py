@@ -409,11 +409,16 @@ def generate_factory(settings: Settings):
         rag_chain = RAG_PROMPT | llm | StrOutputParser()
 
         try:
-            response = _invoke_with_retry(
+            answer = _invoke_with_retry(
                 rag_chain,
                 {"context": retrieved_docs_text, "question": question},
                 max_retries=settings.dashscope_max_retries,
             )
+            # StrOutputParser yields a raw string; wrap it so the graph's
+            # message list stays homogeneous (BaseMessage instances only).
+            # Returning a bare string here pollutes the history and breaks
+            # downstream consumers that call `.content`.
+            response = AIMessage(content=answer if isinstance(answer, str) else str(answer))
         except Exception as e:
             logger.error(f"Generate error: {e}")
             response = AIMessage(content=_build_extractive_answer(question, retrieved_docs_text))

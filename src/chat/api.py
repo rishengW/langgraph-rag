@@ -287,6 +287,15 @@ def create_app(api_host: str = "127.0.0.1", api_port: int = 8001) -> FastAPI:
         config = {"configurable": {"thread_id": thread_id}}
         inputs = {"messages": [HumanMessage(content=request.message)]}
 
+        # Snapshot how many messages exist before this turn so we can isolate
+        # the messages produced *during* this turn when extracting the answer.
+        try:
+            prev_snapshot = await asyncio.to_thread(session.graph.get_state, config)
+            prev_values = getattr(prev_snapshot, "values", {}) or {}
+            prev_count = len(prev_values.get("messages", []) or []) if isinstance(prev_values, dict) else 0
+        except Exception:
+            prev_count = 0
+
         try:
             # Run the graph in a thread (LangGraph invocation is sync-bound).
             result = await asyncio.to_thread(session.graph.invoke, inputs, config)
@@ -295,11 +304,21 @@ def create_app(api_host: str = "127.0.0.1", api_port: int = 8001) -> FastAPI:
             return MessageResponse(thread_id=thread_id, answer="", error=str(exc))
 
         messages = result.get("messages", []) if isinstance(result, dict) else []
-        # The assistant's reply is the last AI message with non-empty content.
+        # Only consider messages added during this turn. This prevents echoing
+        # the user's own question (the rewrite node may append an AIMessage
+        # carrying the question text as a fallback) or a prior turn's reply.
+        new_messages = messages[prev_count:] if prev_count <= len(messages) else messages
+
+        # The assistant's reply is the last AI message with non-empty content
+        # that is NOT a tool-call carrier.
         answer = ""
-        for msg in reversed(messages):
+        for msg in reversed(new_messages):
             kind = getattr(msg, "type", None) or msg.__class__.__name__.lower()
             content = getattr(msg, "content", "")
+            tool_calls = getattr(msg, "tool_calls", None)
+            if tool_calls:
+                # AI message that only selects a tool; not a user-facing answer.
+                continue
             if (kind.startswith("ai") or kind == "assistant") and (content or "").strip():
                 answer = content if isinstance(content, str) else str(content)
                 break

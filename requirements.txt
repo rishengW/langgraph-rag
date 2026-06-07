@@ -26,3 +26,6 @@ beautifulsoup4>=4.12,<5
 ddgs>=4.0,<10
 python-dotenv>=1.0,<2
 typing-extensions>=4.10,<5
+
+# Dev/test
+pytest>=8.0,<9

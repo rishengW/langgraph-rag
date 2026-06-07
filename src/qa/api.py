@@ -8,66 +8,31 @@ import gc
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
 
+from ..api.dependencies import (
+    clear_qa_graph,
+    get_config,
+    get_qa_graph,
+    get_rebuild_lock,
+    initialize_qa_app_state,
+    update_qa_graph_state,
+)
+from ..api.models import QueryRequest, QueryResponse
+from ..core.config import Settings
 from ..core.config import load_settings
 from ..core.graph import build_graph
 from ..core.graph_executor import run_rag_query
 from ..core.web_search import discover_urls_from_web, settings_for_discovered_urls
+from ..utils.urls import parse_url_input
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-class QueryRequest(BaseModel):
-    """Request model for RAG queries."""
-
-    question: str = Field(..., min_length=1, description="The question to ask")
-    urls: Optional[str | list[str]] = Field(
-        None,
-        description=(
-            "Comma-separated URLs or a URL list for RAG sources. "
-            "If not provided or empty, web search can discover sources."
-        ),
-    )
-    rebuild: bool = Field(
-        False,
-        description="Whether to rebuild the vector database",
-    )
-    web_search: bool = Field(
-        True,
-        description="If true and URLs are empty, discover source URLs from web search",
-    )
-    debug: bool = Field(
-        False,
-        description="If true, include intermediate messages for debugging",
-    )
-
-
-class QueryResponse(BaseModel):
-    """Response model for RAG queries."""
-
-    answer: Optional[str] = Field(None, description="The generated answer")
-    error: Optional[str] = Field(None, description="Error message if query failed")
-    success: bool = Field(True, description="Whether the query was successful")
-    messages: Optional[list[str]] = Field(None, description="Intermediate messages (debug)")
-    source_urls: Optional[list[str]] = Field(None, description="URLs used for retrieval")
-    source_mode: Optional[str] = Field(None, description="Source mode used (explicit, web_search, defaults)")
-    source_note: Optional[str] = Field(None, description="Additional detail about source selection")
-
-
-# Global state
-_graph = None
-_settings = None
-# Always-present lock so concurrent rebuilds are serialized even if startup
-# initialization fails partway through.
-_rebuild_lock: asyncio.Lock = asyncio.Lock()
 
 
 def _parse_request_urls(raw_urls: str | list[str] | None) -> list[str] | None:
@@ -78,18 +43,7 @@ def _parse_request_urls(raw_urls: str | list[str] | None) -> list[str] | None:
     so the web-search path can run.
     """
 
-    if raw_urls is None:
-        return None
-
-    if isinstance(raw_urls, str):
-        candidates = raw_urls.split(",")
-    else:
-        candidates = []
-        for raw_url in raw_urls:
-            candidates.extend(str(raw_url).split(","))
-
-    urls = [url.strip() for url in candidates if url and url.strip()]
-    return urls or None
+    return parse_url_input(raw_urls)
 
 
 def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: int = 8000):
@@ -104,15 +58,13 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
         Configured FastAPI app instance.
     """
 
-    global _graph, _settings
-
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        global _graph, _settings
         try:
             logger.info("Loading settings and building graph...")
-            _settings = load_settings()
-            _graph = build_graph(_settings, rebuild_vectorstore=rebuild_db)
+            settings = load_settings()
+            graph = build_graph(settings, rebuild_vectorstore=rebuild_db)
+            initialize_qa_app_state(app, settings=settings, graph=graph)
             logger.info("Graph built successfully")
         except Exception as e:
             logger.error(f"Failed to initialize: {e}")
@@ -130,6 +82,7 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
         version="1.0.0",
         lifespan=lifespan,
     )
+    initialize_qa_app_state(app)
 
     # Serve static files
     static_dir = Path(__file__).parent / "static"
@@ -149,11 +102,20 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
     @app.get("/health")
     async def health_check():
         """Health check endpoint."""
-        return {"status": "ok", "graph_ready": _graph is not None}
+        return {
+            "status": "ok",
+            "graph_ready": getattr(app.state, "qa_graph", None) is not None,
+        }
 
     # Main query endpoint
     @app.post("/query")
-    async def query(request: QueryRequest) -> QueryResponse:
+    async def query(
+        request: QueryRequest,
+        fastapi_request: Request,
+        graph: Any = Depends(get_qa_graph),
+        settings: Settings = Depends(get_config),
+        rebuild_lock: asyncio.Lock = Depends(get_rebuild_lock),
+    ) -> QueryResponse:
         """Execute a RAG query.
 
         Args:
@@ -163,23 +125,15 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
             QueryResponse with answer or error message.
         """
 
-        global _graph, _settings, _rebuild_lock
-
-        if not _graph or not _settings:
-            raise HTTPException(
-                status_code=503,
-                detail="Graph not initialized. Try again in a moment.",
-            )
-
         try:
             urls = _parse_request_urls(request.urls)
 
             discovered_from_search = False
             search_error: str | None = None
 
-            if urls is None and request.web_search and _settings.web_search_enabled:
+            if urls is None and request.web_search and settings.web_search_enabled:
                 try:
-                    discovered_urls = discover_urls_from_web(request.question, _settings)
+                    discovered_urls = discover_urls_from_web(request.question, settings)
                     if discovered_urls:
                         urls = discovered_urls
                         discovered_from_search = True
@@ -201,19 +155,19 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                 source_mode = "web_search"
             else:
                 source_mode = "defaults"
-                if request.web_search and _settings.web_search_enabled:
+                if request.web_search and settings.web_search_enabled:
                     if search_error:
                         source_note = "web_search_failed"
                     else:
                         source_note = "web_search_no_results"
-                elif request.web_search and not _settings.web_search_enabled:
+                elif request.web_search and not settings.web_search_enabled:
                     source_note = "web_search_disabled"
 
             # Decide whether we must rebuild/refresh the graph.
             # Important: `_graph` is built with a specific retriever (and URL set). If a
             # request asks for a rebuild, or supplies a different URL list, we must rebuild
             # the graph so the retriever tool points at the right Chroma collection.
-            urls_changed = urls is not None and urls != _settings.source_urls
+            urls_changed = urls is not None and urls != settings.source_urls
             needs_new_graph = request.rebuild or urls_changed or discovered_from_search
 
             # If the user supplied different URLs but forgot to tick rebuild, auto-upgrade.
@@ -228,14 +182,14 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
 
             # Build a per-request graph when required; optionally promote it to the global graph
             # after a rebuild so subsequent requests use the refreshed database.
-            graph_to_use = _graph
-            settings_to_use = _settings
+            graph_to_use = graph
+            settings_to_use = settings
 
             if needs_new_graph:
                 if discovered_from_search and urls is not None:
-                    settings_to_use = settings_for_discovered_urls(_settings, urls)
+                    settings_to_use = settings_for_discovered_urls(settings, urls)
                 else:
-                    settings_to_use = replace(_settings, source_urls=urls) if urls is not None else _settings
+                    settings_to_use = replace(settings, source_urls=urls) if urls is not None else settings
 
                 if effective_rebuild:
                     logger.info(
@@ -245,17 +199,17 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                     )
 
                 if effective_rebuild:
-                    async with _rebuild_lock:
+                    async with rebuild_lock:
                         new_settings = settings_to_use
                         replacing_global_graph = not discovered_from_search
-                        previous_graph = _graph
-                        previous_settings = _settings
+                        previous_graph = getattr(fastapi_request.app.state, "qa_graph", None)
+                        previous_settings = getattr(fastapi_request.app.state, "settings", settings)
 
                         try:
                             if replacing_global_graph:
                                 # Drop the global graph before deleting Chroma so Windows can
                                 # release SQLite/file handles held by the old retriever.
-                                _graph = None
+                                clear_qa_graph(fastapi_request.app)
                                 graph_to_use = None
                                 gc.collect()
 
@@ -265,10 +219,13 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
                             # Rebuild failed (e.g., all source URLs unreachable).
                             # Restore the previous global graph so the server
                             # stays usable instead of being permanently bricked
-                            # with _graph = None.
+                            # with no app-level graph.
                             if replacing_global_graph:
-                                _graph = previous_graph
-                                _settings = previous_settings
+                                update_qa_graph_state(
+                                    fastapi_request.app,
+                                    graph=previous_graph,
+                                    settings=previous_settings,
+                                )
                                 graph_to_use = previous_graph
                                 settings_to_use = previous_settings
                             raise
@@ -279,8 +236,11 @@ def create_app(rebuild_db: bool = False, api_host: str = "127.0.0.1", api_port: 
 
                 if effective_rebuild and not discovered_from_search:
                     # Promote rebuilt graph/settings globally.
-                    _graph = graph_to_use
-                    _settings = settings_to_use
+                    update_qa_graph_state(
+                        fastapi_request.app,
+                        graph=graph_to_use,
+                        settings=settings_to_use,
+                    )
 
             # Run the query
             result = run_rag_query(

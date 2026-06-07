@@ -9,6 +9,35 @@ metadata:
 
 The full architectural plan is in `REFACTORING_PLAN.md` (1466 lines). Key facts:
 
+## Current Snapshot (2026-06-07)
+
+The working tree now contains the Phase 1 extraction baseline and a Phase 2
+interfaces/abstractions implementation pass.
+
+Implemented Phase 1 baseline:
+
+- Test harness, shared utilities, config split, prompt extraction, unified graph
+  state, shared graph node implementations, and compatibility facades.
+
+Implemented Phase 2 scope pass:
+
+- `src/web_search/`: provider protocol, provider classes, factory, DI-friendly
+  discovery, and core compatibility.
+- `src/rag/`: retriever/embedding protocols, Chroma retriever wrapper,
+  embedding modules, document loader split, and core shims.
+- `src/sessions/`: session models/registry, TTL cleanup, isolated Chroma cleanup,
+  settings isolation helper, and chat compatibility.
+- `src/graph/`: unified builder, edge helpers, typed events, executor wrapper,
+  and legacy graph wrappers.
+- `src/api/`: FastAPI app-state dependencies, shared models, and QA/chat state
+  refactor away from module-level globals.
+
+Verification status:
+
+- Passed `git diff --check`.
+- Passed bundled Python compile: `python -m compileall src tests`.
+- Full pytest is blocked until the project Python environment is repaired.
+
 ## Phase Summary
 
 | Phase | Focus | Effort | Risk | Branch |

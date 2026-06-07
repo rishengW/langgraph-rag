@@ -42,7 +42,8 @@ You are a senior Python developer with extensive experience in LangChain and Lan
 3. Make incremental changes, one file at a time.
 4. Run existing tests after each change to ensure no regressions.
 5. Update documentation as needed.
-6. Commit changes with descriptive commit messages when explicitly requested by the user.
+6. Before reporting work complete, update `memory/refactor-daily-forms.md`: add or update today's dated form, mark completed lines, refresh to-do lines, and record blocked checks.
+7. Commit changes with descriptive commit messages when explicitly requested by the user.
 
 ## Output Requirements
 1. For each file, output the complete updated code when explicitly asked to output code.

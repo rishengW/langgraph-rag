@@ -19,6 +19,7 @@ functional scopes.
 The active process marker is:
 
 - `advanced_phase2_interfaces_workbench/README.md`
+- `memory/refactor-daily-forms.md`
 
 ## Completed Implementation Passes
 
@@ -66,3 +67,6 @@ Fix or recreate the project Python environment, then run the full pytest suite.
 After that, review the Phase 1/2 compatibility shims and decide whether to stage
 the current implementation pass or continue into Phase 2 config/YAML/error-code
 work.
+
+Track the next concrete actions in `memory/refactor-daily-forms.md`. Future
+workers should update that file at the end of each implementation pass.

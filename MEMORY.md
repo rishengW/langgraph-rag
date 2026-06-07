@@ -1,6 +1,7 @@
 # Memory Index
 
 - [Current Process](memory/current-process.md) - current Phase 1/2 refactoring implementation snapshot, verification state, and next step
+- [Refactor Daily Forms](memory/refactor-daily-forms.md) - dated complete/to-do/blocked/note checklist for refactoring process continuity
 - [Project Overview](memory/project-overview.md) - langgraph-rag architecture, two apps (QA + Chat), LangGraph pipeline, module map
 - [Refactoring Plan](memory/refactoring-plan.md) - 3-phase roadmap (15-20 days), 20 tech-debt items, target architecture
 - [Skill Files](memory/skill-files.md) - 6 SKILL.md files reorganized from layer-based to functional-scope on 2026-06-05, cross-referenced with wiki-links

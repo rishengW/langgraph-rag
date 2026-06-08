@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from ..core.config import Settings
+from .._compat import warn_deprecated_import
+from ..config import Settings
 from ..graph.nodes import (
     build_extractive_answer as _build_extractive_answer,
     chat_question_resolver as _question_from_state,
@@ -19,6 +20,8 @@ from ..graph.nodes.common import (
 )
 from ..llm.prompts import CONDENSE_PROMPT, RAG_PROMPT
 from ..utils.retry import invoke_with_retry as _invoke_with_retry
+
+warn_deprecated_import("src.chat.nodes", "src.graph.nodes")
 
 
 def agent_factory(settings: Settings, tools):

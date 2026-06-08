@@ -4,7 +4,7 @@ import argparse
 import os
 from typing import Iterable
 
-from ..core.config import load_settings, secret_fingerprint
+from ..config import load_settings, secret_fingerprint
 from ..core.graph import build_graph
 
 
@@ -27,6 +27,11 @@ def parse_args() -> argparse.Namespace:
             "database and exit. Ignored when a subcommand has its own "
             "--rebuild flag."
         ),
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Optional YAML config file. Env vars and CLI flags override it.",
     )
     
     # Create subparsers for CLI vs server mode
@@ -57,6 +62,11 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Search the web for source URLs when --urls is omitted.",
     )
+    cli_parser.add_argument(
+        "--config",
+        default=None,
+        help="Optional YAML config file. Env vars and CLI flags override it.",
+    )
     
     # Server mode
     server_parser = subparsers.add_parser("serve", help="Start the web server")
@@ -85,6 +95,11 @@ def parse_args() -> argparse.Namespace:
         dest="serve_rebuild",
         help="Rebuild vector database on startup",
     )
+    server_parser.add_argument(
+        "--config",
+        default=None,
+        help="Optional YAML config file. Env vars and CLI flags override it.",
+    )
     
     # For backward compatibility, allow positional argument without subcommand
     args, unknown = parser.parse_known_args()
@@ -99,6 +114,7 @@ def parse_args() -> argparse.Namespace:
         urls = ""
         rebuild = default_rebuild
         web_search = True
+        config = getattr(args, "config", None)
 
         # Look for --urls, --rebuild, and web-search flags in unknown
         i = 0
@@ -106,6 +122,10 @@ def parse_args() -> argparse.Namespace:
             arg = unknown[i]
             if arg == "--urls" and i + 1 < len(unknown):
                 urls = unknown[i + 1]
+                i += 2
+                continue
+            if arg == "--config" and i + 1 < len(unknown):
+                config = unknown[i + 1]
                 i += 2
                 continue
             if arg == "--rebuild":
@@ -122,6 +142,7 @@ def parse_args() -> argparse.Namespace:
         args.urls = urls
         args.web_search = web_search
         args.query_rebuild = rebuild
+        args.config = config
 
     # Normalize: expose a single `rebuild` attr so callers don't have to know
     # which subparser was used. The top-level --rebuild only applies in the
@@ -146,6 +167,7 @@ def main() -> None:
             rebuild_db=args.rebuild,
             api_host=args.host,
             api_port=args.port,
+            config_file=args.config,
         )
         
         print(f"🚀 Starting only Subcribers web server at http://{args.host}:{args.port}")
@@ -159,7 +181,11 @@ def main() -> None:
             log_level="info",
         )
     elif args.mode == "rebuild":
-        settings = load_settings()
+        settings = (
+            load_settings()
+            if args.config is None
+            else load_settings(config_file=args.config)
+        )
         build_graph(settings, rebuild_vectorstore=True)
         print("Rebuilt Chroma vector database.")
     else:
@@ -176,7 +202,11 @@ def main() -> None:
         if args.urls.strip():
             urls = [url.strip() for url in args.urls.split(",") if url.strip()]
         
-        settings = load_settings(urls=urls)
+        settings = (
+            load_settings(urls=urls)
+            if args.config is None
+            else load_settings(urls=urls, config_file=args.config)
+        )
         print(f"DashScope API key loaded: {secret_fingerprint(settings.dashscope_api_key)}")
         discovered_from_search = False
         if urls is None and args.web_search and settings.web_search_enabled:

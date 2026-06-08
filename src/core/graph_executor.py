@@ -5,8 +5,11 @@ from __future__ import annotations
 import pprint
 from typing import Any
 
+from .._compat import warn_deprecated_import
 from .config import Settings
 from .graph import build_graph
+
+warn_deprecated_import("src.core.graph_executor", "src.graph.executor")
 
 
 def run_rag_query(

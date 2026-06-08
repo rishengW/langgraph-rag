@@ -2,6 +2,7 @@
 
 from .builder import GraphNodeOverrides, GraphProviders, build_graph, build_memory_saver
 from .executor import GraphExecutor
+from .metrics import MetricsCollector, MetricsSnapshot, NodeMetricsSnapshot
 from .state import AgentState, ChatState, RAGState
 
 __all__ = [
@@ -10,6 +11,9 @@ __all__ = [
     "GraphExecutor",
     "GraphNodeOverrides",
     "GraphProviders",
+    "MetricsCollector",
+    "MetricsSnapshot",
+    "NodeMetricsSnapshot",
     "RAGState",
     "build_graph",
     "build_memory_saver",

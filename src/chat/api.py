@@ -22,17 +22,19 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import HumanMessage
 
 from ..api.dependencies import (
     get_chat_graph_factory_lock,
     get_config,
+    get_metrics,
     get_session_registry,
     initialize_chat_app_state,
 )
+from ..api.errors import register_error_handlers
 from ..api.models import (
     HistoryResponse,
     HistoryTurn,
@@ -41,8 +43,12 @@ from ..api.models import (
     StartChatRequest,
     StartChatResponse,
 )
-from ..core.config import Settings, load_settings
+from ..api.streaming import format_sse
+from ..config import Settings, load_settings
 from ..core.web_search import discover_urls_from_web
+from ..errors import RAGError, ResourceNotFoundError, RetrieverError
+from ..graph.executor import GraphExecutor
+from ..graph.metrics import MetricsCollector
 from ..utils.urls import parse_url_input
 from .graph import build_chat_graph
 from .sessions import ChatSessionRegistry, _settings_for_session
@@ -87,12 +93,20 @@ def _serialize_messages(messages) -> list[HistoryTurn]:
 # ---- app factory ----------------------------------------------------------
 
 
-def create_app(api_host: str = "127.0.0.1", api_port: int = 8001) -> FastAPI:
+def create_app(
+    api_host: str = "127.0.0.1",
+    api_port: int = 8001,
+    config_file: str | Path | None = None,
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
             logger.info("Loading settings for chat app...")
-            settings = load_settings()
+            settings = (
+                load_settings()
+                if config_file is None
+                else load_settings(config_file=config_file)
+            )
             initialize_chat_app_state(app, settings=settings)
             logger.info("Chat app ready (no graph built yet; graphs are per-session)")
         except Exception as exc:
@@ -106,6 +120,8 @@ def create_app(api_host: str = "127.0.0.1", api_port: int = 8001) -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
     )
+    # REFACTOR: Register typed RAG error responses for this app instance.
+    register_error_handlers(app)
     initialize_chat_app_state(app)
 
     # ---- static UI ------------------------------------------------------
@@ -181,12 +197,18 @@ def create_app(api_host: str = "127.0.0.1", api_port: int = 8001) -> FastAPI:
 
         # Build the graph (this triggers indexing if Chroma needs to be created).
         # Run in a thread so we don't block the event loop.
-        async with graph_factory_lock:
-            graph = await asyncio.to_thread(
-                build_chat_graph,
-                session_settings,
-                isolated,  # rebuild_vectorstore for fresh isolated stores
-            )
+        try:
+            async with graph_factory_lock:
+                graph = await asyncio.to_thread(
+                    build_chat_graph,
+                    session_settings,
+                    isolated,  # rebuild_vectorstore for fresh isolated stores
+                )
+        except RAGError:
+            raise
+        except Exception as exc:
+            logger.error(f"Failed to build chat graph: {exc}", exc_info=True)
+            raise RetrieverError(f"Failed to build chat graph: {exc}") from exc
 
         session = sessions.create(
             graph=graph,
@@ -215,7 +237,7 @@ def create_app(api_host: str = "127.0.0.1", api_port: int = 8001) -> FastAPI:
     ) -> MessageResponse:
         session = sessions.get(thread_id)
         if session is None:
-            raise HTTPException(404, f"Unknown chat thread {thread_id!r}")
+            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
 
         config = {"configurable": {"thread_id": thread_id}}
         inputs = {"messages": [HumanMessage(content=request.message)]}
@@ -265,6 +287,27 @@ def create_app(api_host: str = "127.0.0.1", api_port: int = 8001) -> FastAPI:
 
         return MessageResponse(thread_id=thread_id, answer=answer)
 
+    @app.post("/chat/{thread_id}/message/stream")
+    async def post_message_stream(
+        thread_id: str,
+        request: MessageRequest,
+        sessions: ChatSessionRegistry = Depends(get_session_registry),
+        metrics: MetricsCollector = Depends(get_metrics),
+    ) -> StreamingResponse:
+        session = sessions.get(thread_id)
+        if session is None:
+            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+
+        config = {"configurable": {"thread_id": thread_id}}
+        inputs = {"messages": [HumanMessage(content=request.message)]}
+
+        def event_iter():
+            executor = GraphExecutor(session.graph, metrics=metrics)
+            for event in executor.stream(inputs, config=config):
+                yield format_sse(event)
+
+        return StreamingResponse(event_iter(), media_type="text/event-stream")
+
     @app.get("/chat/{thread_id}/history", response_model=HistoryResponse)
     async def get_history(
         thread_id: str,
@@ -272,7 +315,7 @@ def create_app(api_host: str = "127.0.0.1", api_port: int = 8001) -> FastAPI:
     ) -> HistoryResponse:
         session = sessions.get(thread_id)
         if session is None:
-            raise HTTPException(404, f"Unknown chat thread {thread_id!r}")
+            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
 
         config = {"configurable": {"thread_id": thread_id}}
         # Pull the latest checkpoint state from MemorySaver.
@@ -294,7 +337,13 @@ def create_app(api_host: str = "127.0.0.1", api_port: int = 8001) -> FastAPI:
     ):
         deleted = sessions.delete(thread_id)
         if not deleted:
-            raise HTTPException(404, f"Unknown chat thread {thread_id!r}")
+            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
         return {"status": "deleted", "thread_id": thread_id}
+
+    @app.get("/metrics")
+    async def metrics(metrics: MetricsCollector = Depends(get_metrics)):
+        """Return in-process graph metrics."""
+
+        return metrics.snapshot()
 
     return app

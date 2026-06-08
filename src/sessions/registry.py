@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from ..config import Settings
 from .models import ChatSession
+from .storage import SessionMetadata, StorageBackend
 
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,7 @@ class ChatSessionRegistry:
         cleanup_interval: float = 300,
         *,
         cleanup: SessionCleanup | None = None,
+        storage: StorageBackend | None = None,
         time_func: TimeProvider = time.time,
     ) -> None:
         self._lock = threading.Lock()
@@ -93,6 +95,7 @@ class ChatSessionRegistry:
         self._ttl_seconds = ttl_seconds
         self._cleanup_interval = cleanup_interval
         self._cleanup = cleanup or cleanup_isolated_chroma
+        self._storage = storage
         self._time = time_func
         self._stop_cleanup = threading.Event()
         self._cleanup_thread: threading.Thread | None = None
@@ -128,6 +131,7 @@ class ChatSessionRegistry:
         )
         with self._lock:
             self._sessions[thread_id] = session
+        self._save_metadata(session)
         logger.info(
             "Created chat session %s with %d source URL(s) (mode=%s)",
             thread_id,
@@ -137,11 +141,15 @@ class ChatSessionRegistry:
         return session
 
     def get(self, thread_id: str, *, touch: bool = True) -> ChatSession | None:
+        session_to_save: ChatSession | None = None
         with self._lock:
             session = self._sessions.get(thread_id)
             if session is not None and touch:
                 session.touch(self._time())
-            return session
+                session_to_save = session
+        if session_to_save is not None:
+            self._save_metadata(session_to_save)
+        return session
 
     def delete(self, thread_id: str) -> bool:
         with self._lock:
@@ -149,6 +157,7 @@ class ChatSessionRegistry:
         if session is None:
             return False
 
+        self._delete_metadata(thread_id)
         self._cleanup_session(session)
         logger.info("Deleted chat session %s", thread_id)
         return True
@@ -172,6 +181,7 @@ class ChatSessionRegistry:
                         expired.append(expired_session)
 
         for session in expired:
+            self._delete_metadata(session.thread_id)
             self._cleanup_session(session)
             logger.info("Expired chat session %s", session.thread_id)
 
@@ -209,6 +219,23 @@ class ChatSessionRegistry:
             self._cleanup(session)
         except Exception as exc:
             logger.warning("Cleanup failed for chat session %s: %s", session.thread_id, exc)
+
+    def _save_metadata(self, session: ChatSession) -> None:
+        # REFACTOR: Optional persistence hook; default registry behavior is unchanged.
+        if self._storage is None:
+            return
+        try:
+            self._storage.save(SessionMetadata.from_session(session))
+        except Exception as exc:
+            logger.warning("Failed to persist chat session %s: %s", session.thread_id, exc)
+
+    def _delete_metadata(self, thread_id: str) -> None:
+        if self._storage is None:
+            return
+        try:
+            self._storage.delete(thread_id)
+        except Exception as exc:
+            logger.warning("Failed to delete persisted chat session %s: %s", thread_id, exc)
 
     def __len__(self) -> int:
         with self._lock:

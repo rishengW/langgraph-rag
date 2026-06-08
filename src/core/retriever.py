@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .._compat import warn_deprecated_import
 from ..rag.chroma_retriever import (
     EMBEDDING_CONFIG_FILENAME,
     ChromaRetriever,
@@ -15,6 +16,8 @@ from ..rag.chroma_retriever import (
     build_retriever_tool,
 )
 from ..rag.retriever import Retriever
+
+warn_deprecated_import("src.core.retriever", "src.rag")
 
 __all__ = [
     "EMBEDDING_CONFIG_FILENAME",

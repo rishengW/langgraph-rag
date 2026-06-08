@@ -3,7 +3,7 @@ name: refactor-daily-forms
 description: Dated refactoring process forms with complete, to-do, blocked, and note lines
 metadata:
   type: project
-  updated: 2026-06-07
+  updated: 2026-06-08
 ---
 
 # Refactor Daily Forms
@@ -24,6 +24,33 @@ Each date gets one form. Every form line must start with one of these labels:
 | to do |  |  |  |
 | blocked |  |  |  |
 | note |  |  |  |
+
+## 2026-06-08 Form
+
+| Label | Scope | Line Item | Evidence / Next Action |
+|---|---|---|---|
+| note | Coordination | Started to-do completion pass with RAGRefactorDeveloper subagents. | Spawned one compatibility/endpoint review worker and one Phase 2/Phase 3 readiness worker; parent owns environment repair, test execution, and shared process checkpoints. |
+| complete | Environment | Verified a working project Python runner. | `python --version` reports Python 3.11.7 and can import/run the installed test dependencies; `.venv\\Scripts\\python.exe` also reports Python 3.11.7 but lacks `pytest`, so use `python` for verification in this environment. |
+| complete | Verification | Ran the full test suite. | `python -m pytest -q` passed: 44 tests green after compatibility regression coverage was added. |
+| complete | Phase 2 cleanup | Locally checked compatibility shims and endpoint contracts. | `python -m compileall src tests` passed; direct import check confirmed legacy QA/chat model and graph/session exports still resolve. |
+| complete | Phase 2 cleanup / compatibility | Reviewed scoped core/chat compatibility modules and QA/chat HTTP schemas. | Restored legacy `src.core.nodes` helper aliases `_question_tokens` and `_split_context_sentences`; added focused regression coverage in `tests/test_graph_state_and_nodes.py`; scoped tests and full suite passed. |
+| complete | Phase 2 remaining | Decided whether Phase 2 config/YAML/error-code work should continue before Phase 3. | Continue a short Phase 2 completion pass before Phase 3 because YAML config, typed error codes, fuller typed event emission, and LLM provider DI are not complete. |
+| complete | Phase 3 planning | Prepared SSE/session persistence/observability readiness plan. | Start Phase 3 only after the Phase 2 completion pass and `python -m pytest -q` are green; build SSE on typed events, persistence on config/checkpointer settings, and metrics on events/error codes. |
+| complete | Phase 2 config | Completed YAML config support before Phase 3. | Added `config/default.yaml`, flat YAML loading, CLI `--config` support where applicable, and CLI > env > YAML > defaults tests. |
+| complete | Phase 2 errors | Added typed RAG error hierarchy and FastAPI handlers. | See later Phase 2 errors checkpoint in this form for changed files and verification. |
+| complete | Phase 2 events | Completed non-SSE typed graph event emission groundwork. | `src/graph/executor.py` now emits node_start/node_end/error/done plus retriever and grader summaries when inferable from chunks; SSE/API integration remains deferred. |
+| complete | Phase 2 LLM DI | Added an LLM provider seam. | Added `src/llm/provider.py`; graph nodes now build chat models through `build_chat_model()` instead of constructing `ChatTongyi` directly. |
+| note | Phase 3 readiness | Phase 3 remains gated on Phase 2 completion and green tests. | SSE, SQLite session persistence, metrics, incremental Chroma rebuilds, and deprecation warnings should come after the Phase 2 completion pass. |
+| note | Coordination | Started Phase 2 completion and Phase 3 implementation pass. | Parent owns YAML config and final integration; RAGRefactorDeveloper subagents are assigned disjoint scopes for errors, events/metrics, and session persistence. |
+| complete | Phase 2 config | Implemented YAML config support first. | Added `config/default.yaml`, flat YAML loading with CLI > env > YAML > built-in precedence, `--config` plumbing for QA/chat CLIs and app factories, and config precedence tests; `python -m pytest -q tests\test_config.py` passed. |
+| complete | Phase 2 errors | Implemented typed error hierarchy and FastAPI handlers. | Added `src/errors.py`, `src/api/errors.py`, QA/chat handler registration, typed chat 404s, QA generic exception wrapping, and `tests/test_api_errors.py`; `python -m pytest -q tests\\test_api_errors.py tests\\test_api_dependencies.py`, `python -m compileall src tests`, `git diff --check`, and full `python -m pytest -q` passed. |
+| complete | Phase 2 events / Phase 3 metrics | Completed typed event emission and metrics groundwork. | Added `src/graph/metrics.py`, event-driven metrics collection, and executor tests for event order, error events, retriever/grader summaries, and metrics; `python -m pytest -q` passed with 62 tests. |
+| complete | Phase 3 SSE/API | Integrated typed graph events with SSE endpoints. | Added `POST /query/stream`, `POST /chat/{thread_id}/message/stream`, shared SSE serialization, and API streaming tests. |
+| complete | Phase 3 sessions | Added optional session persistence storage groundwork. | Added `StorageBackend`, `SessionMetadata`, `InMemoryStorage`, and stdlib `SQLiteStorage` for metadata only; optional registry hooks preserve default in-memory behavior; `python -m pytest -q tests\\test_sessions.py` and full `python -m pytest -q` passed. |
+| blocked | Phase 3 sessions | Full LangGraph checkpoint persistence cannot be completed with installed dependencies. | `langgraph.checkpoint.sqlite` is unavailable in the current environment and requirements do not include a persistent checkpointer package; metadata persistence is implemented, but chat history recovery across restart needs a supported checkpointer dependency or a larger custom saver. |
+| complete | Phase 3 metrics | Added in-process metrics endpoint. | `GraphExecutor` records event-driven metrics and QA/chat apps expose `GET /metrics`; API stream tests verify metrics increment after streamed requests. |
+| complete | Phase 3 deprecation | Added deprecation warnings for old compatibility import paths. | Added `src/_compat.py`, warnings in `src/core/*` and `src/chat/*` facades, and `tests/test_compat.py` coverage. |
+| complete | Verification | Ran final integrated verification. | `python -m pytest -q` passed with 66 tests; `python -m compileall src tests` passed; `git diff --check` passed. |
 
 ## 2026-06-07 Form
 

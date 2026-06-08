@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .._compat import warn_deprecated_import
 from ..graph.nodes import (
     agent_factory,
     build_extractive_answer as _build_extractive_answer,
@@ -10,6 +11,10 @@ from ..graph.nodes import (
     qa_question_resolver as _question_from_state,
     rewrite_factory,
 )
+from ..graph.nodes.common import (
+    _question_tokens,
+    _split_context_sentences,
+)
 from ..llm.prompts import GRADE_PROMPT, RAG_PROMPT
 from ..utils.networking import configure_ssl_from_env as _configure_ssl
 from ..utils.retry import (
@@ -18,6 +23,7 @@ from ..utils.retry import (
 )
 
 _configure_ssl()
+warn_deprecated_import("src.core.nodes", "src.graph.nodes")
 
 __all__ = [
     "GRADE_PROMPT",
@@ -29,6 +35,8 @@ __all__ = [
     "_message_text",
     "_new_chat_model",
     "_question_from_state",
+    "_question_tokens",
+    "_split_context_sentences",
     "agent_factory",
     "generate_factory",
     "grade_documents_factory",

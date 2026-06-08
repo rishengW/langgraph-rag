@@ -5,6 +5,9 @@ from src.chat.sessions import ChatSessionRegistry as CompatChatSessionRegistry
 from src.sessions import (
     ChatSession,
     ChatSessionRegistry,
+    InMemoryStorage,
+    SQLiteStorage,
+    SessionMetadata,
     _settings_for_session,
     settings_for_session,
 )
@@ -152,3 +155,118 @@ def test_settings_for_session_isolates_chroma_for_custom_sources(mock_settings):
     assert session_settings.source_urls == ["https://example.com/custom"]
     assert session_settings.chroma_dir == mock_settings.chroma_dir / "chat" / "thread-custom"
     assert session_settings.collection_name == f"{mock_settings.collection_name}-chat-thread-custom"
+
+
+def test_in_memory_storage_copies_metadata():
+    storage = InMemoryStorage()
+    metadata = SessionMetadata(
+        thread_id="thread-memory",
+        source_urls=["https://example.com/a"],
+        source_mode="explicit",
+        created_at=1.0,
+        last_accessed_at=2.0,
+        chroma_dir=".chroma/chat/thread-memory",
+        isolated_chroma=True,
+        config={"collection_name": "rag-chat"},
+    )
+
+    storage.save(metadata)
+    loaded = storage.load("thread-memory")
+    assert loaded == metadata
+
+    assert loaded is not None
+    loaded.source_urls.append("https://example.com/mutated")
+    loaded.config["collection_name"] = "mutated"
+
+    loaded_again = storage.load("thread-memory")
+    assert loaded_again == metadata
+    assert storage.list_ids() == ["thread-memory"]
+    assert storage.list_metadata() == [metadata]
+
+
+def test_sqlite_storage_round_trips_metadata(tmp_path):
+    storage = SQLiteStorage(tmp_path / "sessions.sqlite3")
+    first = SessionMetadata(
+        thread_id="thread-sqlite-a",
+        source_urls=["https://example.com/a", "https://example.com/b"],
+        source_mode="web_search",
+        created_at=1.0,
+        last_accessed_at=3.0,
+        chroma_dir=".chroma/chat/thread-sqlite-a",
+        isolated_chroma=True,
+        config={"collection_name": "rag-chat-a", "top_k": 3},
+    )
+    second = SessionMetadata(
+        thread_id="thread-sqlite-b",
+        source_urls=[],
+        source_mode="defaults",
+        created_at=2.0,
+        last_accessed_at=2.0,
+        chroma_dir=".chroma",
+        isolated_chroma=False,
+    )
+
+    storage.save(second)
+    storage.save(first)
+
+    assert storage.load("thread-sqlite-a") == first
+    assert storage.load("missing") is None
+    assert storage.list_ids() == ["thread-sqlite-a", "thread-sqlite-b"]
+    assert storage.list_metadata() == [first, second]
+
+
+def test_sqlite_storage_updates_and_deletes_metadata(tmp_path):
+    storage = SQLiteStorage(tmp_path / "sessions.sqlite3")
+    original = SessionMetadata(thread_id="thread-update", created_at=1.0, last_accessed_at=1.0)
+    updated = SessionMetadata(
+        thread_id="thread-update",
+        source_urls=["https://example.com/updated"],
+        source_mode="explicit",
+        created_at=1.0,
+        last_accessed_at=5.0,
+        chroma_dir=".chroma/chat/thread-update",
+        isolated_chroma=True,
+    )
+
+    storage.save(original)
+    storage.save(updated)
+
+    assert storage.load("thread-update") == updated
+    assert storage.delete("thread-update") is True
+    assert storage.delete("thread-update") is False
+    assert storage.load("thread-update") is None
+
+
+def test_registry_optionally_persists_session_metadata(mock_settings):
+    now = 10.0
+
+    def clock() -> float:
+        return now
+
+    storage = InMemoryStorage()
+    registry = ChatSessionRegistry(
+        cleanup=lambda session: None,
+        storage=storage,
+        time_func=clock,
+    )
+
+    registry.create(
+        graph=object(),
+        settings=mock_settings,
+        source_urls=["https://example.com/session"],
+        source_mode="explicit",
+        thread_id="stored-thread",
+    )
+    saved = storage.load("stored-thread")
+    assert saved is not None
+    assert saved.source_urls == ["https://example.com/session"]
+    assert saved.last_accessed_at == 10.0
+
+    now = 12.0
+    assert registry.get("stored-thread") is not None
+    touched = storage.load("stored-thread")
+    assert touched is not None
+    assert touched.last_accessed_at == 12.0
+
+    assert registry.delete("stored-thread") is True
+    assert storage.load("stored-thread") is None

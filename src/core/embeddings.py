@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from .._compat import warn_deprecated_import
 from ..rag.dashscope_embeddings import DashScopeEmbeddings, DashScopeTextEmbeddings
 from ..rag.embeddings import EmbeddingModel, build_embeddings, is_dashscope_embedding_model
 from ..rag.hf_embeddings import HuggingFaceEmbeddingModel, build_huggingface_embeddings
+
+warn_deprecated_import("src.core.embeddings", "src.rag")
 
 __all__ = [
     "DashScopeEmbeddings",

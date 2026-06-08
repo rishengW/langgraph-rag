@@ -7,6 +7,7 @@ and older tests.
 
 from __future__ import annotations
 
+from .._compat import warn_deprecated_import
 from .config import Settings
 from ..web_search import (
     BaiduWebSearch,
@@ -36,6 +37,8 @@ from ..web_search.duckduckgo import (
     load_ddgs as _load_ddgs,
     unwrap_duckduckgo_redirect as _unwrap_duckduckgo_redirect,
 )
+
+warn_deprecated_import("src.core.web_search", "src.web_search")
 
 
 def _urlopen_context(settings: Settings):

@@ -19,6 +19,18 @@ def test_state_aliases_preserve_old_import_paths():
     assert ChatState is RAGState
 
 
+def test_core_node_helpers_preserve_old_import_paths():
+    from src.core.nodes import _question_tokens, _split_context_sentences
+
+    assert _question_tokens("What about reinforcement learning?") == {
+        "reinforcement",
+        "learning",
+    }
+    assert _split_context_sentences("Short. A sufficiently long sentence stays available.") == [
+        "A sufficiently long sentence stays available."
+    ]
+
+
 def test_question_resolvers_handle_qa_and_chat_shapes():
     qa_state = {"messages": [HumanMessage(content="first question")]}
     assert qa_question_resolver(qa_state) == "first question"

@@ -7,10 +7,10 @@ from typing import Any, Literal, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_community.chat_models.tongyi import ChatTongyi
 from pydantic import BaseModel, Field
 
-from ...core.config import Settings
+from ...config import Settings
+from ...llm.provider import build_chat_model
 from ...llm.prompts import GRADE_PROMPT, RAG_PROMPT
 from ...utils.networking import configure_ssl_from_env
 from ...utils.retry import invoke_with_retry
@@ -22,20 +22,10 @@ QuestionResolver = Callable[[dict[str, Any]], str]
 configure_ssl_from_env()
 
 
-def new_chat_model(settings: Settings) -> ChatTongyi:
+def new_chat_model(settings: Settings):
     """Create a DashScope chat model with project-level network settings."""
 
-    model_kwargs: dict[str, Any] = {
-        "request_timeout": settings.dashscope_request_timeout,
-    }
-    if settings.dashscope_http_base_url:
-        model_kwargs["base_address"] = settings.dashscope_http_base_url
-
-    return ChatTongyi(
-        model=settings.qwen_model,
-        max_retries=settings.dashscope_max_retries,
-        model_kwargs=model_kwargs,
-    )
+    return build_chat_model(settings)
 
 
 def message_text(message: Any) -> str:

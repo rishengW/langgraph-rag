@@ -16,7 +16,7 @@ from typing import Iterable
 
 from langchain_core.messages import HumanMessage
 
-from ..core.config import load_settings, secret_fingerprint
+from ..config import load_settings, secret_fingerprint
 from ..core.web_search import (
     discover_urls_from_web,
     settings_for_discovered_urls,
@@ -52,6 +52,11 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="Enable auto-reload (development mode)",
     )
+    serve.add_argument(
+        "--config",
+        default=None,
+        help="Optional YAML config file. Env vars and CLI flags override it.",
+    )
 
     # chat (REPL)
     chat = sub.add_parser("chat", help="Interactive terminal chat")
@@ -75,6 +80,11 @@ def parse_args() -> argparse.Namespace:
             "If omitted, the configured default URLs are used."
         ),
     )
+    chat.add_argument(
+        "--config",
+        default=None,
+        help="Optional YAML config file. Env vars and CLI flags override it.",
+    )
 
     return parser.parse_args()
 
@@ -83,7 +93,7 @@ def _serve(args: argparse.Namespace) -> None:
     from .api import create_app
     import uvicorn
 
-    app = create_app(api_host=args.host, api_port=args.port)
+    app = create_app(api_host=args.host, api_port=args.port, config_file=args.config)
     print(f"💬 Starting only Subcribers chat server at http://{args.host}:{args.port}")
     print(f"📖 Open http://{args.host}:{args.port} in a browser to chat")
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload, log_level="info")
@@ -94,7 +104,11 @@ def _repl(args: argparse.Namespace) -> None:
 
     urls = [u.strip() for u in args.urls.split(",") if u.strip()] or None
 
-    settings = load_settings(urls=urls)
+    settings = (
+        load_settings(urls=urls)
+        if args.config is None
+        else load_settings(urls=urls, config_file=args.config)
+    )
     print(f"DashScope API key loaded: {secret_fingerprint(settings.dashscope_api_key)}")
 
     rebuild = False

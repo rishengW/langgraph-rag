@@ -1,6 +1,6 @@
 # Project-scoped custom subagent for LangGraph RAG refactoring work.
 name = "RAGRefactorDeveloper"
-description = "Senior Python developer specializing in refactoring LangGraph RAG applications."
+description = "Senior Python developer specializing in refactoring LangGraph RAG applications in a company project level."
 model = "gpt-5.5"
 model_reasoning_effort = "high"
 

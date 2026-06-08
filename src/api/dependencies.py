@@ -7,8 +7,9 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
-from ..core.config import Settings
+from ..config import Settings
 from ..chat.sessions import ChatSessionRegistry
+from ..graph.metrics import MetricsCollector
 
 
 _UNSET: Any = object()
@@ -20,6 +21,7 @@ def initialize_qa_app_state(
     settings: Any = _UNSET,
     graph: Any = _UNSET,
     rebuild_lock: asyncio.Lock | None = None,
+    metrics: MetricsCollector | None = None,
 ) -> None:
     """Initialize or refresh QA state on a FastAPI app instance."""
 
@@ -33,6 +35,8 @@ def initialize_qa_app_state(
         app.state.graph = resolved_graph
     if rebuild_lock is not None or not hasattr(app.state, "rebuild_lock"):
         app.state.rebuild_lock = rebuild_lock or asyncio.Lock()
+    if metrics is not None or not hasattr(app.state, "metrics"):
+        app.state.metrics = metrics or MetricsCollector()
 
 
 def update_qa_graph_state(app: FastAPI, *, settings: Settings, graph: Any) -> None:
@@ -57,6 +61,7 @@ def initialize_chat_app_state(
     settings: Any = _UNSET,
     session_registry: ChatSessionRegistry | None = None,
     graph_factory_lock: asyncio.Lock | None = None,
+    metrics: MetricsCollector | None = None,
 ) -> None:
     """Initialize or refresh chat state on a FastAPI app instance."""
 
@@ -68,6 +73,8 @@ def initialize_chat_app_state(
         app.state.session_registry = session_registry or ChatSessionRegistry()
     if graph_factory_lock is not None or not hasattr(app.state, "chat_graph_factory_lock"):
         app.state.chat_graph_factory_lock = graph_factory_lock or asyncio.Lock()
+    if metrics is not None or not hasattr(app.state, "metrics"):
+        app.state.metrics = metrics or MetricsCollector()
 
 
 def get_config(request: Request) -> Settings:
@@ -117,12 +124,21 @@ def get_chat_graph_factory_lock(request: Request) -> asyncio.Lock:
     return lock
 
 
+def get_metrics(request: Request) -> MetricsCollector:
+    metrics = getattr(request.app.state, "metrics", None)
+    if metrics is None:
+        metrics = MetricsCollector()
+        request.app.state.metrics = metrics
+    return metrics
+
+
 __all__ = [
     "clear_qa_graph",
     "get_chat_graph_factory_lock",
     "get_config",
     "get_qa_graph",
     "get_rebuild_lock",
+    "get_metrics",
     "get_session_registry",
     "get_settings",
     "initialize_chat_app_state",

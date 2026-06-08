@@ -7,7 +7,7 @@ from typing import Any, Literal
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from ..core.config import Settings
+from ..config import Settings
 from .edges import AGENT_EDGE_MAP, GRADE_EDGE_MAP, route_after_agent
 from .nodes import (
     agent_factory,

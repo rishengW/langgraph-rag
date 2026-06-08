@@ -4,7 +4,7 @@ import logging
 
 from langchain_core.output_parsers import StrOutputParser
 
-from ...core.config import Settings
+from ...config import Settings
 from ...llm.prompts import CONDENSE_PROMPT
 from ...utils.retry import invoke_with_retry
 from .common import new_chat_model

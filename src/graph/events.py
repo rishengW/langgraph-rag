@@ -24,10 +24,12 @@ class TokenEvent:
     type: Literal["token"] = "token"
 
 
+# REFACTOR: Carry source node metadata for chunk-derived summary events.
 @dataclass(frozen=True)
 class RetrieverResultEvent:
     num_docs: int
     sources: list[str] = field(default_factory=list)
+    node: str = "retrieve"
     type: Literal["retriever_result"] = "retriever_result"
 
 
@@ -36,6 +38,7 @@ class GraderDecisionEvent:
     score: str
     explanation: str = ""
     rewrite_count: int = 0
+    node: str = "grade_documents"
     type: Literal["grader_decision"] = "grader_decision"
 
 
@@ -43,6 +46,7 @@ class GraderDecisionEvent:
 class ErrorEvent:
     message: str
     recoverable: bool = True
+    node: str | None = None
     type: Literal["error"] = "error"
 
 

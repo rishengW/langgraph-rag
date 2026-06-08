@@ -1,31 +1,40 @@
-# Core LangChain stack. Upper bounds match the current minor lines that the
-# code has been tested against; raise them deliberately when upgrading.
-langchain>=0.3.0,<0.4
-langchain-core>=0.3.0,<0.4
-langchain-community>=0.3.0,<0.4
-langchain-text-splitters>=0.3.0,<0.4
-langchain-chroma>=0.1.4,<0.3
-langchain-huggingface>=0.1.0,<0.4
-langgraph>=0.2.0,<0.7
+# Direct project dependencies pinned to the local verified stack.
+# Last verified on Python 3.11 with:
+#   python -m pip check
+#   python -m pytest -q
+#
+# If a package index reports no LangChain matches, retry with:
+#   python -m pip install --index-url https://pypi.org/simple -r requirements.txt
+
+# Core LangChain stack
+langchain==0.3.30
+langchain-core==0.3.86
+langchain-community==0.3.31
+langchain-text-splitters==0.3.11
+langchain-chroma==0.2.3
+langchain-huggingface==0.3.1
+langgraph==0.6.11
 
 # Vector store and embeddings
-chromadb>=0.5.0,<0.7
-sentence-transformers>=2.2.0,<6
-tiktoken>=0.7.0,<1
+chromadb==0.6.3
+sentence-transformers==5.5.1
+tiktoken==0.13.0
 
 # DashScope SDK
-dashscope>=1.20.0,<2
+dashscope==1.25.21
 
 # Web framework
-fastapi>=0.110,<0.120
-uvicorn>=0.27,<1
-pydantic>=2.6,<3
+fastapi==0.119.1
+uvicorn==0.49.0
+pydantic==2.13.4
 
 # Utilities
-beautifulsoup4>=4.12,<5
-ddgs>=4.0,<10
-python-dotenv>=1.0,<2
-typing-extensions>=4.10,<5
+beautifulsoup4==4.15.0
+ddgs==9.14.4
+python-dotenv==1.2.2
+PyYAML==6.0.3
+requests==2.34.2
+typing-extensions==4.15.0
 
-# Dev/test
-pytest>=8.0,<9
+# Local test runner. CI/dev quality tools live in requirements-dev.txt.
+pytest==8.4.2

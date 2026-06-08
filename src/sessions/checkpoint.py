@@ -71,14 +71,17 @@ class SQLiteMemorySaver(MemorySaver):
         state = pickle.loads(row[0])
         storage = state.get("storage", {})
         writes = state.get("writes", {})
+        blobs = state.get("blobs", {})
         self.storage = _storage_defaultdict(storage)
         self.writes = _writes_defaultdict(writes)
+        self.blobs = dict(blobs)
 
     def _persist_state(self) -> None:
         payload = pickle.dumps(
             {
                 "storage": _plain_storage(self.storage),
                 "writes": _plain_writes(self.writes),
+                "blobs": dict(self.blobs),
             },
             protocol=pickle.HIGHEST_PROTOCOL,
         )
@@ -91,6 +94,12 @@ class SQLiteMemorySaver(MemorySaver):
                 """,
                 (payload,),
             )
+
+    def delete_thread(self, thread_id: str) -> None:
+        """Delete one thread's checkpoints and persist the backing store."""
+
+        super().delete_thread(thread_id)
+        self._persist_state()
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

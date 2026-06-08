@@ -95,11 +95,17 @@ Completed in the latest pass:
 - README refreshed to match the current company-readiness state, including
   config overlays, auth/CORS, SSE, metrics, Docker, verification, and
   SQLite-backed chat/session persistence.
+- Repaired and verified the project `.venv` dependency set after a stale
+  LangChain 1.x environment caused install/compatibility failures; explicit
+  PyPI install now yields a clean pinned LangChain 0.3/LangGraph 0.6 stack.
+- Updated `requirements.txt` to pin the direct runtime/test dependencies to the
+  verified `.venv` versions and added direct `PyYAML`/`requests` entries for
+  code imports that should not rely on transitive dependencies.
 
 ## Remaining Company-Readiness Work
 
 - Install dev dependencies in CI/local dev to run `ruff`, `mypy`, and
-  coverage-enforced tests; local base environment currently lacks those tools.
+  coverage-enforced tests when doing full quality-gate verification.
 - Add dependency scanning (`pip-audit` or Dependabot).
 - Add structured JSON logging and request/session correlation IDs.
 - Add API versioning under `/api/v1/` while keeping compatibility shims.

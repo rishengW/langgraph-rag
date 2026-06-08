@@ -60,6 +60,21 @@ Install runtime dependencies:
 python -m pip install -r requirements.txt
 ```
 
+If pip reports `No matching distribution found for langchain<0.4,>=0.3.0`,
+force the project venv to use PyPI explicitly:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --index-url https://pypi.org/simple -r requirements.txt
+```
+
+If a previously-used venv contains newer LangChain packages, reinstall the
+project-pinned dependency set and verify it:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --upgrade --force-reinstall --index-url https://pypi.org/simple -r requirements.txt
+.\.venv\Scripts\python.exe -m pip check
+```
+
 For local development and CI-equivalent checks, install dev dependencies too:
 
 ```powershell

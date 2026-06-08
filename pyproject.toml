@@ -5,7 +5,63 @@ description = "Local LangGraph RAG application"
 requires-python = ">=3.11"
 
 [tool.pytest.ini_options]
+# REFACTOR: Company-readiness test gate defaults.
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-q"
+addopts = [
+    "-q",
+    "--tb=short",
+]
+
+[tool.coverage.run]
+# REFACTOR: Coverage settings used by local and CI pytest runs.
+branch = true
+source = ["src"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+# REFACTOR: Ruff lint and format configuration for CI/pre-commit.
+target-version = "py311"
+line-length = 100
+extend-exclude = [
+    ".venv",
+    ".chroma",
+    "advanced_phase1_workbench",
+    "advanced_phase2_interfaces_workbench",
+]
+
+[tool.ruff.lint]
+select = [
+    "B",
+    "C4",
+    "E",
+    "F",
+    "I",
+    "SIM",
+    "UP",
+]
+ignore = [
+    "E501",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+# REFACTOR: Strict type-checking gate for source modules.
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+show_error_codes = true
+warn_unused_ignores = true
+pretty = true
+exclude = [
+    "^advanced_phase1_workbench/",
+    "^advanced_phase2_interfaces_workbench/",
+]
 

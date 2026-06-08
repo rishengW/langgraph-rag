@@ -17,7 +17,9 @@ from ..utils.networking import (
 from .settings import DEFAULT_URLS, Settings
 
 
-DEFAULT_CONFIG_FILE = Path("config/default.yaml")
+DEFAULT_CONFIG_DIR = Path("config")
+DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "default.yaml"
+DEFAULT_ENVIRONMENT = "development"
 
 SETTING_ENV_NAMES = {
     "qwen_model": "QWEN_MODEL",
@@ -32,8 +34,10 @@ SETTING_ENV_NAMES = {
     "langchain_tracing_v2": "LANGCHAIN_TRACING_V2",
     "langchain_api_key": "LANGCHAIN_API_KEY",
     "langchain_project": "LANGCHAIN_PROJECT",
+    "api_key": "API_KEY",
     "api_host": "API_HOST",
     "api_port": "API_PORT",
+    "cors_allow_origins": "CORS_ALLOW_ORIGINS",
     "allow_low_relevance_generate": "ALLOW_LOW_RELEVANCE_GENERATE",
     "min_keyword_matches": "MIN_KEYWORD_MATCHES",
     "max_rewrites": "MAX_REWRITES",
@@ -167,6 +171,12 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         if isinstance(value, list):
             return [str(url).strip() for url in value if str(url).strip()]
         return parse_urls(None if value is None else str(value))
+    if name == "cors_allow_origins":
+        if isinstance(value, list):
+            return [str(url).strip() for url in value if str(url).strip()]
+        if value is None:
+            return list(default or [])
+        return [url.strip() for url in str(value).split(",") if url.strip()]
     if name in ("chroma_dir",):
         return Path(str(value)).expanduser()
     if name in (
@@ -207,6 +217,49 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
     if value is None:
         return default
     return str(value).strip() or default
+
+
+def _is_default_config_file(config_file: str | Path) -> bool:
+    return Path(config_file).as_posix() == DEFAULT_CONFIG_FILE.as_posix()
+
+
+def _environment_config_file() -> Path:
+    environment = os.getenv("RAG_ENV", DEFAULT_ENVIRONMENT).strip().lower()
+    return DEFAULT_CONFIG_DIR / f"{environment}.yaml"
+
+
+def _selected_config_files(config_file: str | Path | None) -> list[Path]:
+    if config_file is None:
+        return []
+    if not _is_default_config_file(config_file):
+        return [Path(config_file)]
+
+    paths = [DEFAULT_CONFIG_FILE]
+    environment_path = _environment_config_file()
+    if environment_path != DEFAULT_CONFIG_FILE:
+        paths.append(environment_path)
+    return paths
+
+
+def load_selected_yaml_config(config_file: str | Path | None = DEFAULT_CONFIG_FILE) -> dict[str, Any]:
+    """Load default YAML plus the active RAG_ENV overlay when applicable."""
+
+    merged: dict[str, Any] = {}
+    for path in _selected_config_files(config_file):
+        merged.update(load_yaml_config(path))
+    return merged
+
+
+def load_cors_allow_origins(config_file: str | Path | None = DEFAULT_CONFIG_FILE) -> list[str]:
+    """Load CORS origins without requiring secret-bearing runtime settings."""
+
+    values = _settings_defaults()
+    for key, value in load_selected_yaml_config(config_file).items():
+        if key in values:
+            values[key] = _coerce_setting(key, value, values.get(key))
+    _apply_env_overrides(values)
+    origins = values.get("cors_allow_origins", [])
+    return list(origins) if isinstance(origins, list) else []
 
 
 def _apply_env_overrides(values: dict[str, Any]) -> None:
@@ -259,7 +312,7 @@ def load_settings(
         )
 
     values = _settings_defaults()
-    for key, value in load_yaml_config(config_file).items():
+    for key, value in load_selected_yaml_config(config_file).items():
         if key in values:
             values[key] = _coerce_setting(key, value, values.get(key))
 
@@ -280,9 +333,13 @@ def load_settings(
 
 __all__ = [
     "DEFAULT_DASHSCOPE_HTTP_BASE_URL",
+    "DEFAULT_CONFIG_DIR",
     "DEFAULT_CONFIG_FILE",
+    "DEFAULT_ENVIRONMENT",
     "apply_runtime_environment",
+    "load_cors_allow_origins",
     "load_settings",
+    "load_selected_yaml_config",
     "load_yaml_config",
     "parse_bool",
     "parse_optional_int",

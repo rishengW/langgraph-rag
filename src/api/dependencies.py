@@ -6,6 +6,8 @@ import asyncio
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from ..config import Settings
 from ..chat.sessions import ChatSessionRegistry
@@ -37,6 +39,20 @@ def initialize_qa_app_state(
         app.state.rebuild_lock = rebuild_lock or asyncio.Lock()
     if metrics is not None or not hasattr(app.state, "metrics"):
         app.state.metrics = metrics or MetricsCollector()
+
+
+def configure_cors(app: FastAPI, allow_origins: list[str]) -> None:
+    """Install CORS middleware when origins are configured."""
+
+    if not allow_origins:
+        return
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allow_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
 
 def update_qa_graph_state(app: FastAPI, *, settings: Settings, graph: Any) -> None:
@@ -132,8 +148,45 @@ def get_metrics(request: Request) -> MetricsCollector:
     return metrics
 
 
+def qa_readiness_response(request: Request) -> JSONResponse:
+    """Return QA readiness without making external network calls."""
+
+    settings = getattr(request.app.state, "settings", None)
+    graph_ready = getattr(request.app.state, "qa_graph", None) is not None
+    checks = {
+        "settings_loaded": settings is not None,
+        "dashscope_api_key_configured": bool(getattr(settings, "dashscope_api_key", "")),
+        "graph_ready": graph_ready,
+        "chroma_dir_configured": bool(getattr(settings, "chroma_dir", "")),
+    }
+    ready = all(checks.values())
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={"status": "ready" if ready else "not_ready", "checks": checks},
+    )
+
+
+def chat_readiness_response(request: Request) -> JSONResponse:
+    """Return chat readiness without building graphs or calling providers."""
+
+    settings = getattr(request.app.state, "settings", None)
+    registry = getattr(request.app.state, "session_registry", None)
+    checks = {
+        "settings_loaded": settings is not None,
+        "dashscope_api_key_configured": bool(getattr(settings, "dashscope_api_key", "")),
+        "session_registry_ready": registry is not None,
+    }
+    ready = all(checks.values())
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={"status": "ready" if ready else "not_ready", "checks": checks},
+    )
+
+
 __all__ = [
     "clear_qa_graph",
+    "chat_readiness_response",
+    "configure_cors",
     "get_chat_graph_factory_lock",
     "get_config",
     "get_qa_graph",
@@ -143,5 +196,6 @@ __all__ = [
     "get_settings",
     "initialize_chat_app_state",
     "initialize_qa_app_state",
+    "qa_readiness_response",
     "update_qa_graph_state",
 ]

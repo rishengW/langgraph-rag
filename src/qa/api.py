@@ -14,19 +14,22 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..api.auth import require_api_key
 from ..api.dependencies import (
     clear_qa_graph,
+    configure_cors,
     get_config,
     get_metrics,
     get_qa_graph,
     get_rebuild_lock,
     initialize_qa_app_state,
+    qa_readiness_response,
     update_qa_graph_state,
 )
 from ..api.errors import register_error_handlers
 from ..api.models import QueryRequest, QueryResponse
 from ..api.streaming import format_sse
-from ..config import Settings, load_settings
+from ..config import Settings, load_cors_allow_origins, load_settings
 from ..core.graph import build_graph
 from ..core.graph_executor import run_rag_query
 from ..core.web_search import discover_urls_from_web, settings_for_discovered_urls
@@ -98,6 +101,12 @@ def create_app(
     )
     # REFACTOR: Register typed RAG error responses for this app instance.
     register_error_handlers(app)
+    cors_origins = (
+        load_cors_allow_origins()
+        if config_file is None
+        else load_cors_allow_origins(config_file)
+    )
+    configure_cors(app, cors_origins)
     initialize_qa_app_state(app)
 
     # Serve static files
@@ -123,8 +132,14 @@ def create_app(
             "graph_ready": getattr(app.state, "qa_graph", None) is not None,
         }
 
+    @app.get("/ready")
+    async def ready_check(request: Request):
+        """Readiness check endpoint with only local state checks."""
+
+        return qa_readiness_response(request)
+
     # Main query endpoint
-    @app.post("/query")
+    @app.post("/query", dependencies=[Depends(require_api_key)])
     async def query(
         request: QueryRequest,
         fastapi_request: Request,
@@ -308,7 +323,7 @@ def create_app(
             logger.error(f"Unexpected error during query: {e}", exc_info=True)
             raise RAGError(f"Internal server error: {str(e)}") from e
 
-    @app.post("/query/stream")
+    @app.post("/query/stream", dependencies=[Depends(require_api_key)])
     async def query_stream(
         request: QueryRequest,
         graph: Any = Depends(get_qa_graph),

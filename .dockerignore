@@ -1,0 +1,20 @@
+# Purpose: Keep local caches, secrets, and generated artifacts out of Docker builds.
+
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.chroma/
+.env
+.env.*
+advanced_phase1_workbench/
+advanced_phase2_interfaces_workbench/
+install_log.txt
+graph.png

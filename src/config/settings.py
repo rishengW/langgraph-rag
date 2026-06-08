@@ -31,8 +31,10 @@ class Settings:
     langchain_tracing_v2: str = "false"
     langchain_api_key: str = ""
     langchain_project: str = "only-subcribers"
+    api_key: str = ""
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    cors_allow_origins: list[str] = field(default_factory=list)
     allow_low_relevance_generate: bool = False
     min_keyword_matches: int = 2
     max_rewrites: int = 2

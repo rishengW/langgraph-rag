@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,8 @@ from .storage import SessionMetadata, SessionStorageError
 
 class SQLiteStorage:
     """SQLite-backed storage for chat session metadata."""
+
+    SCHEMA_VERSION = 1
 
     def __init__(self, database_path: str | Path) -> None:
         self._path = Path(database_path)
@@ -86,14 +90,27 @@ class SQLiteStorage:
             ).fetchall()
         return [_row_to_metadata(row) for row in rows]
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self._path)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            yield connection
+            connection.commit()
+        finally:
+            connection.close()
 
     def _ensure_database(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    version INTEGER NOT NULL
+                )
+                """
+            )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -107,6 +124,14 @@ class SQLiteStorage:
                     isolated_chroma INTEGER NOT NULL
                 )
                 """
+            )
+            connection.execute(
+                """
+                INSERT INTO schema_version (id, version)
+                VALUES (1, ?)
+                ON CONFLICT(id) DO UPDATE SET version=excluded.version
+                """,
+                (self.SCHEMA_VERSION,),
             )
 
 

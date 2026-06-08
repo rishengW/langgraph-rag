@@ -140,6 +140,29 @@ class ChatSessionRegistry:
         )
         return session
 
+    def restore(
+        self,
+        graph: Any,
+        settings: Settings,
+        metadata: SessionMetadata,
+    ) -> ChatSession:
+        """Restore one runtime session from persisted metadata."""
+
+        session = ChatSession(
+            thread_id=metadata.thread_id,
+            graph=graph,
+            settings=settings,
+            source_urls=list(metadata.source_urls),
+            source_mode=metadata.source_mode,
+            created_at=metadata.created_at,
+            last_accessed_at=metadata.last_accessed_at,
+            isolated_chroma=metadata.isolated_chroma,
+        )
+        with self._lock:
+            self._sessions[session.thread_id] = session
+        logger.info("Restored chat session %s from metadata storage", session.thread_id)
+        return session
+
     def get(self, thread_id: str, *, touch: bool = True) -> ChatSession | None:
         session_to_save: ChatSession | None = None
         with self._lock:

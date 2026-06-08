@@ -1,0 +1,7 @@
+# Production overlay selected by RAG_ENV=production.
+# Set API_KEY, DASHSCOPE_API_KEY, and CORS_ALLOW_ORIGINS in the environment.
+
+api_key: ""
+cors_allow_origins: []
+web_search_enabled: true
+web_search_verify_ssl: true

@@ -1,201 +1,152 @@
-# only Subcribers
+# LangGraph RAG
 
-A multi-file Python version of the original `rag-langgraph.ipynb` notebook.
+A local LangGraph retrieval-augmented generation project with two FastAPI apps:
 
-It builds a LangGraph RAG agent that:
+- `src.qa`: single-shot question answering on configured URLs, custom URLs, or web-search results.
+- `src.chat`: multi-turn chat with per-thread source sets, persisted session metadata, and persisted LangGraph checkpoints.
 
-1. Loads configured URLs, custom URLs, or web-search results from the web.
-2. Splits the pages into chunks.
-3. Stores embeddings in a local Chroma vector database.
-4. Uses a retriever tool inside a LangGraph agent.
-5. Grades retrieved context for relevance.
-6. Generates an answer, or rewrites the query and tries again.
+The project started as a Python extraction of `rag-langgraph.ipynb`; it is now organized as a reusable codebase with YAML configuration, typed graph events, SSE streaming, health/readiness/metrics endpoints, optional API-key auth, Docker support, CI quality gates, and company-readiness documentation.
 
-## Important security note
+## Security Note
 
-The notebook contained hard-coded API keys. They were intentionally removed from this Python version. Put your own keys in `.env` instead, and rotate any keys that were previously exposed in notebooks, GitHub, or shared files.
+The original notebook contained hard-coded API keys. They were removed. Put local secrets in `.env` or process environment variables, and rotate any key that was previously committed, shared, or pasted into notebooks.
 
-## Project structure
+Never commit these values:
 
 ```text
-only-subcribers/
-├── .env.example
-├── .gitignore
-├── README.md
-├── requirements.txt
-└── src/
-    ├── __init__.py
-    ├── core/                 # Shared engine
-    │   ├── config.py
-    │   ├── embeddings.py
-    │   ├── graph.py
-    │   ├── graph_executor.py
-    │   ├── nodes.py
-    │   ├── retriever.py
-    │   ├── state.py
-    │   └── web_search.py
-    ├── qa/                   # Single-shot Q&A app (port 8000)
-    │   ├── api.py
-    │   ├── draw_graph.py
-    │   ├── main.py
-    │   └── static/
-    │       ├── index.html
-    │       └── script.js
-    └── chat/                 # Multi-turn chat app (port 8001)
-        ├── api.py
-        ├── graph.py
-        ├── main.py
-        ├── nodes.py
-        ├── sessions.py
-        ├── state.py
-        └── static/
-            ├── index.html
-            └── script.js
+DASHSCOPE_API_KEY
+API_KEY
+LANGCHAIN_API_KEY
+```
+
+## Project Structure
+
+```text
+langgraph-rag/
+|-- config/                  # Default YAML plus RAG_ENV overlays
+|-- memory/                  # Project process and refactor tracking notes
+|-- src/
+|   |-- api/                 # Shared FastAPI auth, errors, readiness, metrics helpers
+|   |-- chat/                # Multi-turn chat app, API, UI, graph wiring
+|   |-- config/              # Settings loading from YAML, env, .env, CLI flags
+|   |-- core/                # Shared RAG compatibility surface
+|   |-- graph/               # LangGraph builder, typed events, executor, metrics
+|   |-- qa/                  # Single-shot QA app, API, UI, CLI
+|   |-- rag/                 # Retrieval, indexing, embeddings, web loading/search
+|   |-- sessions/            # Session registry, SQLite metadata, checkpoint persistence
+|   `-- llm/                 # Model and prompt helpers
+|-- tests/                   # Offline-focused pytest suite
+|-- .github/workflows/       # CI
+|-- ARCHITECTURE.md
+|-- COMPANY_READINESS_GAPS.md
+|-- CONTRIBUTING.md
+|-- SECURITY.md
+|-- Dockerfile
+`-- docker-compose.yml
 ```
 
 ## Setup
 
-From inside this folder:
-
-```bash
-python -m venv .venv
-```
-
-Activate the virtual environment.
-
-Windows PowerShell:
+Create and activate a virtual environment from this folder:
 
 ```powershell
+python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-macOS / Linux:
+Install runtime dependencies:
 
-```bash
-source .venv/bin/activate
+```powershell
+python -m pip install -r requirements.txt
 ```
 
-Install dependencies:
+For local development and CI-equivalent checks, install dev dependencies too:
 
-```bash
-pip install -r requirements.txt
+```powershell
+python -m pip install -r requirements-dev.txt
 ```
 
 Create a local environment file:
 
+```powershell
+Copy-Item .env.example .env
+```
+
+On macOS or Linux:
+
 ```bash
 cp .env.example .env
 ```
 
-On Windows PowerShell, use:
-
-```powershell
-Copy-Item .env.example .env
-```
-```Linux
-cp .env.example .env
-
-Then edit `.env` and set:
+Set your DashScope key in `.env`:
 
 ```text
 DASHSCOPE_API_KEY=your_real_key_here
 ```
 
-Optional DashScope network settings:
+Optional runtime settings commonly changed in `.env`:
 
 ```text
+RAG_ENV=development
+API_KEY=
+QWEN_MODEL=qwen-plus
 EMBEDDING_MODEL=text-embedding-v4
 EMBEDDING_DIMENSION=1024
-EMBEDDING_BATCH_SIZE=10
-DASHSCOPE_REQUEST_TIMEOUT=120
-DASHSCOPE_MAX_RETRIES=3
-DASHSCOPE_HTTP_BASE_URL=
+CHROMA_DIR=.chroma
+WEB_SEARCH_ENABLED=true
+WEB_SEARCH_PROVIDER=baidu
+WEB_SEARCH_TOP_K=3
 ```
 
-`text-embedding-v4` uses the same `DASHSCOPE_API_KEY` as Tongyi/Qwen. Use
-`DASHSCOPE_HTTP_BASE_URL` only if your DashScope account or network requires a
-non-default endpoint.
+## Configuration
 
-## Running the application
+Settings are loaded with this precedence:
 
-The project ships two front ends that share the same engine:
+1. CLI flags, such as `--urls`, `--rebuild`, `--host`, or `--port`
+2. Process environment variables and `.env`
+3. YAML config files
+4. Built-in defaults
 
-* **`src.qa`** — single-shot Q&A. One question, one answer, no memory.
-* **`src.chat`** — multi-turn chat. Memory across turns, follow-up
-  questions stay scoped to the same source set.
+By default, the app reads `config/default.yaml` and overlays `config/{RAG_ENV}.yaml`. `RAG_ENV` defaults to `development`; `staging` and `production` overlays are included. Secrets stay outside YAML.
 
-The original commands all live under `python -m src.qa.*`. The chat app
-is `python -m src.chat.*`.
+You can also pass a custom YAML file to the app commands:
 
-### Command-line interface (CLI)
-
-Ask a question directly from the terminal:
-
-```bash
-python -m src.qa.main query "What does Lilian Weng say about the types of agent memory?" --rebuild
+```powershell
+python -m src.qa.main serve --config config\staging.yaml
 ```
 
-Options:
-- `query`: Run a single query
-- `--urls`: Comma-separated URLs (overrides web search and env defaults)
-- `--rebuild`: Rebuild vector database from scratch
+## Running QA
 
-Example with custom URLs:
+Ask a question from the terminal:
 
-```bash
+```powershell
+python -m src.qa.main query "What does this source say about fine-tuning?" --rebuild
+```
+
+Use custom sources:
+
+```powershell
 python -m src.qa.main query "Your question here" --urls "https://example.com,https://another.com" --rebuild
 ```
 
-### Web interface
+Start the QA web/API server:
 
-Start the FastAPI web server:
-
-```bash
-python -m src.qa.main serve
+```powershell
+python -m src.qa.main serve --host 127.0.0.1 --port 8000
 ```
 
-This starts the server at `http://127.0.0.1:8000` by default.
+Then open `http://127.0.0.1:8000`.
 
-**Server options:**
-- `--host`: Host to bind to (default: 127.0.0.1)
-- `--port`: Port to bind to (default: 8000)
-- `--rebuild`: Rebuild vector database on startup
-- `--reload`: Enable auto-reload on file changes (development mode)
+Important QA endpoints:
 
-**Examples:**
+- `GET /`: browser UI
+- `GET /health`: liveness
+- `GET /ready`: readiness with local app-state checks
+- `GET /metrics`: in-process graph metrics snapshot
+- `POST /query`: non-streaming answer
+- `POST /query/stream`: SSE graph event stream
 
-Start server on localhost:
-
-```bash
-python -m src.qa.main serve
-```
-
-Start on all interfaces on port 5000:
-
-```bash
-python -m src.qa.main serve --host 0.0.0.0 --port 5000
-```
-
-Development mode with auto-reload:
-
-```bash
-python -m src.qa.main serve --reload
-```
-
-Then open your browser to the printed URL and:
-
-1. Enter your question in the text area
-2. Leave Source URLs empty to search the web automatically, or provide comma-separated URLs for custom sources
-3. (Optional) Disable web search to use the configured `SOURCE_URLS` defaults when Source URLs is empty
-4. (Optional) Check "Rebuild vector database" to force rebuild
-5. Click "Ask Question"
-6. View the answer, sources used, and any errors
-
-**API Endpoints:**
-
-- `GET /` - Web interface
-- `GET /health` - Health check
-- `POST /query` - Submit a query (JSON):
+Example request:
 
 ```json
 {
@@ -206,121 +157,128 @@ Then open your browser to the printed URL and:
 }
 ```
 
-### Environment variables for API
+## Running Chat
 
-You can configure the API server via environment variables:
+Start the chat web/API server:
 
-```text
-API_HOST=0.0.0.0
-API_PORT=8000
-WEB_SEARCH_ENABLED=true
-WEB_SEARCH_PROVIDER=baidu
-WEB_SEARCH_MAX_RESULTS=20
-WEB_SEARCH_REGION=wt-wt
-WEB_SEARCH_TIMELIMIT=
-WEB_SEARCH_VERIFY_SSL=true
+```powershell
+python -m src.chat.main serve --host 127.0.0.1 --port 8001
 ```
 
-When `urls` is empty and `web_search` is true, the API searches the web using the question, builds an isolated temporary Chroma index for the discovered URLs, and answers from those pages. If `web_search` is false, the app uses `SOURCE_URLS` from `.env` or the built-in default URLs.
+Then open `http://127.0.0.1:8001`.
 
-Set `WEB_SEARCH_PROVIDER=duckduckgo` to use DuckDuckGo instead of Baidu for automatic source discovery. The default is Baidu, which works without a proxy from networks where DuckDuckGo is unreachable.
+Use the terminal REPL:
 
-## Chat app
-
-`src.chat` exposes the same engine through a multi-turn chat interface.
-Each chat session has a fixed source set (chosen when the chat starts);
-follow-up turns reuse the same Chroma index and inherit the conversation
-history via LangGraph's in-memory checkpointer.
-
-### Web UI
-
-```bash
-python -m src.chat.main serve
-```
-
-Defaults to `http://127.0.0.1:8001`. Override with `--host`/`--port` or
-`CHAT_API_HOST` / `CHAT_API_PORT`. Open the URL in a browser, choose your
-sources (URLs or web search), and start chatting. Refreshing the page
-restores the active session via `localStorage`.
-
-### Terminal REPL
-
-```bash
+```powershell
 python -m src.chat.main chat --urls "https://example.com,https://another.com"
 ```
 
-Or seed sources from a one-time web search:
+Or seed a chat from a one-time web search:
 
-```bash
+```powershell
 python -m src.chat.main chat --seed-question "Qwen fine-tuning best practices"
 ```
 
-Type `exit`, `quit`, or Ctrl-D to end the session.
+Important chat endpoints:
 
-### API endpoints
+- `GET /`: browser UI
+- `GET /health`: liveness
+- `GET /ready`: readiness with local session-registry checks
+- `GET /metrics`: in-process graph metrics snapshot
+- `POST /chat`: create a thread
+- `POST /chat/{thread_id}/message`: send a turn
+- `POST /chat/{thread_id}/message/stream`: SSE graph event stream for a turn
+- `GET /chat/{thread_id}/history`: read transcript
+- `DELETE /chat/{thread_id}`: delete a thread
 
-* `POST /chat` — start a new chat thread. Returns a `thread_id`.
-* `POST /chat/{thread_id}/message` — send a user turn, get the reply.
-* `GET /chat/{thread_id}/history` — fetch the full transcript.
-* `DELETE /chat/{thread_id}` — drop the session from memory.
+## Persistence
 
-### Notes
+The default Chroma vector store lives under `.chroma/`.
 
-* Memory is held in-process. Restarting the chat server clears all
-  active sessions.
-* Each session with explicit URLs or web-discovered sources gets its
-  own isolated Chroma index under `.chroma/chat/<thread_id>/`. Sessions
-  that fall back to the configured defaults share the global store.
-* A condense step rewrites multi-turn follow-ups into standalone
-  questions before retrieval, so the embedding lookup stays focused
-  even when the user says things like "what about that?".
+Chat uses additional persisted state:
 
-## First run
+- `.chroma/chat/<thread_id>/`: isolated Chroma store for thread-specific sources
+- `.chroma/chat/sessions.sqlite3`: session metadata and history
+- `.chroma/chat/checkpoints.sqlite3`: LangGraph checkpoint state via `SQLiteMemorySaver`
 
-The first run downloads web pages, calls DashScope `text-embedding-v4`, and builds the local Chroma database.
+That means normal chat sessions can survive an app restart. Sessions that use the global default source set share the global Chroma collection; sessions with explicit URLs or web-discovered sources get isolated per-thread stores.
 
-**CLI:**
+## Auth, CORS, And Readiness
 
-```bash
-python -m src.qa.main query "What does Lilian Weng say about the types of agent memory?" --rebuild
+Local development remains open when `API_KEY` is unset.
+
+When `API_KEY` is set, mutation endpoints require:
+
+```text
+Authorization: Bearer <API_KEY>
 ```
 
-**Or via web interface:**
+Protected mutation endpoints include `POST /query`, `POST /query/stream`, `POST /chat`, `POST /chat/{thread_id}/message`, `POST /chat/{thread_id}/message/stream`, and `DELETE /chat/{thread_id}`.
 
-```bash
-python -m src.qa.main serve --rebuild
+CORS is configured through `cors_allow_origins` in YAML or `CORS_ALLOW_ORIGINS` in the environment. `/health`, `/ready`, `/metrics`, and read-only endpoints remain available for platform checks and observability.
+
+## Docker
+
+Build and run both apps:
+
+```powershell
+docker compose up --build
 ```
 
-Then open http://127.0.0.1:8000 and check the "Rebuild vector database" checkbox when asking your first question.
+The compose file starts:
 
-## Later runs
+- QA on `http://127.0.0.1:8000`
+- Chat on `http://127.0.0.1:8001`
 
-Once `.chroma/` exists, you can run without rebuilding:
+It mounts named volumes for `.chroma` and session data. Pass secrets through your shell or `.env` before starting compose:
 
-**CLI:**
-
-```bash
-python -m src.qa.main query "What are common prompt engineering techniques?"
+```powershell
+$env:DASHSCOPE_API_KEY = "your_real_key_here"
+$env:API_KEY = "optional_gateway_key"
+docker compose up --build
 ```
 
-**Web interface:**
+## Verification
 
-```bash
-python -m src.qa.main serve
+Run the local test suite:
+
+```powershell
+python -m pytest -q
 ```
 
-Then open http://127.0.0.1:8000 and ask questions directly through the web UI.
+The latest integrated local verification passed with 74 tests.
 
-## Optional: draw the graph
+With dev dependencies installed, run CI-style checks:
 
-```bash
-python -m src.qa.draw_graph
+```powershell
+ruff check .
+mypy src/
+python -m pytest --tb=short --cov=src --cov-report=term --cov-fail-under=70
+python -m compileall src tests
+git diff --check
 ```
 
-This attempts to write `graph.png`. Graph rendering may require internet access or optional rendering dependencies depending on your LangGraph installation.
+`git diff --check` may report line-ending warnings on Windows; those are separate from whitespace errors.
+
+## Documentation
+
+- `ARCHITECTURE.md`: current system architecture and operational notes
+- `CONTRIBUTING.md`: local development workflow and quality gates
+- `SECURITY.md`: secret handling and API security behavior
+- `CHANGELOG.md`: notable project changes
+- `COMPANY_READINESS_GAPS.md`: completed and remaining company-readiness work
+- `memory/current-process.md`: latest recorded process checkpoint
+- `memory/refactor-daily-forms.md`: chronological refactor/process log
+
+## Current Readiness Snapshot
+
+Completed foundations include YAML environment overlays, typed errors, typed graph events, SSE streaming, metrics, readiness checks, API-key auth, CORS config, CI, Docker, dev tooling, SQLite session metadata, and SQLite LangGraph checkpoint persistence.
+
+Remaining work called out in `COMPANY_READINESS_GAPS.md` includes dependency/security scanning, fuller structured logging and request IDs, API versioning, rate limiting/session export, deployment-specific infrastructure, and broader public API documentation.
 
 ## Notes
 
-- This still calls DashScope/Tongyi through an API. The code runs locally, but the LLM and default embeddings are not local unless you replace `ChatTongyi` and `text-embedding-v4` with local models.
-- The default model is `qwen-plus`, a text chat model suitable for RAG. Use a `qwen-vl-*` model only if your workflow needs multimodal input.
-- The default embeddings model is `text-embedding-v4`. Existing Chroma stores without matching embedding metadata are rebuilt automatically so vector dimensions stay consistent.
+- This project still calls DashScope/Tongyi for the default LLM and embedding model. It runs locally, but the model calls are remote unless you replace those integrations.
+- The default chat model is `qwen-plus`.
+- The default embedding model is `text-embedding-v4`; existing Chroma stores with incompatible embedding metadata are rebuilt automatically.
+- Web search defaults to Baidu because it is often reachable in environments where DuckDuckGo is not. Set `WEB_SEARCH_PROVIDER=duckduckgo` if preferred.

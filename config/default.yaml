@@ -1,5 +1,7 @@
 # Default non-secret runtime configuration.
-# Secrets such as DASHSCOPE_API_KEY must stay in environment variables or .env.
+# Secrets such as DASHSCOPE_API_KEY and API_KEY must stay in environment
+# variables or .env. Leave api_key empty here so local development does not
+# require Authorization headers.
 
 qwen_model: qwen-plus
 embedding_model: text-embedding-v4
@@ -15,8 +17,10 @@ source_urls:
 langchain_tracing_v2: "false"
 langchain_api_key: ""
 langchain_project: only-subcribers
+api_key: ""
 api_host: 127.0.0.1
 api_port: 8000
+cors_allow_origins: []
 allow_low_relevance_generate: false
 min_keyword_matches: 2
 max_rewrites: 2

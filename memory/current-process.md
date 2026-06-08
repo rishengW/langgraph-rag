@@ -1,6 +1,6 @@
 ---
 name: current-process
-description: Current refactoring process snapshot after Phase 1 extraction and Phase 2 interface implementation passes
+description: Current project process snapshot after refactoring, persistence, and company-readiness passes
 metadata:
   type: project
   updated: 2026-06-08
@@ -17,10 +17,10 @@ advanced pass has implemented Phase 2 interfaces and abstractions across the
 functional scopes.
 
 On 2026-06-08, the active to-do list was completed through verification,
-compatibility review, and the Phase 2/Phase 3 readiness decision. A later
-Phase 2/3 implementation pass completed YAML config, typed errors, typed graph
-events, LLM provider DI, SSE endpoints, metrics, deprecation warnings, and
-SQLite session metadata storage.
+compatibility review, and the Phase 2/Phase 3 readiness decision. Later passes
+completed YAML config, typed errors, typed graph events, LLM provider DI, SSE
+endpoints, metrics, deprecation warnings, SQLite session metadata/checkpoint
+storage, and major company-readiness foundations.
 
 The active process marker is:
 
@@ -59,13 +59,13 @@ Passed:
 
 - `git diff --check`
 - `python -m compileall src tests`
-- Full pytest execution: `python -m pytest -q` passed with 66 tests green
+- Full pytest execution: `python -m pytest -q` passed with 74 tests green
 - Targeted scans for removed QA/chat API globals and runtime `print()` calls
 - Compatibility import check for legacy QA/chat model and graph/session exports
 - Scoped compatibility tests:
   `python -m pytest -q tests\test_api_dependencies.py tests\test_graph_state_and_nodes.py tests\test_sessions.py`
-- Config precedence, typed errors, graph event/metrics, SSE API, session
-  storage, and deprecation compatibility tests
+- Config precedence, typed errors, graph event/metrics, SSE API, API security,
+  readiness, session storage/checkpoint, and deprecation compatibility tests
 
 Environment note:
 
@@ -86,24 +86,25 @@ Completed in the latest pass:
 - SSE endpoints: `POST /query/stream` and
   `POST /chat/{thread_id}/message/stream`.
 - Event-driven in-process metrics and `GET /metrics` on QA/chat apps.
-- Optional stdlib SQLite session metadata storage and registry hooks.
+- Optional stdlib SQLite session metadata storage, schema versioning,
+  checkpoint storage, registry hooks, and chat startup recovery.
 - Deprecation warnings for legacy `src/core/*` and `src/chat/*` compatibility
   import paths.
+- CI workflow, dev quality configs, pre-commit, Dockerfile, docker compose,
+  API-key auth, CORS config, `/ready`, environment overlays, and team docs.
+- README refreshed to match the current company-readiness state, including
+  config overlays, auth/CORS, SSE, metrics, Docker, verification, and
+  SQLite-backed chat/session persistence.
 
-Blocked:
+## Remaining Company-Readiness Work
 
-- Full chat history recovery across process restart. The installed LangGraph
-  package does not provide `langgraph.checkpoint.sqlite`, and requirements do
-  not include another persistent checkpointer package. Session metadata is
-  persisted, but checkpoint/state persistence needs a supported dependency or a
-  larger custom checkpointer implementation.
-
-## Next Process Step
-
-Decide whether to add a supported LangGraph checkpoint persistence dependency
-or implement a custom SQLite checkpointer. After that, wire recovered session
-metadata plus persisted checkpoints into chat app startup and verify restart
-recovery end to end.
+- Install dev dependencies in CI/local dev to run `ruff`, `mypy`, and
+  coverage-enforced tests; local base environment currently lacks those tools.
+- Add dependency scanning (`pip-audit` or Dependabot).
+- Add structured JSON logging and request/session correlation IDs.
+- Add API versioning under `/api/v1/` while keeping compatibility shims.
+- Add deployment-specific infrastructure (AWS/GCP/on-prem/PaaS).
+- Consider rate limiting and a session export endpoint.
 
 Track the next concrete actions in `memory/refactor-daily-forms.md`. Future
 workers should update that file at the end of each implementation pass.

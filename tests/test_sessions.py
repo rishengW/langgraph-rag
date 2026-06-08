@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+import sqlite3
+
+from langgraph.graph import END, START, StateGraph
+from typing_extensions import TypedDict
+
 from src.chat.sessions import ChatSession as CompatChatSession
 from src.chat.sessions import ChatSessionRegistry as CompatChatSessionRegistry
 from src.sessions import (
     ChatSession,
     ChatSessionRegistry,
     InMemoryStorage,
+    SQLiteMemorySaver,
     SQLiteStorage,
     SessionMetadata,
     _settings_for_session,
     settings_for_session,
 )
+
+
+class CounterState(TypedDict):
+    value: int
 
 
 def test_chat_sessions_compatibility_reexports_new_types():
@@ -270,3 +280,61 @@ def test_registry_optionally_persists_session_metadata(mock_settings):
 
     assert registry.delete("stored-thread") is True
     assert storage.load("stored-thread") is None
+
+
+def test_registry_restores_session_from_metadata(mock_settings):
+    registry = ChatSessionRegistry(cleanup=lambda session: None)
+    metadata = SessionMetadata(
+        thread_id="restored-thread",
+        source_urls=["https://example.com/restored"],
+        source_mode="explicit",
+        created_at=1.0,
+        last_accessed_at=2.0,
+        chroma_dir=str(mock_settings.chroma_dir),
+        isolated_chroma=True,
+    )
+
+    session = registry.restore(
+        graph="graph",
+        settings=mock_settings,
+        metadata=metadata,
+    )
+
+    assert session.thread_id == "restored-thread"
+    assert session.graph == "graph"
+    assert session.source_urls == ["https://example.com/restored"]
+    assert session.created_at == 1.0
+    assert session.last_accessed_at == 2.0
+    assert session.isolated_chroma is True
+    assert registry.get("restored-thread", touch=False) is session
+
+
+def test_sqlite_storage_writes_schema_version(tmp_path):
+    db_path = tmp_path / "sessions.sqlite3"
+    SQLiteStorage(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        version = connection.execute(
+            "SELECT version FROM schema_version WHERE id = 1",
+        ).fetchone()[0]
+
+    assert version == SQLiteStorage.SCHEMA_VERSION
+
+
+def test_sqlite_memory_saver_restores_graph_state_after_reopen(tmp_path):
+    builder = StateGraph(CounterState)
+    builder.add_node("increment", lambda state: {"value": state["value"] + 1})
+    builder.add_edge(START, "increment")
+    builder.add_edge("increment", END)
+
+    db_path = tmp_path / "checkpoints.sqlite3"
+    config = {"configurable": {"thread_id": "checkpoint-thread"}}
+
+    first_saver = SQLiteMemorySaver(db_path)
+    first_graph = builder.compile(checkpointer=first_saver)
+    assert first_graph.invoke({"value": 1}, config) == {"value": 2}
+
+    second_saver = SQLiteMemorySaver(db_path)
+    second_graph = builder.compile(checkpointer=second_saver)
+
+    assert second_graph.get_state(config).values == {"value": 2}

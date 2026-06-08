@@ -1,0 +1,6 @@
+# Staging overlay selected by RAG_ENV=staging.
+# Set API_KEY and DASHSCOPE_API_KEY in the environment.
+
+api_key: ""
+cors_allow_origins: []
+web_search_enabled: true

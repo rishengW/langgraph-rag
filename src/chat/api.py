@@ -22,12 +22,15 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import HumanMessage
 
+from ..api.auth import require_api_key
 from ..api.dependencies import (
+    chat_readiness_response,
+    configure_cors,
     get_chat_graph_factory_lock,
     get_config,
     get_metrics,
@@ -44,14 +47,19 @@ from ..api.models import (
     StartChatResponse,
 )
 from ..api.streaming import format_sse
-from ..config import Settings, load_settings
+from ..config import Settings, load_cors_allow_origins, load_settings
 from ..core.web_search import discover_urls_from_web
 from ..errors import RAGError, ResourceNotFoundError, RetrieverError
 from ..graph.executor import GraphExecutor
 from ..graph.metrics import MetricsCollector
 from ..utils.urls import parse_url_input
 from .graph import build_chat_graph
-from .sessions import ChatSessionRegistry, _settings_for_session
+from ..sessions import (
+    ChatSessionRegistry,
+    SQLiteMemorySaver,
+    SQLiteStorage,
+    _settings_for_session,
+)
 
 
 logging.basicConfig(level=logging.INFO)
@@ -90,6 +98,51 @@ def _serialize_messages(messages) -> list[HistoryTurn]:
     return turns
 
 
+def _session_database_paths(settings: Settings) -> tuple[Path, Path]:
+    base_dir = Path(settings.chroma_dir) / "chat"
+    return base_dir / "sessions.sqlite3", base_dir / "checkpoints.sqlite3"
+
+
+def _build_chat_graph_for_session(
+    settings: Settings,
+    rebuild_vectorstore: bool,
+    checkpointer,
+):
+    try:
+        return build_chat_graph(
+            settings,
+            rebuild_vectorstore=rebuild_vectorstore,
+            checkpointer=checkpointer,
+        )
+    except TypeError:
+        return build_chat_graph(settings, rebuild_vectorstore=rebuild_vectorstore)
+
+
+def _restore_persisted_sessions(
+    registry: ChatSessionRegistry,
+    storage: SQLiteStorage,
+    base_settings: Settings,
+    checkpointer,
+) -> int:
+    restored = 0
+    for metadata in storage.list_metadata():
+        urls = list(metadata.source_urls) or list(base_settings.source_urls)
+        settings = _settings_for_session(
+            base_settings,
+            urls,
+            metadata.thread_id,
+            metadata.isolated_chroma,
+        )
+        graph = _build_chat_graph_for_session(
+            settings,
+            rebuild_vectorstore=False,
+            checkpointer=checkpointer,
+        )
+        registry.restore(graph=graph, settings=settings, metadata=metadata)
+        restored += 1
+    return restored
+
+
 # ---- app factory ----------------------------------------------------------
 
 
@@ -107,8 +160,25 @@ def create_app(
                 if config_file is None
                 else load_settings(config_file=config_file)
             )
-            initialize_chat_app_state(app, settings=settings)
-            logger.info("Chat app ready (no graph built yet; graphs are per-session)")
+            metadata_path, checkpoint_path = _session_database_paths(settings)
+            storage = SQLiteStorage(metadata_path)
+            registry = ChatSessionRegistry(storage=storage)
+            checkpointer = SQLiteMemorySaver(checkpoint_path)
+            initialize_chat_app_state(
+                app,
+                settings=settings,
+                session_registry=registry,
+            )
+            app.state.chat_session_storage = storage
+            app.state.chat_checkpointer = checkpointer
+            restored = await asyncio.to_thread(
+                _restore_persisted_sessions,
+                registry,
+                storage,
+                settings,
+                checkpointer,
+            )
+            logger.info("Chat app ready with %d restored session(s)", restored)
         except Exception as exc:
             logger.error(f"Failed to initialize chat app: {exc}")
             raise
@@ -122,6 +192,12 @@ def create_app(
     )
     # REFACTOR: Register typed RAG error responses for this app instance.
     register_error_handlers(app)
+    cors_origins = (
+        load_cors_allow_origins()
+        if config_file is None
+        else load_cors_allow_origins(config_file)
+    )
+    configure_cors(app, cors_origins)
     initialize_chat_app_state(app)
 
     # ---- static UI ------------------------------------------------------
@@ -145,8 +221,18 @@ def create_app(
             "sessions": len(registry) if registry is not None else 0,
         }
 
+    @app.get("/ready")
+    async def ready(request: Request):
+        """Readiness check endpoint with only local state checks."""
+
+        return chat_readiness_response(request)
+
     # ---- chat endpoints -------------------------------------------------
-    @app.post("/chat", response_model=StartChatResponse)
+    @app.post(
+        "/chat",
+        response_model=StartChatResponse,
+        dependencies=[Depends(require_api_key)],
+    )
     async def start_chat(
         request: StartChatRequest,
         settings: Settings = Depends(get_config),
@@ -200,9 +286,10 @@ def create_app(
         try:
             async with graph_factory_lock:
                 graph = await asyncio.to_thread(
-                    build_chat_graph,
+                    _build_chat_graph_for_session,
                     session_settings,
                     isolated,  # rebuild_vectorstore for fresh isolated stores
+                    getattr(app.state, "chat_checkpointer", None),
                 )
         except RAGError:
             raise
@@ -229,7 +316,11 @@ def create_app(
             source_note=note,
         )
 
-    @app.post("/chat/{thread_id}/message", response_model=MessageResponse)
+    @app.post(
+        "/chat/{thread_id}/message",
+        response_model=MessageResponse,
+        dependencies=[Depends(require_api_key)],
+    )
     async def post_message(
         thread_id: str,
         request: MessageRequest,
@@ -287,7 +378,10 @@ def create_app(
 
         return MessageResponse(thread_id=thread_id, answer=answer)
 
-    @app.post("/chat/{thread_id}/message/stream")
+    @app.post(
+        "/chat/{thread_id}/message/stream",
+        dependencies=[Depends(require_api_key)],
+    )
     async def post_message_stream(
         thread_id: str,
         request: MessageRequest,
@@ -330,7 +424,7 @@ def create_app(
             source_mode=session.source_mode,
         )
 
-    @app.delete("/chat/{thread_id}")
+    @app.delete("/chat/{thread_id}", dependencies=[Depends(require_api_key)])
     async def delete_chat(
         thread_id: str,
         sessions: ChatSessionRegistry = Depends(get_session_registry),

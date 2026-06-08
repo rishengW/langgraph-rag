@@ -4,7 +4,7 @@ Endpoints
 ---------
 
 * ``POST /chat``  — start a new chat session. Optionally accepts
-  ``urls`` (explicit sources) or triggers a one-time web search.
+  ``urls`` (explicit sources) or triggers web search.
   Returns a ``thread_id`` the client uses for subsequent turns.
 * ``POST /chat/{thread_id}/message`` — send the next user turn,
   receive the assistant's reply.
@@ -55,6 +55,7 @@ from ..graph.metrics import MetricsCollector
 from ..utils.urls import parse_url_input
 from .graph import build_chat_graph
 from ..sessions import (
+    ChatSession,
     ChatSessionRegistry,
     SQLiteMemorySaver,
     SQLiteStorage,
@@ -141,6 +142,81 @@ def _restore_persisted_sessions(
         registry.restore(graph=graph, settings=settings, metadata=metadata)
         restored += 1
     return restored
+
+
+def _source_refresh_allowed(session: ChatSession, settings: Settings) -> bool:
+    """Return whether chat should refresh this session from web search."""
+
+    return session.source_mode != "explicit" and settings.web_search_enabled
+
+
+async def _refresh_session_sources_from_web(
+    *,
+    session: ChatSession,
+    query: str,
+    settings: Settings,
+    sessions: ChatSessionRegistry,
+    graph_factory_lock: asyncio.Lock,
+    checkpointer,
+) -> ChatSession:
+    """Refresh a chat session's retriever sources from web search for a turn."""
+
+    if not _source_refresh_allowed(session, settings):
+        return session
+
+    try:
+        urls = discover_urls_from_web(query, settings)
+    except Exception as exc:
+        logger.warning(
+            "Web search failed during chat turn for thread %s: %s",
+            session.thread_id,
+            exc,
+        )
+        return session
+
+    if not urls:
+        logger.info(
+            "Web search returned no usable URLs for chat thread %s",
+            session.thread_id,
+        )
+        return session
+
+    if session.source_mode == "web_search" and urls == session.source_urls:
+        return session
+
+    session_settings = _settings_for_session(
+        settings,
+        urls,
+        session.thread_id,
+        isolated=True,
+    )
+    try:
+        async with graph_factory_lock:
+            graph = await asyncio.to_thread(
+                _build_chat_graph_for_session,
+                session_settings,
+                True,
+                checkpointer,
+            )
+    except RAGError:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "Failed to rebuild chat graph from web search for thread %s: %s",
+            session.thread_id,
+            exc,
+            exc_info=True,
+        )
+        return session
+
+    return sessions.update_sources(
+        session.thread_id,
+        graph=graph,
+        settings=session_settings,
+        source_urls=urls,
+        source_mode="web_search",
+        isolated_chroma=True,
+    ) or session
 
 
 # ---- app factory ----------------------------------------------------------
@@ -243,11 +319,9 @@ def create_app(
         discovered_from_search = False
         search_error: str | None = None
 
-        if urls is None and request.web_search and settings.web_search_enabled:
+        if urls is None and settings.web_search_enabled:
             seed = (request.seed_question or "").strip()
-            if not seed:
-                search_error = "web_search requires seed_question or explicit urls"
-            else:
+            if seed:
                 try:
                     found = discover_urls_from_web(seed, settings)
                     if found:
@@ -324,11 +398,23 @@ def create_app(
     async def post_message(
         thread_id: str,
         request: MessageRequest,
+        fastapi_request: Request,
+        settings: Settings = Depends(get_config),
         sessions: ChatSessionRegistry = Depends(get_session_registry),
+        graph_factory_lock: asyncio.Lock = Depends(get_chat_graph_factory_lock),
     ) -> MessageResponse:
         session = sessions.get(thread_id)
         if session is None:
             raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+
+        session = await _refresh_session_sources_from_web(
+            session=session,
+            query=request.message,
+            settings=settings,
+            sessions=sessions,
+            graph_factory_lock=graph_factory_lock,
+            checkpointer=getattr(fastapi_request.app.state, "chat_checkpointer", None),
+        )
 
         config = {"configurable": {"thread_id": thread_id}}
         inputs = {"messages": [HumanMessage(content=request.message)]}
@@ -385,12 +471,24 @@ def create_app(
     async def post_message_stream(
         thread_id: str,
         request: MessageRequest,
+        fastapi_request: Request,
+        settings: Settings = Depends(get_config),
         sessions: ChatSessionRegistry = Depends(get_session_registry),
+        graph_factory_lock: asyncio.Lock = Depends(get_chat_graph_factory_lock),
         metrics: MetricsCollector = Depends(get_metrics),
     ) -> StreamingResponse:
         session = sessions.get(thread_id)
         if session is None:
             raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+
+        session = await _refresh_session_sources_from_web(
+            session=session,
+            query=request.message,
+            settings=settings,
+            sessions=sessions,
+            graph_factory_lock=graph_factory_lock,
+            checkpointer=getattr(fastapi_request.app.state, "chat_checkpointer", None),
+        )
 
         config = {"configurable": {"thread_id": thread_id}}
         inputs = {"messages": [HumanMessage(content=request.message)]}

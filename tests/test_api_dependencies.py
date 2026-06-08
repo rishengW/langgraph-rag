@@ -149,3 +149,77 @@ def test_chat_app_uses_app_state_session_registry(monkeypatch, isolated_settings
     session_settings, rebuild = built[0]
     assert session_settings.source_urls == ["https://chat-default.test"]
     assert rebuild is False
+
+
+def test_chat_web_search_ignores_request_toggle_and_refreshes_turns(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(
+        source_urls=["https://chat-default.test"],
+        web_search_enabled=True,
+    )
+    searches = []
+    built = []
+
+    class FakeGraph:
+        def __init__(self, source_urls):
+            self.source_urls = list(source_urls)
+            self.messages = []
+
+        def get_state(self, config):
+            return SimpleNamespace(values={"messages": list(self.messages)})
+
+        def invoke(self, inputs, config):
+            self.messages.extend(inputs["messages"])
+            self.messages.append(AIMessage(content=f"answer from {self.source_urls[-1]}"))
+            return {"messages": list(self.messages)}
+
+    def fake_discover_urls_from_web(question, search_settings):
+        searches.append((question, list(search_settings.source_urls)))
+        if question == "seed question":
+            return ["https://seed.test"]
+        if question == "fresh question":
+            return ["https://fresh.test"]
+        return []
+
+    def fake_build_chat_graph(session_settings, rebuild_vectorstore=False, checkpointer=None):
+        built.append((session_settings, rebuild_vectorstore, checkpointer))
+        return FakeGraph(session_settings.source_urls)
+
+    monkeypatch.setattr(chat_api, "load_settings", lambda: settings)
+    monkeypatch.setattr(chat_api, "discover_urls_from_web", fake_discover_urls_from_web)
+    monkeypatch.setattr(chat_api, "build_chat_graph", fake_build_chat_graph)
+
+    app = chat_api.create_app()
+    with TestClient(app) as client:
+        start = client.post(
+            "/chat",
+            json={"seed_question": "seed question", "web_search": False},
+        )
+        assert start.status_code == 200
+        start_body = start.json()
+        thread_id = start_body["thread_id"]
+
+        assert start_body["source_mode"] == "web_search"
+        assert start_body["source_urls"] == ["https://seed.test"]
+
+        message = client.post(
+            f"/chat/{thread_id}/message",
+            json={"message": "fresh question"},
+        )
+        assert message.status_code == 200
+        assert message.json()["answer"] == "answer from https://fresh.test"
+
+        history = client.get(f"/chat/{thread_id}/history")
+        assert history.status_code == 200
+        assert history.json()["source_mode"] == "web_search"
+        assert history.json()["source_urls"] == ["https://fresh.test"]
+
+    assert [call[0] for call in searches] == ["seed question", "fresh question"]
+    assert searches[1][1] == ["https://chat-default.test"]
+    assert [list(item[0].source_urls) for item in built] == [
+        ["https://seed.test"],
+        ["https://fresh.test"],
+    ]
+    assert [item[1] for item in built] == [True, True]

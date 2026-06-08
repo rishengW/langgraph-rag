@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.tools.retriever import create_retriever_tool
 
 from ..config import Settings
-from ..utils.retry import remove_tree_with_retry
+from ..utils.retry import call_with_retry, remove_tree_with_retry
 from .document_loader import load_and_split_documents
 from .embeddings import build_embeddings
 from .retriever import Retriever
@@ -27,10 +28,19 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 EMBEDDING_CONFIG_FILENAME = "embedding_config.json"
+RESERVED_CHROMA_CHILD_DIRS = {"chat", "web-search"}
 
 
 def _persisted_chroma_exists(chroma_dir: Path) -> bool:
-    return chroma_dir.exists() and any(chroma_dir.iterdir())
+    if not chroma_dir.exists():
+        return False
+    if (chroma_dir / "chroma.sqlite3").exists():
+        return True
+    return any(
+        child.name not in RESERVED_CHROMA_CHILD_DIRS
+        and child.name != EMBEDDING_CONFIG_FILENAME
+        for child in chroma_dir.iterdir()
+    )
 
 
 def _embedding_config_path(chroma_dir: Path) -> Path:
@@ -99,14 +109,24 @@ def _release_chroma_system(chroma_dir: Path) -> None:
         logger.debug("Could not import Chroma shared-system client: %s", exc)
         return
 
+    systems = getattr(SharedSystemClient, "_identifier_to_system", None)
+    if not isinstance(systems, dict):
+        logger.debug("Chroma shared-system cache is unavailable; skipping targeted release")
+        return
+
+    lock = getattr(SharedSystemClient, "_refcount_lock", None)
+    refcounts = getattr(SharedSystemClient, "_identifier_to_refcount", None)
+    context = lock if lock is not None else nullcontext()
+
     systems_to_stop = []
-    with SharedSystemClient._refcount_lock:
-        for identifier, system in list(SharedSystemClient._identifier_to_system.items()):
+    with context:
+        for identifier, system in list(systems.items()):
             persist_directory = getattr(system.settings, "persist_directory", None)
             if _paths_match(identifier, chroma_dir) or _paths_match(persist_directory, chroma_dir):
                 systems_to_stop.append((identifier, system))
-                SharedSystemClient._identifier_to_system.pop(identifier, None)
-                SharedSystemClient._identifier_to_refcount.pop(identifier, None)
+                systems.pop(identifier, None)
+                if isinstance(refcounts, dict):
+                    refcounts.pop(identifier, None)
 
     for identifier, system in systems_to_stop:
         try:
@@ -125,6 +145,33 @@ def _rmtree_with_retry(path: Path, max_retries: int = 10, delay: float = 1.0) ->
         delay=delay,
         operation_logger=logger,
     )
+
+
+def _unlink_with_retry(path: Path, max_retries: int = 10, delay: float = 1.0) -> None:
+    """Remove a file with retries for Windows file locking."""
+
+    call_with_retry(
+        lambda: path.unlink(missing_ok=True),
+        max_retries=max_retries,
+        base_delay=delay,
+        retryable=lambda exc: isinstance(exc, (PermissionError, OSError)),
+        log_label=f"remove {path}",
+    )
+
+
+def _clear_chroma_store(chroma_dir: Path) -> None:
+    """Clear Chroma files while preserving nested chat/web-search stores."""
+
+    if not chroma_dir.exists():
+        return
+
+    for child in list(chroma_dir.iterdir()):
+        if child.name in RESERVED_CHROMA_CHILD_DIRS:
+            continue
+        if child.is_dir():
+            _rmtree_with_retry(child)
+        else:
+            _unlink_with_retry(child)
 
 
 class ChromaRetriever:
@@ -200,17 +247,26 @@ class ChromaRetriever:
 
         if rebuild and settings.chroma_dir.exists():
             _release_chroma_system(settings.chroma_dir)
-            _rmtree_with_retry(settings.chroma_dir)
+            _clear_chroma_store(settings.chroma_dir)
 
         embeddings = self._embeddings or build_embeddings(settings)
 
         if _persisted_chroma_exists(settings.chroma_dir):
-            vectorstore = self._chroma_cls(
-                collection_name=settings.collection_name,
-                persist_directory=str(settings.chroma_dir),
-                embedding_function=embeddings,
-            )
-            return vectorstore.as_retriever()
+            try:
+                vectorstore = self._chroma_cls(
+                    collection_name=settings.collection_name,
+                    persist_directory=str(settings.chroma_dir),
+                    embedding_function=embeddings,
+                )
+                return vectorstore.as_retriever()
+            except Exception as exc:
+                logger.warning(
+                    "Persisted Chroma store at %s could not be loaded; rebuilding: %s",
+                    settings.chroma_dir,
+                    exc,
+                )
+                _release_chroma_system(settings.chroma_dir)
+                _clear_chroma_store(settings.chroma_dir)
 
         doc_splits = load_and_split_documents(
             settings.source_urls,

@@ -10,7 +10,10 @@ from __future__ import annotations
 from .._compat import warn_deprecated_import
 from .config import Settings
 from ..web_search import (
+    BaiduVerificationError,
     BaiduWebSearch,
+    BingVerificationError,
+    BingWebSearch,
     DuckDuckGoWebSearch,
     WebSearchProvider,
     discover_urls_from_web,
@@ -22,8 +25,14 @@ from ..web_search.baidu import (
     is_baidu_result_redirect as _is_baidu_result_redirect,
     is_baidu_url as _is_baidu_url,
 )
+from ..web_search.bing import (
+    candidate_bing_hrefs as _candidate_bing_hrefs,
+    normalize_bing_market as _normalize_bing_market,
+    unwrap_bing_redirect as _unwrap_bing_redirect,
+)
 from ..web_search.common import (
     BAIDU_BASE_URL,
+    BING_BASE_URL,
     DUCKDUCKGO_BASE_URL,
     NOISE_HOSTNAMES,
     SEARCH_USER_AGENT,
@@ -69,6 +78,13 @@ def _discover_urls_from_duckduckgo(question: str, settings: Settings) -> list[st
     ).search(question, settings.web_search_max_results)
 
 
+def _discover_urls_from_bing(question: str, settings: Settings) -> list[str]:
+    return BingWebSearch(
+        market=_normalize_bing_market(settings.web_search_region),
+        verify_ssl=settings.web_search_verify_ssl,
+    ).search(question, settings.web_search_max_results)
+
+
 def _resolve_baidu_redirect(url: str, settings: Settings) -> str:
     return BaiduWebSearch(verify_ssl=settings.web_search_verify_ssl).resolve_redirect(url)
 
@@ -86,6 +102,10 @@ def _select_top_urls(urls: list[str], settings: Settings) -> list[str]:
 
 __all__ = [
     "BAIDU_BASE_URL",
+    "BaiduVerificationError",
+    "BING_BASE_URL",
+    "BingVerificationError",
+    "BingWebSearch",
     "DUCKDUCKGO_BASE_URL",
     "NOISE_HOSTNAMES",
     "SEARCH_USER_AGENT",
@@ -93,19 +113,23 @@ __all__ = [
     "DuckDuckGoWebSearch",
     "WebSearchProvider",
     "_candidate_baidu_hrefs",
+    "_candidate_bing_hrefs",
     "_ddgs_search",
     "_discover_urls_from_baidu",
+    "_discover_urls_from_bing",
     "_discover_urls_from_duckduckgo",
     "_duckduckgo_html_search",
     "_is_baidu_result_redirect",
     "_is_baidu_url",
     "_is_noise_url",
     "_load_ddgs",
+    "_normalize_bing_market",
     "_normalize_urls",
     "_resolve_baidu_redirect",
     "_search_request",
     "_select_top_urls",
     "_unwrap_duckduckgo_redirect",
+    "_unwrap_bing_redirect",
     "_urlopen_context",
     "discover_urls_from_web",
     "get_search_provider",

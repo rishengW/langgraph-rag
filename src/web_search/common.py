@@ -7,6 +7,7 @@ from urllib.request import Request
 
 
 BAIDU_BASE_URL = "https://www.baidu.com"
+BING_BASE_URL = "https://cn.bing.com"
 DUCKDUCKGO_BASE_URL = "https://duckduckgo.com"
 SEARCH_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -64,6 +65,9 @@ NOISE_HOSTNAMES = {
     "wenku.baidu.com",
     "passport.baidu.com",
     "login.baidu.com",
+    "bing.com",
+    "www.bing.com",
+    "cn.bing.com",
 }
 
 

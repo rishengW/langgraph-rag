@@ -39,9 +39,9 @@ class Settings:
     min_keyword_matches: int = 2
     max_rewrites: int = 2
     web_search_enabled: bool = True
-    web_search_provider: str = "baidu"
+    web_search_provider: str = "bing"
     web_search_max_results: int = 20
-    web_search_top_k: int = 3
+    web_search_top_k: int = 8
     web_search_region: str = "wt-wt"
     web_search_timelimit: str | None = None
     web_search_verify_ssl: bool = True

@@ -109,7 +109,7 @@ EMBEDDING_MODEL=text-embedding-v4
 EMBEDDING_DIMENSION=1024
 CHROMA_DIR=.chroma
 WEB_SEARCH_ENABLED=true
-WEB_SEARCH_PROVIDER=baidu
+WEB_SEARCH_PROVIDER=bing
 WEB_SEARCH_TOP_K=3
 ```
 
@@ -188,7 +188,8 @@ Use the terminal REPL:
 python -m src.chat.main chat --urls "https://example.com,https://another.com"
 ```
 
-Or seed a chat from a one-time web search:
+Or seed a chat with an initial web search. Later turns refresh web-search
+sources automatically unless explicit URLs were provided:
 
 ```powershell
 python -m src.chat.main chat --seed-question "Qwen fine-tuning best practices"
@@ -296,4 +297,4 @@ Remaining work called out in `COMPANY_READINESS_GAPS.md` includes dependency/sec
 - This project still calls DashScope/Tongyi for the default LLM and embedding model. It runs locally, but the model calls are remote unless you replace those integrations.
 - The default chat model is `qwen-plus`.
 - The default embedding model is `text-embedding-v4`; existing Chroma stores with incompatible embedding metadata are rebuilt automatically.
-- Web search defaults to Baidu because it is often reachable in environments where DuckDuckGo is not. Set `WEB_SEARCH_PROVIDER=duckduckgo` if preferred.
+- Web search defaults to Bing, then falls back through Baidu and DuckDuckGo. If Baidu returns a verification/captcha page, discovery temporarily skips Baidu during the fallback pass. Set `WEB_SEARCH_PROVIDER=baidu` or `WEB_SEARCH_PROVIDER=duckduckgo` if preferred.

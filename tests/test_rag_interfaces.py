@@ -185,6 +185,83 @@ def test_chroma_retriever_tool_uses_legacy_name_and_description(monkeypatch, moc
     assert "1 URL(s)" in str(created["description"])
 
 
+def test_release_chroma_system_handles_cache_without_refcount_lock(monkeypatch, tmp_path):
+    shared_module = ModuleType("chromadb.api.shared_system_client")
+    stopped: list[str] = []
+    chroma_dir = tmp_path / "chroma"
+
+    class FakeSettings:
+        persist_directory = str(chroma_dir)
+
+    class FakeSystem:
+        settings = FakeSettings()
+
+        def stop(self) -> None:
+            stopped.append("system")
+
+    class FakeSharedSystemClient:
+        _identifier_to_system = {
+            str(chroma_dir): FakeSystem(),
+        }
+
+    shared_module.SharedSystemClient = FakeSharedSystemClient
+    monkeypatch.setitem(sys.modules, "chromadb.api.shared_system_client", shared_module)
+
+    chroma_module._release_chroma_system(chroma_dir)
+
+    assert stopped == ["system"]
+    assert FakeSharedSystemClient._identifier_to_system == {}
+
+
+def test_chroma_retriever_rebuilds_incompatible_persisted_store(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    chroma_dir = tmp_path / "chroma"
+    chroma_dir.mkdir()
+    (chroma_dir / "chroma.sqlite3").write_text("old schema", encoding="utf-8")
+    (chroma_dir / "embedding_config.json").write_text(
+        '{"embedding_dimension": 1024, "embedding_model": "text-embedding-v4"}',
+        encoding="utf-8",
+    )
+    (chroma_dir / "chat").mkdir()
+    (chroma_dir / "chat" / "sessions.sqlite3").write_text("keep", encoding="utf-8")
+
+    settings = isolated_settings(chroma_dir=chroma_dir)
+    loaded_documents: list[list[str]] = []
+
+    class FreshVectorstore:
+        def as_retriever(self):
+            return "fresh-retriever"
+
+    class IncompatibleChroma:
+        def __init__(self, **kwargs):
+            raise KeyError("_type")
+
+        @classmethod
+        def from_documents(cls, documents, **kwargs):
+            loaded_documents.append([doc.page_content for doc in documents])
+            return FreshVectorstore()
+
+    monkeypatch.setattr(
+        chroma_module,
+        "load_and_split_documents",
+        lambda *args, **kwargs: [Document(page_content="fresh document")],
+    )
+
+    provider = ChromaRetriever(
+        settings,
+        embeddings=object(),
+        chroma_cls=IncompatibleChroma,
+    )
+
+    assert provider.as_langchain_retriever() == "fresh-retriever"
+    assert loaded_documents == [["fresh document"]]
+    assert not (chroma_dir / "chroma.sqlite3").exists()
+    assert (chroma_dir / "chat" / "sessions.sqlite3").read_text(encoding="utf-8") == "keep"
+
+
 def test_build_retriever_tool_accepts_retriever_protocol():
     class FakeProvider:
         def __init__(self) -> None:

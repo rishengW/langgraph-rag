@@ -12,12 +12,15 @@ class StartChatRequest(BaseModel):
         None,
         description=(
             "Comma-separated URLs or a URL list to use as RAG sources. "
-            "If empty and ``web_search`` is true, a one-time search runs."
+            "If empty, chat uses web search whenever it has a question to search."
         ),
     )
     web_search: bool = Field(
         True,
-        description="If true and URLs are empty, discover sources via web search",
+        description=(
+            "Deprecated compatibility flag. Chat web search is controlled by "
+            "server settings and is always attempted when URLs are not explicit."
+        ),
     )
     seed_question: Optional[str] = Field(
         None,
@@ -65,4 +68,3 @@ __all__ = [
     "StartChatRequest",
     "StartChatResponse",
 ]
-

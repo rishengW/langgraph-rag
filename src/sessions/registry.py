@@ -174,6 +174,41 @@ class ChatSessionRegistry:
             self._save_metadata(session_to_save)
         return session
 
+    def update_sources(
+        self,
+        thread_id: str,
+        *,
+        graph: Any,
+        settings: Settings,
+        source_urls: list[str],
+        source_mode: str,
+        isolated_chroma: bool,
+    ) -> ChatSession | None:
+        """Replace one session's graph and source metadata after source refresh."""
+
+        session_to_save: ChatSession | None = None
+        with self._lock:
+            session = self._sessions.get(thread_id)
+            if session is None:
+                return None
+
+            session.graph = graph
+            session.settings = settings
+            session.source_urls = list(source_urls)
+            session.source_mode = source_mode
+            session.isolated_chroma = isolated_chroma
+            session.touch(self._time())
+            session_to_save = session
+
+        self._save_metadata(session_to_save)
+        logger.info(
+            "Updated chat session %s with %d source URL(s) (mode=%s)",
+            thread_id,
+            len(source_urls),
+            source_mode,
+        )
+        return session_to_save
+
     def delete(self, thread_id: str) -> bool:
         with self._lock:
             session = self._sessions.pop(thread_id, None)

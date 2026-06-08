@@ -188,10 +188,11 @@ def grade_documents_factory(
         keyword_matches = sum(1 for t in question_tokens if t in retrieved_lower) if question_tokens else 0
 
         logger.info("Grader output: score=%s; explanation=%s", score, explanation)
+        required_keyword_matches = max(1, settings.min_keyword_matches)
         logger.info(
             "Keyword matches: %s (threshold=%s)",
             keyword_matches,
-            settings.min_keyword_matches,
+            required_keyword_matches,
         )
         logger.info("Rewrite count: %s/%s", rewrite_count, settings.max_rewrites)
 
@@ -203,7 +204,7 @@ def grade_documents_factory(
             logger.info("DECISION: SKIP REWRITE (LLM GRADER UNAVAILABLE)")
             return "generate"
 
-        if settings.allow_low_relevance_generate and keyword_matches >= settings.min_keyword_matches:
+        if settings.allow_low_relevance_generate and keyword_matches >= required_keyword_matches:
             logger.info("DECISION: DOCS MAYBE RELEVANT (FORCED GENERATE BY SETTINGS)")
             return "generate"
 

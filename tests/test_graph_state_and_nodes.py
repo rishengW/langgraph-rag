@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableLambda
 
 from src.chat.state import ChatState
 from src.core.state import AgentState
+from src.graph.nodes import common as common_nodes
 from src.graph.nodes import (
     chat_question_resolver,
     condense_question_factory,
     format_history,
+    grade_documents_factory,
     latest_user_index,
     qa_question_resolver,
 )
@@ -80,4 +85,38 @@ def test_condense_first_turn_does_not_call_llm(mock_settings):
         "current_question_index": 0,
         "rewrite_count": 0,
     }
+
+
+def test_low_relevance_generate_requires_at_least_one_keyword_match(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(
+        allow_low_relevance_generate=True,
+        min_keyword_matches=0,
+        max_rewrites=2,
+    )
+
+    class FakeModel:
+        def with_structured_output(self, _schema):
+            return RunnableLambda(
+                lambda _payload: SimpleNamespace(
+                    binary_score="no",
+                    explanation="irrelevant",
+                )
+            )
+
+    monkeypatch.setattr(common_nodes, "new_chat_model", lambda _settings: FakeModel())
+
+    route = grade_documents_factory(settings)(
+        {
+            "messages": [
+                HumanMessage(content="DeepSeek latest"),
+                AIMessage(content="Qwen fine tuning guide"),
+            ],
+            "rewrite_count": 0,
+        }
+    )
+
+    assert route == "rewrite"
 

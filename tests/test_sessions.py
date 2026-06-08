@@ -282,6 +282,49 @@ def test_registry_optionally_persists_session_metadata(mock_settings):
     assert storage.load("stored-thread") is None
 
 
+def test_registry_update_sources_replaces_graph_and_persists_metadata(mock_settings):
+    storage = InMemoryStorage()
+    registry = ChatSessionRegistry(
+        cleanup=lambda session: None,
+        storage=storage,
+    )
+    session = registry.create(
+        graph="old-graph",
+        settings=mock_settings,
+        source_urls=["https://example.com/old"],
+        source_mode="defaults",
+        thread_id="refresh-thread",
+    )
+    refreshed_settings = settings_for_session(
+        mock_settings,
+        ["https://example.com/fresh"],
+        "refresh-thread",
+        isolated=True,
+    )
+
+    refreshed = registry.update_sources(
+        "refresh-thread",
+        graph="new-graph",
+        settings=refreshed_settings,
+        source_urls=refreshed_settings.source_urls,
+        source_mode="web_search",
+        isolated_chroma=True,
+    )
+
+    assert refreshed is session
+    assert session.graph == "new-graph"
+    assert session.settings is refreshed_settings
+    assert session.source_urls == ["https://example.com/fresh"]
+    assert session.source_mode == "web_search"
+    assert session.isolated_chroma is True
+
+    saved = storage.load("refresh-thread")
+    assert saved is not None
+    assert saved.source_urls == ["https://example.com/fresh"]
+    assert saved.source_mode == "web_search"
+    assert saved.isolated_chroma is True
+
+
 def test_registry_restores_session_from_metadata(mock_settings):
     registry = ChatSessionRegistry(cleanup=lambda session: None)
     metadata = SessionMetadata(

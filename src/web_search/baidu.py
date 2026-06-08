@@ -19,6 +19,34 @@ from .common import (
 logger = logging.getLogger(__name__)
 
 
+class BaiduVerificationError(RuntimeError):
+    """Raised when Baidu returns an anti-bot verification page instead of results."""
+
+
+def is_baidu_verification_url(url: str) -> bool:
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    path = parsed.path.lower()
+    return (
+        hostname in {"wappass.baidu.com", "passport.baidu.com"}
+        or "captcha" in path
+        or "verify" in path
+    )
+
+
+def is_baidu_verification_page(html: str, final_url: str) -> bool:
+    if is_baidu_verification_url(final_url):
+        return True
+    lowered = html.lower()
+    markers = (
+        "wappass.baidu.com/static/captcha",
+        "百度安全验证",
+        "baidu security verification",
+        "captcha",
+    )
+    return any(marker in lowered for marker in markers)
+
+
 @dataclass(frozen=True)
 class BaiduWebSearch:
     """Baidu HTML search provider."""
@@ -38,11 +66,30 @@ class BaiduWebSearch:
             timeout=10,
             context=urlopen_context(self.verify_ssl),
         ) as response:
+            final_url = response.geturl()
             encoding = response.headers.get_content_charset() or "utf-8"
             html = response.read().decode(encoding, errors="replace")
 
+        if is_baidu_verification_page(html, final_url):
+            raise BaiduVerificationError(
+                "Baidu returned a verification/captcha page; "
+                "falling back to another search provider is required."
+            )
+
+        soup = BeautifulSoup(html, "html.parser")
+        hrefs = candidate_baidu_hrefs(soup)
+        if not hrefs:
+            title = soup.title.string.strip() if soup.title and soup.title.string else ""
+            logger.warning(
+                "Baidu returned no parseable result links "
+                "(final_url=%s, title=%r, html_bytes=%s)",
+                final_url,
+                title[:120],
+                len(html),
+            )
+
         urls: list[str] = []
-        for href in candidate_baidu_hrefs(BeautifulSoup(html, "html.parser")):
+        for href in hrefs:
             absolute_url = urljoin(BAIDU_BASE_URL, href)
             if is_baidu_result_redirect(absolute_url):
                 absolute_url = self.resolve_redirect(absolute_url)

@@ -20,7 +20,6 @@ const sessionControls = document.getElementById("sessionControls");
 
 const seedField = document.getElementById("seedQuestion");
 const urlsField = document.getElementById("urls");
-const webSearchCheckbox = document.getElementById("webSearch");
 const startBtn = document.getElementById("startBtn");
 const startError = document.getElementById("startError");
 
@@ -124,20 +123,15 @@ async function apiDelete(path) {
 startBtn.addEventListener("click", async () => {
     const seed = seedField.value.trim();
     const urls = urlsField.value.trim();
-    const webSearch = webSearchCheckbox.checked;
 
-    if (!urls && !seed) {
-        startError.textContent = "Provide a topic or some source URLs.";
-        return;
-    }
     startError.textContent = "";
     startBtn.disabled = true;
-    startBtn.textContent = "Indexing sources...";
+    startBtn.textContent = "Starting chat...";
 
     try {
         const data = await apiPost("/chat", {
             urls: urls || null,
-            web_search: webSearch,
+            web_search: true,
             seed_question: seed || null,
         });
         threadId = data.thread_id;

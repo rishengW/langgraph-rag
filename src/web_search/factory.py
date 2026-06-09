@@ -35,6 +35,8 @@ def get_search_provider(
     if provider_name == "bing":
         return BingWebSearch(
             market=normalize_bing_market(getattr(config, "web_search_region", None)),
+            # REFACTOR: Propagate shared recency setting into Bing.
+            timelimit=getattr(config, "web_search_timelimit", None),
             verify_ssl=verify_ssl,
         )
     if provider_name == "duckduckgo":

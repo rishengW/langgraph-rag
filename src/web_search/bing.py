@@ -24,6 +24,17 @@ class BingVerificationError(RuntimeError):
     """Raised when Bing returns an anti-bot verification page instead of results."""
 
 
+# REFACTOR: Map shared web_search_timelimit values to Bing HTML filters.
+BING_TIMELIMIT_FILTERS = {
+    "d": 'ex1:"ez1"',
+    "day": 'ex1:"ez1"',
+    "w": 'ex1:"ez2"',
+    "week": 'ex1:"ez2"',
+    "m": 'ex1:"ez3"',
+    "month": 'ex1:"ez3"',
+}
+
+
 def normalize_bing_market(region: str | None) -> str:
     """Convert the shared web_search_region setting to a Bing mkt value."""
 
@@ -46,11 +57,40 @@ def bing_set_language(market: str) -> str:
     return (market.split("-", 1)[0] or "zh").lower()
 
 
+def bing_timelimit_filter(timelimit: str | None) -> str | None:
+    """Convert a shared timelimit value to a Bing filter expression."""
+
+    text = (timelimit or "").strip().lower()
+    return BING_TIMELIMIT_FILTERS.get(text)
+
+
+def build_bing_search_url(
+    query: str,
+    max_results: int,
+    market: str,
+    timelimit: str | None = None,
+) -> str:
+    """Build a Bing HTML search URL with optional freshness filtering."""
+
+    params: dict[str, str | int] = {
+        "q": query,
+        "count": max(1, max_results),
+        "mkt": market,
+        "setlang": bing_set_language(market),
+    }
+    freshness_filter = bing_timelimit_filter(timelimit)
+    if freshness_filter:
+        params["filters"] = freshness_filter
+    return f"{BING_BASE_URL}/search?{urlencode(params)}"
+
+
 @dataclass(frozen=True)
 class BingWebSearch:
     """Bing HTML search provider."""
 
     market: str = "zh-CN"
+    # REFACTOR: Optional shared timelimit used for Bing recency filtering.
+    timelimit: str | None = None
     verify_ssl: bool = True
 
     @property
@@ -58,13 +98,12 @@ class BingWebSearch:
         return "bing"
 
     def search(self, query: str, max_results: int = 20) -> list[str]:
-        params = {
-            "q": query,
-            "count": max(1, max_results),
-            "mkt": self.market,
-            "setlang": bing_set_language(self.market),
-        }
-        search_url = f"{BING_BASE_URL}/search?{urlencode(params)}"
+        search_url = build_bing_search_url(
+            query=query,
+            max_results=max_results,
+            market=self.market,
+            timelimit=self.timelimit,
+        )
 
         with urlopen(
             search_request(search_url),

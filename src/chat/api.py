@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
@@ -50,6 +51,7 @@ from ..api.streaming import format_sse
 from ..config import Settings, load_cors_allow_origins, load_settings
 from ..core.web_search import discover_urls_from_web
 from ..errors import RAGError, ResourceNotFoundError, RetrieverError
+from ..graph.builder import build_lightweight_graph
 from ..graph.executor import GraphExecutor
 from ..graph.metrics import MetricsCollector
 from ..utils.urls import parse_url_input
@@ -119,6 +121,19 @@ def _build_chat_graph_for_session(
         return build_chat_graph(settings, rebuild_vectorstore=rebuild_vectorstore)
 
 
+def _build_lightweight_chat_graph_for_session(
+    settings: Settings,
+    checkpointer,
+):
+    """Build the direct web-search chat graph for discovered one-shot URLs."""
+
+    return build_lightweight_graph(
+        settings=settings,
+        mode="chat",
+        checkpointer=checkpointer,
+    )
+
+
 def _restore_persisted_sessions(
     registry: ChatSessionRegistry,
     storage: SQLiteStorage,
@@ -134,11 +149,14 @@ def _restore_persisted_sessions(
             metadata.thread_id,
             metadata.isolated_chroma,
         )
-        graph = _build_chat_graph_for_session(
-            settings,
-            rebuild_vectorstore=False,
-            checkpointer=checkpointer,
-        )
+        if metadata.source_mode == "web_search" and base_settings.web_search_lightweight:
+            graph = _build_lightweight_chat_graph_for_session(settings, checkpointer)
+        else:
+            graph = _build_chat_graph_for_session(
+                settings,
+                rebuild_vectorstore=False,
+                checkpointer=checkpointer,
+            )
         registry.restore(graph=graph, settings=settings, metadata=metadata)
         restored += 1
     return restored
@@ -184,20 +202,32 @@ async def _refresh_session_sources_from_web(
     if session.source_mode == "web_search" and urls == session.source_urls:
         return session
 
-    session_settings = _settings_for_session(
-        settings,
-        urls,
-        session.thread_id,
-        isolated=True,
-    )
+    if settings.web_search_lightweight:
+        session_settings = replace(settings, source_urls=urls)
+        isolated_chroma = False
+    else:
+        session_settings = _settings_for_session(
+            settings,
+            urls,
+            session.thread_id,
+            isolated=True,
+        )
+        isolated_chroma = True
     try:
         async with graph_factory_lock:
-            graph = await asyncio.to_thread(
-                _build_chat_graph_for_session,
-                session_settings,
-                True,
-                checkpointer,
-            )
+            if settings.web_search_lightweight:
+                graph = await asyncio.to_thread(
+                    _build_lightweight_chat_graph_for_session,
+                    session_settings,
+                    checkpointer,
+                )
+            else:
+                graph = await asyncio.to_thread(
+                    _build_chat_graph_for_session,
+                    session_settings,
+                    True,
+                    checkpointer,
+                )
     except RAGError:
         raise
     except Exception as exc:
@@ -215,7 +245,7 @@ async def _refresh_session_sources_from_web(
         settings=session_settings,
         source_urls=urls,
         source_mode="web_search",
-        isolated_chroma=True,
+        isolated_chroma=isolated_chroma,
     ) or session
 
 
@@ -345,6 +375,8 @@ def create_app(
         if urls is None:
             urls = list(settings.source_urls)
             isolated = False
+        elif discovered_from_search and settings.web_search_lightweight:
+            isolated = False
         else:
             isolated = True
 
@@ -353,23 +385,74 @@ def create_app(
         from uuid import uuid4
 
         thread_id = uuid4().hex
-        session_settings = _settings_for_session(settings, urls, thread_id, isolated)
+        session_settings = (
+            replace(settings, source_urls=urls)
+            if discovered_from_search and settings.web_search_lightweight
+            else _settings_for_session(settings, urls, thread_id, isolated)
+        )
+
+        checkpointer = getattr(app.state, "chat_checkpointer", None)
 
         # Build the graph (this triggers indexing if Chroma needs to be created).
         # Run in a thread so we don't block the event loop.
+        build_failed_for_web_search = False
         try:
             async with graph_factory_lock:
-                graph = await asyncio.to_thread(
-                    _build_chat_graph_for_session,
-                    session_settings,
-                    isolated,  # rebuild_vectorstore for fresh isolated stores
-                    getattr(app.state, "chat_checkpointer", None),
-                )
+                if discovered_from_search and settings.web_search_lightweight:
+                    graph = await asyncio.to_thread(
+                        _build_lightweight_chat_graph_for_session,
+                        session_settings,
+                        checkpointer,
+                    )
+                else:
+                    graph = await asyncio.to_thread(
+                        _build_chat_graph_for_session,
+                        session_settings,
+                        isolated,  # rebuild_vectorstore for fresh isolated stores
+                        checkpointer,
+                    )
         except RAGError:
             raise
         except Exception as exc:
-            logger.error(f"Failed to build chat graph: {exc}", exc_info=True)
-            raise RetrieverError(f"Failed to build chat graph: {exc}") from exc
+            # Web-search-discovered URLs are unreliable (timeouts, thin or
+            # junk pages). When they yield no indexable content, fall back to
+            # the configured default sources instead of failing the session.
+            if discovered_from_search:
+                logger.warning(
+                    "Failed to build chat graph from web search sources; "
+                    "falling back to configured source URLs: %s",
+                    exc,
+                    exc_info=True,
+                )
+                build_failed_for_web_search = True
+                urls = list(settings.source_urls)
+                isolated = False
+                source_mode = "defaults"
+                discovered_from_search = False
+                session_settings = _settings_for_session(
+                    settings, urls, thread_id, isolated
+                )
+                try:
+                    async with graph_factory_lock:
+                        graph = await asyncio.to_thread(
+                            _build_chat_graph_for_session,
+                            session_settings,
+                            isolated,
+                            checkpointer,
+                        )
+                except RAGError:
+                    raise
+                except Exception as fallback_exc:
+                    logger.error(
+                        f"Failed to build chat graph: {fallback_exc}",
+                        exc_info=True,
+                    )
+                    raise RetrieverError(
+                        f"Failed to build chat graph: {fallback_exc}"
+                    ) from fallback_exc
+            else:
+                logger.error(f"Failed to build chat graph: {exc}", exc_info=True)
+                raise RetrieverError(f"Failed to build chat graph: {exc}") from exc
 
         session = sessions.create(
             graph=graph,
@@ -377,10 +460,11 @@ def create_app(
             source_urls=urls,
             source_mode=source_mode,
             thread_id=thread_id,
+            isolated_chroma=isolated,
         )
 
         note: str | None = None
-        if search_error and source_mode == "defaults":
+        if source_mode == "defaults" and (search_error or build_failed_for_web_search):
             note = "web_search_failed"
 
         return StartChatResponse(
@@ -399,14 +483,15 @@ def create_app(
         thread_id: str,
         request: MessageRequest,
         fastapi_request: Request,
-        settings: Settings = Depends(get_config),
         sessions: ChatSessionRegistry = Depends(get_session_registry),
-        graph_factory_lock: asyncio.Lock = Depends(get_chat_graph_factory_lock),
     ) -> MessageResponse:
         session = sessions.get(thread_id)
         if session is None:
             raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
 
+        # REFACTOR: Resolve app config after session lookup so typed 404 wins.
+        settings = get_config(fastapi_request)
+        graph_factory_lock = get_chat_graph_factory_lock(fastapi_request)
         session = await _refresh_session_sources_from_web(
             session=session,
             query=request.message,
@@ -472,15 +557,16 @@ def create_app(
         thread_id: str,
         request: MessageRequest,
         fastapi_request: Request,
-        settings: Settings = Depends(get_config),
         sessions: ChatSessionRegistry = Depends(get_session_registry),
-        graph_factory_lock: asyncio.Lock = Depends(get_chat_graph_factory_lock),
         metrics: MetricsCollector = Depends(get_metrics),
     ) -> StreamingResponse:
         session = sessions.get(thread_id)
         if session is None:
             raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
 
+        # REFACTOR: Resolve app config after session lookup so typed 404 wins.
+        settings = get_config(fastapi_request)
+        graph_factory_lock = get_chat_graph_factory_lock(fastapi_request)
         session = await _refresh_session_sources_from_web(
             session=session,
             query=request.message,

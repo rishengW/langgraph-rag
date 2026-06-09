@@ -27,11 +27,22 @@ max_rewrites: 2
 web_search_enabled: true
 web_search_provider: bing
 web_search_max_results: 20
-web_search_top_k: 3
+# REFACTOR: Canonical top-ranked search URLs to fetch before indexing.
+web_search_top_k: 6
 web_search_region: wt-wt
 web_search_timelimit: null
 web_search_verify_ssl: true
+web_search_lightweight: true
+web_search_max_page_tokens: 8000
 page_load_timeout: 15
+page_load_max_concurrency: 4
+page_load_cache_ttl_seconds: 0
+# REFACTOR: Conservative pre-index filtering for loaded source documents.
+document_quality_filter_enabled: true
+document_quality_min_text_length: 80
+document_quality_min_unique_terms: 8
+document_quality_relevance_query: ""
+document_quality_query_min_overlap: 1
 dashscope_request_timeout: 120
 dashscope_max_retries: 3
 dashscope_http_base_url: ""

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import os
+from dataclasses import replace
 from typing import Iterable
 
 from ..config import load_settings, secret_fingerprint
 from ..core.graph import build_graph
+from ..graph.builder import build_lightweight_graph
 
 
 def _print_urls(label: str, urls: Iterable[str]) -> None:
@@ -221,7 +223,10 @@ def main() -> None:
 
             if discovered_urls:
                 urls = discovered_urls
-                settings = settings_for_discovered_urls(settings, urls)
+                if settings.web_search_lightweight:
+                    settings = replace(settings, source_urls=urls)
+                else:
+                    settings = settings_for_discovered_urls(settings, urls)
                 discovered_from_search = True
                 _print_urls("Discovered source URLs:", urls)
             else:
@@ -231,13 +236,25 @@ def main() -> None:
         else:
             _print_urls("Using configured source URLs:", settings.source_urls)
 
-        graph = build_graph(settings, rebuild_vectorstore=args.rebuild or discovered_from_search)
+        use_lightweight_web_search = (
+            discovered_from_search and settings.web_search_lightweight
+        )
+        graph = (
+            build_lightweight_graph(settings)
+            if use_lightweight_web_search
+            else build_graph(
+                settings,
+                rebuild_vectorstore=args.rebuild or discovered_from_search,
+            )
+        )
         
         result = run_rag_query(
             question=args.question,
             urls=urls,
             settings=settings,
-            rebuild_vectorstore=args.rebuild or discovered_from_search,
+            rebuild_vectorstore=False
+            if use_lightweight_web_search
+            else args.rebuild or discovered_from_search,
             graph=graph,
             verbose=True,
         )

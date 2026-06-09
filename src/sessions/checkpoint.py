@@ -69,22 +69,23 @@ class SQLiteMemorySaver(MemorySaver):
             return
 
         state = pickle.loads(row[0])
-        storage = state.get("storage", {})
-        writes = state.get("writes", {})
-        blobs = state.get("blobs", {})
+        storage: dict[str, Any] = state.get("storage", {})
+        writes: dict[tuple[str, str, str], Any] = state.get("writes", {})
+        blobs: dict[str, Any] | None = state.get("blobs")
         self.storage = _storage_defaultdict(storage)
         self.writes = _writes_defaultdict(writes)
-        self.blobs = dict(blobs)
+        if blobs is not None and hasattr(self, "blobs"):
+            self.blobs = dict(blobs)
 
     def _persist_state(self) -> None:
-        payload = pickle.dumps(
-            {
-                "storage": _plain_storage(self.storage),
-                "writes": _plain_writes(self.writes),
-                "blobs": dict(self.blobs),
-            },
-            protocol=pickle.HIGHEST_PROTOCOL,
-        )
+        # REFACTOR: Persist only backing maps exposed by the installed MemorySaver.
+        state: dict[str, Any] = {
+            "storage": _plain_storage(self.storage),
+            "writes": _plain_writes(self.writes),
+        }
+        if hasattr(self, "blobs"):
+            state["blobs"] = dict(self.blobs)
+        payload = pickle.dumps(state, protocol=pickle.HIGHEST_PROTOCOL)
         with self._lock, self._connect() as connection:
             connection.execute(
                 """
@@ -98,7 +99,13 @@ class SQLiteMemorySaver(MemorySaver):
     def delete_thread(self, thread_id: str) -> None:
         """Delete one thread's checkpoints and persist the backing store."""
 
-        super().delete_thread(thread_id)
+        if hasattr(super(), "delete_thread"):
+            super().delete_thread(thread_id)
+        else:
+            self.storage.pop(thread_id, None)
+            for key in list(self.writes):
+                if key[0] == thread_id:
+                    self.writes.pop(key, None)
         self._persist_state()
 
     @contextmanager

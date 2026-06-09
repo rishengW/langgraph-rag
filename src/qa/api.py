@@ -34,6 +34,7 @@ from ..core.graph import build_graph
 from ..core.graph_executor import run_rag_query
 from ..core.web_search import discover_urls_from_web, settings_for_discovered_urls
 from ..errors import RAGError
+from ..graph.builder import build_lightweight_graph
 from ..graph.executor import GraphExecutor
 from ..graph.metrics import MetricsCollector
 from ..utils.urls import parse_url_input
@@ -215,8 +216,14 @@ def create_app(
             # after a rebuild so subsequent requests use the refreshed database.
             graph_to_use = graph
             settings_to_use = settings
+            use_lightweight_web_search = (
+                discovered_from_search and settings.web_search_lightweight
+            )
 
-            if needs_new_graph:
+            if use_lightweight_web_search and urls is not None:
+                settings_to_use = replace(settings, source_urls=urls)
+                graph_to_use = build_lightweight_graph(settings_to_use)
+            elif needs_new_graph:
                 if discovered_from_search and urls is not None:
                     settings_to_use = settings_for_discovered_urls(settings, urls)
                 else:
@@ -337,6 +344,7 @@ def create_app(
         settings_to_use = settings
         rebuild = request.rebuild
 
+        discovered_from_search = False
         if urls is None and request.web_search and settings.web_search_enabled:
             try:
                 discovered_urls = discover_urls_from_web(request.question, settings)
@@ -345,10 +353,20 @@ def create_app(
                 logger.warning("Web search failed during stream: %s", exc)
             if discovered_urls:
                 urls = discovered_urls
-                settings_to_use = settings_for_discovered_urls(settings, urls)
-                rebuild = True
+                discovered_from_search = True
+                if settings.web_search_lightweight:
+                    settings_to_use = replace(settings, source_urls=urls)
+                    graph_to_use = build_lightweight_graph(settings_to_use)
+                    rebuild = False
+                else:
+                    settings_to_use = settings_for_discovered_urls(settings, urls)
+                    rebuild = True
 
-        if urls is not None and urls != settings.source_urls:
+        if (
+            urls is not None
+            and urls != settings.source_urls
+            and not (discovered_from_search and settings.web_search_lightweight)
+        ):
             settings_to_use = replace(settings, source_urls=urls)
             rebuild = True
 

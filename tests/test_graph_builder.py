@@ -4,7 +4,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 
-from src.graph.builder import GraphNodeOverrides, GraphProviders, build_graph
+from src.graph.builder import _resolve_tools, GraphNodeOverrides, GraphProviders, build_graph
 
 
 @tool
@@ -94,6 +94,78 @@ def test_chat_builder_adds_condense_and_allows_checkpointer_injection():
 def test_builder_requires_settings_for_default_nodes():
     with pytest.raises(ValueError, match="settings are required"):
         build_graph(mode="qa")
+
+
+def test_resolve_tools_adds_web_search_when_enabled(monkeypatch, isolated_settings):
+    import src.core.retriever as retriever_module
+    import src.web_search as web_search_module
+
+    settings = isolated_settings(web_search_enabled=True)
+    calls = []
+    retriever_tool = object()
+    web_search_tool = object()
+
+    def fake_build_retriever_tool(resolved_settings, rebuild: bool = False):
+        calls.append(("retriever", resolved_settings, rebuild))
+        return retriever_tool
+
+    def fake_build_web_search_tool(resolved_settings):
+        calls.append(("web_search", resolved_settings))
+        return web_search_tool
+
+    monkeypatch.setattr(
+        retriever_module,
+        "build_retriever_tool",
+        fake_build_retriever_tool,
+    )
+    monkeypatch.setattr(
+        web_search_module,
+        "build_web_search_tool",
+        fake_build_web_search_tool,
+    )
+
+    tools = _resolve_tools(settings, GraphProviders(), rebuild_vectorstore=True)
+
+    assert tools == [retriever_tool, web_search_tool]
+    assert calls == [
+        ("retriever", settings, True),
+        ("web_search", settings),
+    ]
+
+
+def test_resolve_tools_skips_web_search_when_disabled(monkeypatch, isolated_settings):
+    import src.core.retriever as retriever_module
+    import src.web_search as web_search_module
+
+    settings = isolated_settings(web_search_enabled=False)
+    retriever_tool = object()
+
+    monkeypatch.setattr(
+        retriever_module,
+        "build_retriever_tool",
+        lambda _settings, rebuild=False: retriever_tool,
+    )
+    monkeypatch.setattr(
+        web_search_module,
+        "build_web_search_tool",
+        lambda _settings: pytest.fail("web search tool should not be built"),
+    )
+
+    assert _resolve_tools(settings, GraphProviders(), rebuild_vectorstore=False) == [
+        retriever_tool
+    ]
+
+
+def test_resolve_tools_preserves_provider_tools_override(isolated_settings):
+    explicit_tool = object()
+
+    tools = _resolve_tools(
+        isolated_settings(web_search_enabled=True),
+        GraphProviders(tools=[explicit_tool]),
+        rebuild_vectorstore=True,
+    )
+
+    assert tools == [explicit_tool]
 
 
 def test_legacy_graph_wrappers_delegate_to_shared_builder(monkeypatch, mock_settings):

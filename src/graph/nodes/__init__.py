@@ -15,6 +15,7 @@ from .common import (
     rewrite_factory,
 )
 from .condense import condense_question_factory, format_history, latest_user_index
+from .web_answer import web_answer_factory
 
 __all__ = [
     "QuestionResolver",
@@ -32,5 +33,6 @@ __all__ = [
     "new_chat_model",
     "qa_question_resolver",
     "rewrite_factory",
+    "web_answer_factory",
 ]
 

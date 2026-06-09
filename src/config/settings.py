@@ -41,11 +41,22 @@ class Settings:
     web_search_enabled: bool = True
     web_search_provider: str = "bing"
     web_search_max_results: int = 20
-    web_search_top_k: int = 8
+    # REFACTOR: Use one canonical web-search fetch default and expose URL load concurrency.
+    web_search_top_k: int = 6
     web_search_region: str = "wt-wt"
     web_search_timelimit: str | None = None
     web_search_verify_ssl: bool = True
+    web_search_lightweight: bool = True
+    web_search_max_page_tokens: int = 8000
     page_load_timeout: int = 15
+    page_load_max_concurrency: int = 4
+    page_load_cache_ttl_seconds: int = 0
+    # REFACTOR: Pre-index document quality filtering defaults to conservative checks.
+    document_quality_filter_enabled: bool = True
+    document_quality_min_text_length: int = 80
+    document_quality_min_unique_terms: int = 8
+    document_quality_relevance_query: str = ""
+    document_quality_query_min_overlap: int = 1
     dashscope_request_timeout: int = 120
     dashscope_max_retries: int = 3
     dashscope_http_base_url: str = ""

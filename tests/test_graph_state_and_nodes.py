@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.documents import Document
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableLambda
 
 from src.chat.state import ChatState
@@ -85,6 +86,68 @@ def test_condense_first_turn_does_not_call_llm(mock_settings):
         "current_question_index": 0,
         "rewrite_count": 0,
     }
+
+
+def test_rerank_retrieved_context_prefers_lexically_relevant_chunks():
+    message = ToolMessage(
+        content="generic cloud setup notes\n\nPAI reinforcement learning reward model guide",
+        tool_call_id="call_1",
+        artifact=[
+            Document(page_content="generic cloud setup notes"),
+            Document(page_content="PAI reinforcement learning reward model guide"),
+        ],
+    )
+
+    context = common_nodes.rerank_retrieved_context(
+        "How does PAI use reinforcement learning reward models?",
+        message,
+    )
+
+    assert context.split("\n\n") == [
+        "PAI reinforcement learning reward model guide",
+        "generic cloud setup notes",
+    ]
+
+
+def test_grade_documents_uses_reranked_context_and_binary_score(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings()
+    captured_payload = {}
+
+    class FakeModel:
+        def with_structured_output(self, _schema):
+            return RunnableLambda(lambda _payload: None)
+
+    def fake_invoke_with_retry(_chain, payload, max_retries):
+        captured_payload.update(payload)
+        return SimpleNamespace(binary_score="yes", explanation="matched")
+
+    monkeypatch.setattr(common_nodes, "new_chat_model", lambda _settings: FakeModel())
+    monkeypatch.setattr(common_nodes, "invoke_with_retry", fake_invoke_with_retry)
+
+    route = grade_documents_factory(settings)(
+        {
+            "messages": [
+                HumanMessage(content="How does PAI use reinforcement learning?"),
+                ToolMessage(
+                    content=(
+                        "unrelated installation details\n\n"
+                        "PAI reinforcement learning training pipeline"
+                    ),
+                    tool_call_id="call_1",
+                ),
+            ],
+            "rewrite_count": 0,
+        }
+    )
+
+    assert route == "generate"
+    assert captured_payload["context"].split("\n\n") == [
+        "PAI reinforcement learning training pipeline",
+        "unrelated installation details",
+    ]
 
 
 def test_low_relevance_generate_requires_at_least_one_keyword_match(

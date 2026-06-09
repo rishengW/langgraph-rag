@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
+from datetime import date
 from typing import Any, Literal, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -85,6 +86,82 @@ def _question_tokens(question: str) -> set[str]:
     }
 
 
+# REFACTOR: Deterministically rerank retrieved chunks before grading/generation.
+def rerank_retrieved_context(question: str, retrieved_message: Any) -> str:
+    """Return retrieved context ordered by lexical relevance to the query."""
+
+    content: str = message_text(retrieved_message)
+    document_chunks: list[str] = _document_chunks_from_message(retrieved_message)
+    chunks: list[str] = document_chunks or _split_retrieved_chunks(content)
+    if len(chunks) <= 1:
+        return content
+
+    return "\n\n".join(_rank_chunks(question, chunks))
+
+
+def _document_chunks_from_message(message: Any) -> list[str]:
+    artifact = getattr(message, "artifact", None)
+    if not isinstance(artifact, list):
+        return []
+
+    chunks: list[str] = []
+    for document in artifact:
+        text = _document_text(document).strip()
+        if text:
+            chunks.append(text)
+    return chunks
+
+
+def _document_text(document: Any) -> str:
+    page_content = getattr(document, "page_content", None)
+    if isinstance(page_content, str):
+        return page_content
+    if isinstance(document, dict):
+        for key in ("page_content", "content", "text"):
+            value = document.get(key)
+            if isinstance(value, str):
+                return value
+    return str(document)
+
+
+def _split_retrieved_chunks(content: str) -> list[str]:
+    chunks: list[str] = [chunk.strip() for chunk in re.split(r"\n\s*\n+", content or "")]
+    return [chunk for chunk in chunks if chunk]
+
+
+def _rank_chunks(question: str, chunks: list[str]) -> list[str]:
+    query_tokens: set[str] = _question_tokens(question)
+    query_phrases: set[str] = _query_phrases(question)
+    scored: list[tuple[int, int, str]] = []
+    for index, chunk in enumerate(chunks):
+        score: int = _lexical_relevance_score(query_tokens, query_phrases, chunk)
+        scored.append((score, index, chunk))
+    return [chunk for _, _, chunk in sorted(scored, key=lambda item: (-item[0], item[1]))]
+
+
+def _query_phrases(question: str) -> set[str]:
+    tokens: list[str] = re.findall(r"[a-zA-Z][a-zA-Z0-9_-]+", question.lower())
+    return {
+        " ".join(tokens[index : index + size])
+        for size in (2, 3)
+        for index in range(0, max(0, len(tokens) - size + 1))
+    }
+
+
+def _lexical_relevance_score(
+    query_tokens: set[str],
+    query_phrases: set[str],
+    chunk: str,
+) -> int:
+    lower: str = chunk.lower()
+    chunk_tokens: list[str] = re.findall(r"[a-zA-Z][a-zA-Z0-9_-]+", lower)
+    chunk_token_set: set[str] = set(chunk_tokens)
+    score: int = sum(1 for token in query_tokens if token in chunk_token_set)
+    score += sum(chunk_tokens.count(token) for token in query_tokens)
+    score += 3 * sum(1 for phrase in query_phrases if phrase in lower)
+    return score
+
+
 def _split_context_sentences(context: str) -> list[str]:
     normalized = re.sub(r"\s+", " ", context).strip()
     if not normalized:
@@ -165,7 +242,7 @@ def grade_documents_factory(
         chain = GRADE_PROMPT | llm_with_tool
 
         question = question_resolver(state)
-        retrieved_docs_text = state["messages"][-1].content
+        retrieved_docs_text = rerank_retrieved_context(question, state["messages"][-1])
         rewrite_count = int(state.get("rewrite_count", 0) or 0)
 
         llm_failed = False
@@ -319,8 +396,11 @@ def generate_factory(
     def generate(state):
         logger.info("GENERATE")
         question = question_resolver(state)
-        retrieved_docs_text = state["messages"][-1].content
-        rag_chain = RAG_PROMPT | new_chat_model(settings) | StrOutputParser()
+        retrieved_docs_text = rerank_retrieved_context(question, state["messages"][-1])
+        # Bind today's date so the model is anchored in the present and treats
+        # retrieved context as current rather than dismissing post-cutoff facts.
+        dated_prompt = RAG_PROMPT.partial(current_date=date.today().isoformat())
+        rag_chain = dated_prompt | new_chat_model(settings) | StrOutputParser()
 
         try:
             answer = invoke_with_retry(

@@ -105,11 +105,18 @@ def _discover_with_provider(
 
     selected = select_top_urls(urls, getattr(settings, "web_search_top_k", 0) or 0)
     logger.info(
-        "Discovered %s URL(s) from %s; keeping top %s after filtering",
+        "Discovered %s URL(s) from %s; keeping %s usable URL(s) after quality filtering",
         len(urls),
         search_provider.provider_name,
         len(selected),
     )
+    # REFACTOR: Treat provider results that fail URL quality gates as a provider miss.
+    if not selected and urls:
+        logger.info(
+            "Web search provider %s returned no usable URLs after filtering; "
+            "falling back when another provider is available",
+            search_provider.provider_name,
+        )
     return selected
 
 

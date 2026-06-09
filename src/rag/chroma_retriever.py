@@ -15,6 +15,7 @@ from langchain_core.tools.retriever import create_retriever_tool
 
 from ..config import Settings
 from ..utils.retry import call_with_retry, remove_tree_with_retry
+from .document_quality import DocumentQualityConfig
 from .document_loader import load_and_split_documents
 from .embeddings import build_embeddings
 from .retriever import Retriever
@@ -271,8 +272,17 @@ class ChromaRetriever:
         doc_splits = load_and_split_documents(
             settings.source_urls,
             page_load_timeout=settings.page_load_timeout,
+            max_concurrent_loads=settings.page_load_max_concurrency,
+            page_load_cache_ttl_seconds=settings.page_load_cache_ttl_seconds,
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
+            quality_config=DocumentQualityConfig(
+                enabled=settings.document_quality_filter_enabled,
+                min_text_length=settings.document_quality_min_text_length,
+                min_unique_terms=settings.document_quality_min_unique_terms,
+                relevance_query=settings.document_quality_relevance_query,
+                min_query_term_overlap=settings.document_quality_query_min_overlap,
+            ),
         )
 
         logger.info("BUILD CHROMA VECTORSTORE")

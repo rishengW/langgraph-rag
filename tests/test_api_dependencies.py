@@ -91,6 +91,66 @@ def test_qa_app_uses_app_state_and_promotes_rebuilt_graph(monkeypatch, isolated_
     assert app.state.settings.source_urls == ["https://updated.test"]
 
 
+def test_qa_web_search_uses_lightweight_graph(monkeypatch, isolated_settings):
+    initial_settings = isolated_settings(
+        source_urls=["https://initial.test"],
+        web_search_enabled=True,
+        web_search_lightweight=True,
+    )
+    built_graphs = []
+    lightweight_graphs = []
+    run_calls = []
+
+    def fake_build_graph(settings, rebuild_vectorstore=False):
+        graph = {
+            "kind": "heavy",
+            "source_urls": list(settings.source_urls),
+            "rebuild_vectorstore": rebuild_vectorstore,
+        }
+        built_graphs.append(graph)
+        return graph
+
+    def fake_build_lightweight_graph(settings):
+        graph = {
+            "kind": "lightweight",
+            "source_urls": list(settings.source_urls),
+        }
+        lightweight_graphs.append(graph)
+        return graph
+
+    def fake_run_rag_query(**kwargs):
+        run_calls.append(kwargs)
+        return {"answer": "lightweight qa answer", "error": None, "messages": []}
+
+    monkeypatch.setattr(qa_api, "load_settings", lambda: initial_settings)
+    monkeypatch.setattr(qa_api, "build_graph", fake_build_graph)
+    monkeypatch.setattr(qa_api, "build_lightweight_graph", fake_build_lightweight_graph)
+    monkeypatch.setattr(
+        qa_api,
+        "discover_urls_from_web",
+        lambda question, settings: ["https://search.test"],
+    )
+    monkeypatch.setattr(qa_api, "run_rag_query", fake_run_rag_query)
+
+    app = qa_api.create_app()
+    with TestClient(app) as client:
+        response = client.post("/query", json={"question": "What is new?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "lightweight qa answer"
+    assert body["source_mode"] == "web_search"
+    assert body["source_urls"] == ["https://search.test"]
+    assert built_graphs == [
+        {"kind": "heavy", "source_urls": ["https://initial.test"], "rebuild_vectorstore": False}
+    ]
+    assert lightweight_graphs == [
+        {"kind": "lightweight", "source_urls": ["https://search.test"]}
+    ]
+    assert run_calls[0]["graph"] is lightweight_graphs[0]
+    assert run_calls[0]["rebuild_vectorstore"] is False
+
+
 def test_chat_app_uses_app_state_session_registry(monkeypatch, isolated_settings):
     settings = isolated_settings(
         source_urls=["https://chat-default.test"],
@@ -158,6 +218,7 @@ def test_chat_web_search_ignores_request_toggle_and_refreshes_turns(
     settings = isolated_settings(
         source_urls=["https://chat-default.test"],
         web_search_enabled=True,
+        web_search_lightweight=False,
     )
     searches = []
     built = []
@@ -223,3 +284,80 @@ def test_chat_web_search_ignores_request_toggle_and_refreshes_turns(
         ["https://fresh.test"],
     ]
     assert [item[1] for item in built] == [True, True]
+
+
+def test_chat_web_search_lightweight_start_and_refresh(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(
+        source_urls=["https://chat-default.test"],
+        web_search_enabled=True,
+        web_search_lightweight=True,
+    )
+    searches = []
+    heavy_built = []
+    lightweight_built = []
+
+    class FakeGraph:
+        def __init__(self, source_urls):
+            self.source_urls = list(source_urls)
+            self.messages = []
+
+        def get_state(self, config):
+            return SimpleNamespace(values={"messages": list(self.messages)})
+
+        def invoke(self, inputs, config):
+            self.messages.extend(inputs["messages"])
+            self.messages.append(AIMessage(content=f"answer from {self.source_urls[-1]}"))
+            return {"messages": list(self.messages)}
+
+    def fake_discover_urls_from_web(question, search_settings):
+        searches.append((question, list(search_settings.source_urls)))
+        if question == "seed question":
+            return ["https://seed-light.test"]
+        if question == "fresh question":
+            return ["https://fresh-light.test"]
+        return []
+
+    def fake_build_chat_graph(*args, **kwargs):
+        heavy_built.append((args, kwargs))
+        return FakeGraph(["https://heavy.test"])
+
+    def fake_build_lightweight_graph(*, settings, mode, checkpointer):
+        lightweight_built.append((settings, mode, checkpointer))
+        return FakeGraph(settings.source_urls)
+
+    monkeypatch.setattr(chat_api, "load_settings", lambda: settings)
+    monkeypatch.setattr(chat_api, "discover_urls_from_web", fake_discover_urls_from_web)
+    monkeypatch.setattr(chat_api, "build_chat_graph", fake_build_chat_graph)
+    monkeypatch.setattr(chat_api, "build_lightweight_graph", fake_build_lightweight_graph)
+
+    app = chat_api.create_app()
+    with TestClient(app) as client:
+        start = client.post(
+            "/chat",
+            json={"seed_question": "seed question", "web_search": False},
+        )
+        assert start.status_code == 200
+        start_body = start.json()
+        thread_id = start_body["thread_id"]
+
+        assert start_body["source_mode"] == "web_search"
+        assert start_body["source_urls"] == ["https://seed-light.test"]
+
+        message = client.post(
+            f"/chat/{thread_id}/message",
+            json={"message": "fresh question"},
+        )
+        assert message.status_code == 200
+        assert message.json()["answer"] == "answer from https://fresh-light.test"
+
+    assert [call[0] for call in searches] == ["seed question", "fresh question"]
+    assert searches[1][1] == ["https://chat-default.test"]
+    assert heavy_built == []
+    assert [list(item[0].source_urls) for item in lightweight_built] == [
+        ["https://seed-light.test"],
+        ["https://fresh-light.test"],
+    ]
+    assert [item[1] for item in lightweight_built] == ["chat", "chat"]

@@ -110,7 +110,10 @@ EMBEDDING_DIMENSION=1024
 CHROMA_DIR=.chroma
 WEB_SEARCH_ENABLED=true
 WEB_SEARCH_PROVIDER=bing
-WEB_SEARCH_TOP_K=3
+WEB_SEARCH_TOP_K=6
+PAGE_LOAD_MAX_CONCURRENCY=4
+PAGE_LOAD_CACHE_TTL_SECONDS=0
+DOCUMENT_QUALITY_FILTER_ENABLED=true
 ```
 
 ## Configuration
@@ -262,7 +265,7 @@ Run the local test suite:
 python -m pytest -q
 ```
 
-The latest integrated local verification passed with 74 tests.
+The latest integrated local verification passed with 113 tests.
 
 With dev dependencies installed, run CI-style checks:
 

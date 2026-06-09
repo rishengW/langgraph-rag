@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from types import ModuleType
 
 import pytest
@@ -9,7 +11,12 @@ from langchain_core.documents import Document
 from src.rag import chroma_retriever as chroma_module
 from src.rag.chroma_retriever import ChromaRetriever, build_retriever, build_retriever_tool
 from src.rag.dashscope_embeddings import DashScopeEmbeddings
-from src.rag.document_loader import load_and_split_documents, load_source_documents
+from src.rag.document_loader import (
+    SourceDocumentCache,
+    load_and_split_documents,
+    load_source_documents,
+)
+from src.rag.document_quality import DocumentQualityConfig, filter_quality_documents
 from src.rag.embeddings import EmbeddingModel, is_dashscope_embedding_model
 from src.rag.hf_embeddings import HuggingFaceEmbeddingModel
 from src.rag.retriever import Retriever
@@ -64,6 +71,11 @@ def test_huggingface_adapter_satisfies_protocol_and_delegates(monkeypatch):
 
 def test_load_and_split_documents_skips_failed_sources():
     calls: list[tuple[str, int]] = []
+    good_text = (
+        "This source document has useful article content about retrieval, "
+        "indexing, embeddings, and source loading. It is long enough to pass "
+        "the conservative pre-index quality filter."
+    )
 
     class FakeLoader:
         def __init__(self, url: str):
@@ -72,7 +84,7 @@ def test_load_and_split_documents_skips_failed_sources():
         def load(self) -> list[Document]:
             if self.url.endswith("/bad"):
                 raise RuntimeError("unreachable")
-            return [Document(page_content=f"loaded:{self.url}")]
+            return [Document(page_content=f"{good_text} URL: {self.url}")]
 
     class FakeSplitter:
         def split_documents(self, documents: list[Document]) -> list[Document]:
@@ -99,13 +111,68 @@ def test_load_and_split_documents_skips_failed_sources():
         splitter_factory=splitter_factory,
     )
 
-    assert calls == [
-        ("https://example.test/good", 1),
+    assert sorted(calls) == [
         ("https://example.test/bad", 1),
+        ("https://example.test/good", 1),
     ]
     assert [document.page_content for document in chunks] == [
-        "chunk:loaded:https://example.test/good"
+        f"chunk:{good_text} URL: https://example.test/good"
     ]
+
+
+def test_document_quality_filter_keeps_good_documents():
+    document = Document(
+        page_content=(
+            "LangGraph retrieval systems load source documents before splitting "
+            "them into chunks for embeddings. Useful documents contain enough "
+            "specific terms for downstream indexing and question answering."
+        )
+    )
+
+    kept = filter_quality_documents([document])
+
+    assert kept == [document]
+
+
+def test_load_and_split_documents_raises_when_all_documents_filtered():
+    class EmptyLoader:
+        def load(self) -> list[Document]:
+            return [
+                Document(page_content=""),
+                Document(page_content="cookie privacy terms login menu " * 5),
+            ]
+
+    with pytest.raises(
+        RuntimeError,
+        match="All loaded source documents were filtered out before indexing",
+    ):
+        load_and_split_documents(
+            ["https://example.test/boilerplate"],
+            page_load_timeout=5,
+            chunk_size=10,
+            chunk_overlap=2,
+            loader_factory=lambda _url, _timeout: EmptyLoader(),
+        )
+
+
+def test_document_quality_filter_can_apply_query_overlap():
+    config = DocumentQualityConfig(relevance_query="langgraph embeddings retrieval")
+    relevant = Document(
+        page_content=(
+            "A detailed LangGraph retrieval article explains embeddings, indexes, "
+            "source loading, and document splitting for RAG applications."
+        )
+    )
+    irrelevant = Document(
+        page_content=(
+            "A detailed gardening article explains compost, irrigation, seedlings, "
+            "soil preparation, seasonal pruning, and greenhouse planning."
+        )
+    )
+
+    kept = filter_quality_documents([relevant, irrelevant], config)
+
+    assert kept == [relevant]
 
 
 def test_load_source_documents_raises_when_all_sources_fail():
@@ -122,6 +189,220 @@ def test_load_source_documents_raises_when_all_sources_fail():
             page_load_timeout=15,
             loader_factory=lambda _url, _timeout: FailingLoader(),
         )
+
+
+def test_load_source_documents_preserves_url_order_after_concurrent_loads():
+    delays = {
+        "https://example.test/slow": 0.05,
+        "https://example.test/fast": 0.0,
+        "https://example.test/bad": 0.01,
+        "https://example.test/medium": 0.02,
+    }
+
+    class TimedLoader:
+        def __init__(self, url: str) -> None:
+            self.url = url
+
+        def load(self) -> list[Document]:
+            time.sleep(delays[self.url])
+            if self.url.endswith("/bad"):
+                raise RuntimeError("offline")
+            return [Document(page_content=f"loaded:{self.url}")]
+
+    docs = load_source_documents(
+        list(delays),
+        page_load_timeout=5,
+        max_concurrent_loads=4,
+        loader_factory=lambda url, _timeout: TimedLoader(url),
+    )
+
+    assert [document.page_content for document in docs] == [
+        "loaded:https://example.test/slow",
+        "loaded:https://example.test/fast",
+        "loaded:https://example.test/medium",
+    ]
+
+
+def test_load_source_documents_bounds_concurrent_url_loads():
+    lock = threading.Lock()
+    release_gate = threading.Event()
+    active_loads = 0
+    peak_loads = 0
+
+    class BlockingLoader:
+        def load(self) -> list[Document]:
+            nonlocal active_loads, peak_loads
+            with lock:
+                active_loads += 1
+                peak_loads = max(peak_loads, active_loads)
+                if active_loads == 2:
+                    release_gate.set()
+            release_gate.wait(timeout=0.2)
+            time.sleep(0.01)
+            with lock:
+                active_loads -= 1
+            return [Document(page_content="loaded")]
+
+    docs = load_source_documents(
+        [f"https://example.test/{index}" for index in range(6)],
+        page_load_timeout=5,
+        max_concurrent_loads=2,
+        loader_factory=lambda _url, _timeout: BlockingLoader(),
+    )
+
+    assert len(docs) == 6
+    assert peak_loads == 2
+
+
+def test_load_source_documents_uses_cache_for_repeated_url_loads():
+    calls = 0
+    cache = SourceDocumentCache()
+
+    class CountingLoader:
+        def load(self) -> list[Document]:
+            nonlocal calls
+            calls += 1
+            return [
+                Document(
+                    page_content=f"loaded:{calls}",
+                    metadata={"call": calls},
+                )
+            ]
+
+    first_docs = load_source_documents(
+        ["https://example.test/cache"],
+        page_load_timeout=5,
+        page_load_cache_ttl_seconds=30,
+        document_cache=cache,
+        loader_factory=lambda _url, _timeout: CountingLoader(),
+    )
+    first_docs[0].metadata["mutated"] = True
+
+    second_docs = load_source_documents(
+        ["https://example.test/cache"],
+        page_load_timeout=5,
+        page_load_cache_ttl_seconds=30,
+        document_cache=cache,
+        loader_factory=lambda _url, _timeout: CountingLoader(),
+    )
+
+    assert calls == 1
+    assert [document.page_content for document in second_docs] == ["loaded:1"]
+    assert second_docs[0].metadata == {"call": 1}
+
+
+def test_load_source_documents_deduplicates_concurrent_cache_misses():
+    calls = 0
+    cache = SourceDocumentCache()
+
+    class SlowLoader:
+        def load(self) -> list[Document]:
+            nonlocal calls
+            calls += 1
+            call_number = calls
+            time.sleep(0.02)
+            return [Document(page_content=f"loaded:{call_number}")]
+
+    docs = load_source_documents(
+        ["https://example.test/cache", "https://example.test/cache"],
+        page_load_timeout=5,
+        max_concurrent_loads=2,
+        page_load_cache_ttl_seconds=30,
+        document_cache=cache,
+        loader_factory=lambda _url, _timeout: SlowLoader(),
+    )
+
+    assert calls == 1
+    assert [document.page_content for document in docs] == [
+        "loaded:1",
+        "loaded:1",
+    ]
+
+
+def test_load_source_documents_cache_ttl_expiry_refetches():
+    calls = 0
+    now = 100.0
+    cache = SourceDocumentCache(clock=lambda: now)
+
+    class CountingLoader:
+        def load(self) -> list[Document]:
+            nonlocal calls
+            calls += 1
+            return [Document(page_content=f"loaded:{calls}")]
+
+    load_source_documents(
+        ["https://example.test/cache"],
+        page_load_timeout=5,
+        page_load_cache_ttl_seconds=10,
+        document_cache=cache,
+        loader_factory=lambda _url, _timeout: CountingLoader(),
+    )
+    now = 111.0
+    docs = load_source_documents(
+        ["https://example.test/cache"],
+        page_load_timeout=5,
+        page_load_cache_ttl_seconds=10,
+        document_cache=cache,
+        loader_factory=lambda _url, _timeout: CountingLoader(),
+    )
+
+    assert calls == 2
+    assert [document.page_content for document in docs] == ["loaded:2"]
+
+
+def test_load_source_documents_cache_ttl_zero_disables_cache():
+    calls = 0
+    cache = SourceDocumentCache()
+
+    class CountingLoader:
+        def load(self) -> list[Document]:
+            nonlocal calls
+            calls += 1
+            return [Document(page_content=f"loaded:{calls}")]
+
+    for _ in range(2):
+        load_source_documents(
+            ["https://example.test/cache"],
+            page_load_timeout=5,
+            page_load_cache_ttl_seconds=0,
+            document_cache=cache,
+            loader_factory=lambda _url, _timeout: CountingLoader(),
+        )
+
+    assert calls == 2
+
+
+def test_load_source_documents_does_not_cache_failed_loads():
+    calls = 0
+    cache = SourceDocumentCache()
+
+    class FlakyLoader:
+        def load(self) -> list[Document]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("offline")
+            return [Document(page_content="loaded")]
+
+    with pytest.raises(RuntimeError, match="No source documents could be loaded"):
+        load_source_documents(
+            ["https://example.test/cache"],
+            page_load_timeout=5,
+            page_load_cache_ttl_seconds=30,
+            document_cache=cache,
+            loader_factory=lambda _url, _timeout: FlakyLoader(),
+        )
+
+    docs = load_source_documents(
+        ["https://example.test/cache"],
+        page_load_timeout=5,
+        page_load_cache_ttl_seconds=30,
+        document_cache=cache,
+        loader_factory=lambda _url, _timeout: FlakyLoader(),
+    )
+
+    assert calls == 2
+    assert [document.page_content for document in docs] == ["loaded"]
 
 
 def test_chroma_retriever_satisfies_protocol_and_rebuilds(monkeypatch, mock_settings):
@@ -228,8 +509,12 @@ def test_chroma_retriever_rebuilds_incompatible_persisted_store(
     (chroma_dir / "chat").mkdir()
     (chroma_dir / "chat" / "sessions.sqlite3").write_text("keep", encoding="utf-8")
 
-    settings = isolated_settings(chroma_dir=chroma_dir)
+    settings = isolated_settings(
+        chroma_dir=chroma_dir,
+        page_load_max_concurrency=3,
+    )
     loaded_documents: list[list[str]] = []
+    loader_calls: list[dict[str, object]] = []
 
     class FreshVectorstore:
         def as_retriever(self):
@@ -244,10 +529,14 @@ def test_chroma_retriever_rebuilds_incompatible_persisted_store(
             loaded_documents.append([doc.page_content for doc in documents])
             return FreshVectorstore()
 
+    def fake_load_and_split_documents(*args, **kwargs):
+        loader_calls.append(dict(kwargs))
+        return [Document(page_content="fresh document")]
+
     monkeypatch.setattr(
         chroma_module,
         "load_and_split_documents",
-        lambda *args, **kwargs: [Document(page_content="fresh document")],
+        fake_load_and_split_documents,
     )
 
     provider = ChromaRetriever(
@@ -258,6 +547,22 @@ def test_chroma_retriever_rebuilds_incompatible_persisted_store(
 
     assert provider.as_langchain_retriever() == "fresh-retriever"
     assert loaded_documents == [["fresh document"]]
+    assert loader_calls == [
+        {
+            "page_load_timeout": settings.page_load_timeout,
+            "max_concurrent_loads": 3,
+            "page_load_cache_ttl_seconds": settings.page_load_cache_ttl_seconds,
+            "chunk_size": settings.chunk_size,
+            "chunk_overlap": settings.chunk_overlap,
+            "quality_config": DocumentQualityConfig(
+                enabled=settings.document_quality_filter_enabled,
+                min_text_length=settings.document_quality_min_text_length,
+                min_unique_terms=settings.document_quality_min_unique_terms,
+                relevance_query=settings.document_quality_relevance_query,
+                min_query_term_overlap=settings.document_quality_query_min_overlap,
+            ),
+        }
+    ]
     assert not (chroma_dir / "chroma.sqlite3").exists()
     assert (chroma_dir / "chat" / "sessions.sqlite3").read_text(encoding="utf-8") == "keep"
 

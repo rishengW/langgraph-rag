@@ -17,12 +17,18 @@ from .nodes import (
     grade_documents_factory,
     qa_question_resolver,
     rewrite_factory,
+    web_answer_factory,
 )
 from .state import AgentState, ChatState
 
 GraphMode = Literal["qa", "chat"]
 NodeCallable = Callable[[dict[str, Any]], dict[str, Any]]
 GradeEdgeCallable = Callable[[dict[str, Any]], Literal["generate", "rewrite"]]
+
+LIGHTWEIGHT_AGENT_EDGE_MAP = {
+    "tools": "web_search",
+    END: "web_answer",
+}
 
 _DEFAULT_CHECKPOINTER = object()
 
@@ -37,6 +43,7 @@ class GraphNodeOverrides:
     rewrite: NodeCallable | None = None
     generate: NodeCallable | None = None
     condense: NodeCallable | None = None
+    web_answer: NodeCallable | None = None
 
 
 @dataclass(frozen=True)
@@ -151,6 +158,67 @@ def build_graph(
     return workflow.compile(checkpointer=resolved_checkpointer)
 
 
+def build_lightweight_graph(
+    settings: Settings | None = None,
+    *,
+    mode: GraphMode = "qa",
+    providers: GraphProviders | None = None,
+    checkpointer: Any = _DEFAULT_CHECKPOINTER,
+):
+    """Compile the lightweight graph for one-shot web-search sources.
+
+    This graph deliberately skips the Chroma/retriever/grade/rewrite path. It
+    only gives the agent the live web-search tool, then sends either the tool
+    output or the existing state source URLs to ``web_answer``.
+    """
+
+    if mode not in ("qa", "chat"):
+        raise ValueError("mode must be 'qa' or 'chat'")
+
+    providers = providers or GraphProviders()
+    nodes = providers.nodes
+    tools = _resolve_lightweight_tools(settings, providers)
+    question_resolver = qa_question_resolver if mode == "qa" else chat_question_resolver
+    state_type = AgentState if mode == "qa" else ChatState
+
+    workflow = StateGraph(state_type)
+    workflow.add_node(
+        "agent",
+        nodes.agent
+        or agent_factory(
+            _require_settings(settings, "lightweight agent"),
+            tools,
+            question_resolver,
+        ),
+    )
+
+    if not tools:
+        raise ValueError("providers.tools or settings are required for web_search")
+    workflow.add_node("web_search", ToolNode(list(tools)))
+    workflow.add_node(
+        "web_answer",
+        nodes.web_answer
+        or web_answer_factory(
+            _require_settings(settings, "web_answer"),
+            question_resolver,
+        ),
+    )
+
+    workflow.add_edge(START, "agent")
+    workflow.add_conditional_edges(
+        "agent",
+        route_after_agent,
+        LIGHTWEIGHT_AGENT_EDGE_MAP,
+    )
+    workflow.add_edge("web_search", "web_answer")
+    workflow.add_edge("web_answer", END)
+
+    resolved_checkpointer = _resolve_checkpointer(mode, providers, checkpointer)
+    if resolved_checkpointer is None:
+        return workflow.compile()
+    return workflow.compile(checkpointer=resolved_checkpointer)
+
+
 def _resolve_tools(
     settings: Settings | None,
     providers: GraphProviders,
@@ -163,8 +231,28 @@ def _resolve_tools(
         return []
 
     from ..core.retriever import build_retriever_tool
+    from ..web_search import build_web_search_tool
 
-    return [build_retriever_tool(settings, rebuild=rebuild_vectorstore)]
+    # REFACTOR: Default settings-based graph tools now include live web search.
+    tools = [build_retriever_tool(settings, rebuild=rebuild_vectorstore)]
+    if settings.web_search_enabled:
+        tools.append(build_web_search_tool(settings))
+    return tools
+
+
+def _resolve_lightweight_tools(
+    settings: Settings | None,
+    providers: GraphProviders,
+) -> list[Any]:
+    if providers.tools is not None:
+        return list(providers.tools)
+
+    if settings is None:
+        return []
+
+    from ..web_search import build_web_search_tool
+
+    return [build_web_search_tool(settings)]
 
 
 def _resolve_checkpointer(
@@ -195,5 +283,6 @@ __all__ = [
     "GraphNodeOverrides",
     "GraphProviders",
     "build_graph",
+    "build_lightweight_graph",
     "build_memory_saver",
 ]

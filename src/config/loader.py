@@ -48,7 +48,16 @@ SETTING_ENV_NAMES = {
     "web_search_region": "WEB_SEARCH_REGION",
     "web_search_timelimit": "WEB_SEARCH_TIMELIMIT",
     "web_search_verify_ssl": "WEB_SEARCH_VERIFY_SSL",
+    "web_search_lightweight": "WEB_SEARCH_LIGHTWEIGHT",
+    "web_search_max_page_tokens": "WEB_SEARCH_MAX_PAGE_TOKENS",
     "page_load_timeout": "PAGE_LOAD_TIMEOUT",
+    "page_load_max_concurrency": "PAGE_LOAD_MAX_CONCURRENCY",
+    "page_load_cache_ttl_seconds": "PAGE_LOAD_CACHE_TTL_SECONDS",
+    "document_quality_filter_enabled": "DOCUMENT_QUALITY_FILTER_ENABLED",
+    "document_quality_min_text_length": "DOCUMENT_QUALITY_MIN_TEXT_LENGTH",
+    "document_quality_min_unique_terms": "DOCUMENT_QUALITY_MIN_UNIQUE_TERMS",
+    "document_quality_relevance_query": "DOCUMENT_QUALITY_RELEVANCE_QUERY",
+    "document_quality_query_min_overlap": "DOCUMENT_QUALITY_QUERY_MIN_OVERLAP",
     "dashscope_request_timeout": "DASHSCOPE_REQUEST_TIMEOUT",
     "dashscope_max_retries": "DASHSCOPE_MAX_RETRIES",
     "dashscope_http_base_url": "DASHSCOPE_HTTP_BASE_URL",
@@ -189,22 +198,43 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "max_rewrites",
         "web_search_max_results",
         "web_search_top_k",
+        "web_search_max_page_tokens",
         "page_load_timeout",
+        "page_load_max_concurrency",
+        "page_load_cache_ttl_seconds",
+        "document_quality_min_text_length",
+        "document_quality_min_unique_terms",
+        "document_quality_query_min_overlap",
         "dashscope_request_timeout",
         "dashscope_max_retries",
     ):
         if name == "embedding_dimension":
             return parse_optional_int(None if value is None else str(value), default)
         parsed = int(value)
-        if name in ("max_rewrites", "web_search_top_k"):
+        if name in (
+            "max_rewrites",
+            "web_search_top_k",
+            "web_search_max_page_tokens",
+            "document_quality_min_text_length",
+            "document_quality_min_unique_terms",
+            "document_quality_query_min_overlap",
+        ):
             return max(0, parsed)
-        if name in ("page_load_timeout", "dashscope_max_retries"):
+        if name in (
+            "page_load_timeout",
+            "page_load_max_concurrency",
+            "dashscope_max_retries",
+        ):
             return max(1, parsed)
+        if name == "page_load_cache_ttl_seconds":
+            return max(0, parsed)
         return parsed
     if name in (
         "allow_low_relevance_generate",
         "web_search_enabled",
         "web_search_verify_ssl",
+        "web_search_lightweight",
+        "document_quality_filter_enabled",
     ):
         return parse_bool(value, bool(default))
     if name in ("web_search_provider",):

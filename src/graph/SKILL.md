@@ -12,7 +12,7 @@ description: >
 # RAG Pipeline Architect — src/graph/
 
 Domain: graph topology, node factories, state management, question resolution, graph execution.
-Parent: [[system-architect]]. Siblings: [[knowledge-retrieval-architect]], [[web-search-architect]], [[api-interface-architect]], [[session-engine-architect]].
+Parent: `SKILL.md` (root). Siblings: `src/rag/SKILL.md`, `src/web_search/SKILL.md`, `src/api/SKILL.md`, `src/sessions/SKILL.md`.
 
 ## Quick Reference
 

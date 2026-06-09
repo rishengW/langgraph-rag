@@ -13,7 +13,7 @@ description: >
 # Session Engine Architect — src/sessions/
 
 Domain: multi-turn conversation sessions, condense question logic, checkpointing, session registry, persistence.
-Parent: [[system-architect]]. Siblings: [[rag-pipeline-architect]], [[knowledge-retrieval-architect]], [[web-search-architect]], [[api-interface-architect]].
+Parent: `SKILL.md` (root). Siblings: `src/graph/SKILL.md`, `src/rag/SKILL.md`, `src/web_search/SKILL.md`, `src/api/SKILL.md`.
 
 ## Quick Reference
 
@@ -352,7 +352,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   - [ ] Swap `MemorySaver` for `SqliteSaver` from `langgraph.checkpoint.sqlite`
   - [ ] Session recovery: restore active sessions on server restart
   - [ ] Verify: server restart preserves chat sessions with full history
-- [ ] **3.1 SSE streaming** — `POST /chat/{id}/message/stream` (see `[[api-interface-architect]]` for transport)
+- [ ] **3.1 SSE streaming** — `POST /chat/{id}/message/stream` (see `src/api/SKILL.md` for transport)
 - [ ] **3.5 Deprecation shim** — `src/chat/sessions.py` → re-exports from `src/sessions/`
 - [ ] **3.5 Chat REPL improvements** — add progress spinner + async support
 
@@ -371,8 +371,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 ## Dependencies
 
-- `src/graph/` — shared node factories (see `[[rag-pipeline-architect]]`)
-- `src/rag/retriever.py` — `_release_chroma_system()`, `_rmtree_with_retry()` for cleanup (see `[[knowledge-retrieval-architect]]`)
-- `src/api/dependencies.py` — DI wiring (see `[[api-interface-architect]]`)
-- `src/web_search/` — `discover_urls_from_web()` for web search sessions (see `[[web-search-architect]]`)
+- `src/graph/` — shared node factories (see `src/graph/SKILL.md`)
+- `src/rag/retriever.py` — `_release_chroma_system()`, `_rmtree_with_retry()` for cleanup (see `src/rag/SKILL.md`)
+- `src/api/dependencies.py` — DI wiring (see `src/api/SKILL.md`)
+- `src/web_search/` — `discover_urls_from_web()` for web search sessions (see `src/web_search/SKILL.md`)
 - External: `langgraph.checkpoint.memory.MemorySaver`, `langgraph.checkpoint.sqlite.SqliteSaver` (Phase 3)

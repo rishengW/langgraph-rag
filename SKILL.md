@@ -11,7 +11,7 @@ description: >
 # System Architect -- langgraph-rag
 
 Domain: overall architecture, configuration, module boundaries, deployment.
-Sub-architects: [[rag-pipeline-architect]], [[knowledge-retrieval-architect]], [[web-search-architect]], [[api-interface-architect]], [[session-engine-architect]].
+Sub-architects: `src/graph/SKILL.md`, `src/rag/SKILL.md`, `src/web_search/SKILL.md`, `src/api/SKILL.md`, `src/sessions/SKILL.md`.
 
 ## Quick Reference
 
@@ -38,7 +38,7 @@ Sub-architects: [[rag-pipeline-architect]], [[knowledge-retrieval-architect]], [
   +-----------------------+     +---------------------------+
   |     src/api/           |     |     src/sessions/          |
   |  FastAPI + CLI         |     |  Condense + MemorySaver   |
-  |  [[api-interface-architect]]|  |  [[session-engine-architect]]|
+  |  (api/SKILL.md)             |  |  (sessions/SKILL.md)         |
   +-----------+-----------+     +-----------+---------------+
               |                             |
               +-------------+---------------+
@@ -46,7 +46,7 @@ Sub-architects: [[rag-pipeline-architect]], [[knowledge-retrieval-architect]], [
               +-------------+---------------+
               |      src/graph/              |
               |  Nodes + State + Executor    |
-              |  [[rag-pipeline-architect]]  |
+              |  (graph/SKILL.md)            |
               +-------------+---------------+
                             |
         +-------------------+-------------------+
@@ -55,7 +55,7 @@ Sub-architects: [[rag-pipeline-architect]], [[knowledge-retrieval-architect]], [
   |  src/rag/     |                    | src/web_search/ |
   |  Embeddings   |                    |  Baidu + DDG    |
   |  + Chroma     |                    |  URL Discovery  |
-  |  [[knowledge-retrieval-architect]] |  [[web-search-architect]] |
+  |  (rag/SKILL.md)                   |  (web_search/SKILL.md)    |
   +--------------+                    +----------------+
 ```
 
@@ -63,11 +63,11 @@ Sub-architects: [[rag-pipeline-architect]], [[knowledge-retrieval-architect]], [
 
 | Module | Responsibility | Architect Skill File |
 |--------|---------------|---------------------|
-| `src/graph/` | RAG pipeline — graph topology, node factories, state management, question resolution, graph execution | `src/graph/SKILL.md` ([[rag-pipeline-architect]]) |
-| `src/rag/` | Knowledge retrieval — embeddings, Chroma vectorstore, document loading, text splitting, retriever | `src/rag/SKILL.md` ([[knowledge-retrieval-architect]]) |
-| `src/web_search/` | Web search — URL discovery, Baidu/DDG providers, result normalization, noise filtering | `src/web_search/SKILL.md` ([[web-search-architect]]) |
-| `src/api/` | API & CLI — FastAPI endpoints, request/response models, DI, SSE transport, CLI commands | `src/api/SKILL.md` ([[api-interface-architect]]) |
-| `src/sessions/` | Conversation engine — condense, session registry, MemorySaver, TTL, persistence | `src/sessions/SKILL.md` ([[session-engine-architect]]) |
+| `src/graph/` | RAG pipeline — graph topology, node factories, state management, question resolution, graph execution | `src/graph/SKILL.md` |
+| `src/rag/` | Knowledge retrieval — embeddings, Chroma vectorstore, document loading, text splitting, retriever | `src/rag/SKILL.md` |
+| `src/web_search/` | Web search — URL discovery, Baidu/DDG providers, result normalization, noise filtering | `src/web_search/SKILL.md` |
+| `src/api/` | API & CLI — FastAPI endpoints, request/response models, DI, SSE transport, CLI commands | `src/api/SKILL.md` |
+| `src/sessions/` | Conversation engine — condense, session registry, MemorySaver, TTL, persistence | `src/sessions/SKILL.md` |
 
 Refer to each sub-architect skill for detailed file maps, flows, known issues, and refactoring to-do lists within that scope.
 
@@ -274,8 +274,8 @@ Backward compatibility: `src/core/` and old import paths remain as thin re-expor
 - `README.md` -- user-facing documentation
 - `.env.example` -- annotated environment variables
 - `SSL_FIX.md` -- Windows SSL workarounds
-- [[rag-pipeline-architect]] -- `src/graph/SKILL.md`
-- [[knowledge-retrieval-architect]] -- `src/rag/SKILL.md`
-- [[web-search-architect]] -- `src/web_search/SKILL.md`
-- [[api-interface-architect]] -- `src/api/SKILL.md`
-- [[session-engine-architect]] -- `src/sessions/SKILL.md`
+- `src/graph/SKILL.md` — RAG pipeline architect
+- `src/rag/SKILL.md` — Knowledge retrieval architect
+- `src/web_search/SKILL.md` — Web search architect
+- `src/api/SKILL.md` — API interface architect
+- `src/sessions/SKILL.md` — Session engine architect

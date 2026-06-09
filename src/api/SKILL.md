@@ -12,7 +12,7 @@ description: >
 # API Interface Architect — src/api/
 
 Domain: FastAPI application, CLI entry points, request/response models, SSE transport, dependency injection.
-Parent: [[system-architect]]. Siblings: [[rag-pipeline-architect]], [[knowledge-retrieval-architect]], [[web-search-architect]], [[session-engine-architect]].
+Parent: `SKILL.md` (root). Siblings: `src/graph/SKILL.md`, `src/rag/SKILL.md`, `src/web_search/SKILL.md`, `src/sessions/SKILL.md`.
 
 ## Quick Reference
 
@@ -341,7 +341,7 @@ class StreamEvent(BaseModel):
 
 - [ ] **3.1 SSE streaming endpoints**
   - [ ] `POST /query/stream` — `StreamingResponse` with `text/event-stream`
-  - [ ] `POST /chat/{id}/message/stream` — see `[[session-engine-architect]]`
+  - [ ] `POST /chat/{id}/message/stream` — see `src/sessions/SKILL.md`
   - [ ] Emit `StreamEvent` for: `node_start`, `token`, `retriever_result`, `grader_decision`, `node_end`, `done`
   - [ ] Update both frontend JS files — replace `fetch()` with `EventSource`
 - [ ] **3.3 Add `/metrics` endpoint** — per-node latency/error counters
@@ -368,7 +368,7 @@ class StreamEvent(BaseModel):
 
 ## Dependencies
 
-- `src/graph/` — graph builder + executor (see `[[rag-pipeline-architect]]`)
-- `src/sessions/` — ChatSessionRegistry for chat endpoints (see `[[session-engine-architect]]`)
+- `src/graph/` — graph builder + executor (see `src/graph/SKILL.md`)
+- `src/sessions/` — ChatSessionRegistry for chat endpoints (see `src/sessions/SKILL.md`)
 - `src/config/` — AppConfig for DI
 - External: `fastapi`, `uvicorn`, `pydantic`, `slowapi` (Phase 3)

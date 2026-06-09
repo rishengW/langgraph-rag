@@ -12,7 +12,7 @@ description: >
 # Knowledge Retrieval Architect — src/rag/
 
 Domain: embeddings, Chroma vectorstore, document loading, text splitting, retriever.
-Parent: [[system-architect]]. Siblings: [[rag-pipeline-architect]], [[web-search-architect]], [[api-interface-architect]], [[session-engine-architect]].
+Parent: `SKILL.md` (root). Siblings: `src/graph/SKILL.md`, `src/web_search/SKILL.md`, `src/api/SKILL.md`, `src/sessions/SKILL.md`.
 
 ## Quick Reference
 
@@ -187,7 +187,7 @@ class EmbeddingModel(Protocol):
 - [ ] **1.2 Extract retry logic** — move `_call_with_retry` from `embeddings.py` → `src/utils/retry.py`
   - [ ] Consolidate with `_invoke_with_retry` (from `nodes.py`) and `_rmtree_with_retry` (from `retriever.py`)
 - [ ] **1.2 Extract SSL config** — move `_configure_ssl()` side effect → `src/utils/networking.py`
-- [ ] **1.4 Split config** — embed/Chroma settings into namespaced config models (see `[[api-interface-architect]]` Phase 2.5)
+- [ ] **1.4 Split config** — embed/Chroma settings into namespaced config models (see `src/api/SKILL.md` Phase 2.5)
 
 ### Phase 2 — Interfaces & Abstractions
 

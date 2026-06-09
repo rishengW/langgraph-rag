@@ -12,7 +12,7 @@ description: >
 # Web Search Architect — src/web_search/
 
 Domain: web search URL discovery, provider implementations, URL normalization and filtering.
-Parent: [[system-architect]]. Siblings: [[rag-pipeline-architect]], [[knowledge-retrieval-architect]], [[api-interface-architect]], [[session-engine-architect]].
+Parent: `SKILL.md` (root). Siblings: `src/graph/SKILL.md`, `src/rag/SKILL.md`, `src/api/SKILL.md`, `src/sessions/SKILL.md`.
 
 ## Quick Reference
 

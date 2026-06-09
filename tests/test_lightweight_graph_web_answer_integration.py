@@ -10,16 +10,22 @@ from src.graph import nodes as graph_nodes
 from src.graph.builder import (
     GraphNodeOverrides,
     GraphProviders,
-    build_memory_saver,
     build_lightweight_graph,
+    build_memory_saver,
 )
 from src.graph.nodes import web_answer as web_answer_module
+from src.web_search.content_fetcher import is_readable_text
+
+
+def _readable_text() -> str:
+    return " ".join(["source detail"] * 30)
 
 
 def _install_lightweight_web_modules(monkeypatch, fetch_pages, build_prompt) -> None:
     content_fetcher = ModuleType("src.web_search.content_fetcher")
     content_fetcher.FetchedPage = SimpleNamespace
     content_fetcher.fetch_pages = fetch_pages
+    content_fetcher.is_readable_text = is_readable_text
 
     prompt_builder = ModuleType("src.web_search.prompt_builder")
     prompt_builder.build_web_search_prompt = build_prompt
@@ -36,7 +42,7 @@ def test_web_answer_fetches_state_urls_and_invokes_llm(monkeypatch, isolated_set
         web_search_max_page_tokens=321,
     )
     calls: dict[str, object] = {}
-    pages = [SimpleNamespace(url="https://a.test/page", title="A", text="Alpha")]
+    pages = [SimpleNamespace(url="https://a.test/page", title="A", text=_readable_text())]
 
     def fake_fetch_pages(urls, **kwargs):
         calls["fetch"] = (list(urls), kwargs)
@@ -70,6 +76,16 @@ def test_web_answer_fetches_state_urls_and_invokes_llm(monkeypatch, isolated_set
             "max_tokens_per_page": 321,
             "cache_ttl_seconds": 11,
             "max_concurrent_loads": 4,
+            "min_readable_chars": 200,
+            "min_readable_tokens": 50,
+            "js_fallback_enabled": False,
+            "js_fallback_domains": [
+                "baike.baidu.com",
+                "zhuanlan.zhihu.com",
+                "apps.microsoft.com",
+                "deepseek.net",
+            ],
+            "js_force_domains": [],
         },
     )
     assert calls["prompt"] == ("What changed?", pages)
@@ -92,7 +108,7 @@ def test_web_answer_extracts_urls_from_web_search_tool_messages(
         calls["urls"] = list(urls)
         # Return a readable page so the flow proceeds to prompt assembly;
         # this test verifies tool-URL extraction, not the no-content guard.
-        return [SimpleNamespace(url=urls[0], title="T", text="tool url text")]
+        return [SimpleNamespace(url=urls[0], title="T", text=_readable_text())]
 
     def fake_build_prompt(question, _pages):
         calls["question"] = question
@@ -135,14 +151,12 @@ def test_web_answer_prefers_curated_settings_urls_over_tool_messages(
     # must win over the agent's in-graph live_web_search tool output, which is
     # a narrower re-search that can otherwise send the answer node to chase
     # low-quality/unreachable pages.
-    settings = isolated_settings(
-        source_urls=["https://curated.test/a", "https://curated.test/b"]
-    )
+    settings = isolated_settings(source_urls=["https://curated.test/a", "https://curated.test/b"])
     calls: dict[str, object] = {}
 
     def fake_fetch_pages(urls, **_kwargs):
         calls["urls"] = list(urls)
-        return [SimpleNamespace(url=urls[0], title="C", text="curated text")]
+        return [SimpleNamespace(url=urls[0], title="C", text=_readable_text())]
 
     def fake_build_prompt(question, _pages):
         calls["question"] = question
@@ -162,10 +176,7 @@ def test_web_answer_prefers_curated_settings_urls_over_tool_messages(
             "messages": [
                 HumanMessage(content="Question?"),
                 ToolMessage(
-                    content=(
-                        "Live web search results for: Question?\n"
-                        "1. https://junk.test/x"
-                    ),
+                    content=("Live web search results for: Question?\n1. https://junk.test/x"),
                     tool_call_id="call_live_web_search",
                 ),
             ],
@@ -206,6 +217,41 @@ def test_web_answer_returns_grounded_refusal_when_no_readable_pages(
     content = result["messages"][0].content
     assert "couldn't retrieve readable content" in content
     assert "https://dead.test/a" in content
+
+
+def test_web_answer_rejects_trivial_js_shell_text(
+    monkeypatch,
+    isolated_settings,
+):
+    # Regression guard for JS-rendered or anti-bot page shells: a few tokens of
+    # title/nav/loading text must not be treated as usable source content.
+    settings = isolated_settings(source_urls=["https://shell.test/a"])
+
+    def fake_fetch_pages(urls, **_kwargs):
+        return [
+            SimpleNamespace(
+                url=urls[0],
+                title="Shell",
+                text="DeepSeek loading menu",
+            )
+        ]
+
+    def fake_build_prompt(question, _pages):  # pragma: no cover - must not run
+        raise AssertionError("prompt must not be built for trivial page text")
+
+    def fake_invoke(*_args, **_kwargs):  # pragma: no cover - must not run
+        raise AssertionError("LLM must not be called for trivial page text")
+
+    _install_lightweight_web_modules(monkeypatch, fake_fetch_pages, fake_build_prompt)
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "fake-model")
+    monkeypatch.setattr(web_answer_module, "invoke_with_retry", fake_invoke)
+
+    node = web_answer_module.web_answer_factory(settings)
+    result = node({"messages": [HumanMessage(content="What is new?")]})
+
+    content = result["messages"][0].content
+    assert "couldn't retrieve readable content" in content
+    assert "https://shell.test/a" in content
 
 
 @tool

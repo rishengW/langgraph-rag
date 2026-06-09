@@ -2,8 +2,18 @@ from __future__ import annotations
 
 import os
 
-from src.config.loader import load_settings, load_yaml_config, parse_optional_int, parse_urls
-from src.config.settings import DEFAULT_URLS, Settings
+from src.config.loader import (
+    load_settings,
+    load_yaml_config,
+    parse_csv_list,
+    parse_optional_int,
+    parse_urls,
+)
+from src.config.settings import (
+    DEFAULT_URLS,
+    DEFAULT_WEB_SEARCH_JS_FALLBACK_DOMAINS,
+    Settings,
+)
 from src.core.config import Settings as CoreSettings
 
 
@@ -20,6 +30,7 @@ def test_parse_helpers():
     assert parse_optional_int(None, 12) == 12
     assert parse_optional_int("", 12) is None
     assert parse_optional_int("42", 12) == 42
+    assert parse_csv_list(" a.test, ,b.test ") == ["a.test", "b.test"]
 
 
 def test_web_search_and_page_load_defaults_align_with_yaml():
@@ -31,37 +42,31 @@ def test_web_search_and_page_load_defaults_align_with_yaml():
     assert settings.web_search_lightweight is True
     assert defaults["web_search_lightweight"] == settings.web_search_lightweight
     assert settings.web_search_max_page_tokens == 8000
-    assert (
-        defaults["web_search_max_page_tokens"]
-        == settings.web_search_max_page_tokens
-    )
+    assert defaults["web_search_max_page_tokens"] == settings.web_search_max_page_tokens
+    assert settings.web_search_min_page_chars == 200
+    assert defaults["web_search_min_page_chars"] == settings.web_search_min_page_chars
+    assert settings.web_search_min_page_tokens == 50
+    assert defaults["web_search_min_page_tokens"] == settings.web_search_min_page_tokens
+    assert settings.web_search_js_fallback_enabled is False
+    assert defaults["web_search_js_fallback_enabled"] == settings.web_search_js_fallback_enabled
+    assert settings.web_search_js_fallback_domains == DEFAULT_WEB_SEARCH_JS_FALLBACK_DOMAINS
+    assert defaults["web_search_js_fallback_domains"] == settings.web_search_js_fallback_domains
+    assert settings.web_search_js_force_domains == []
+    assert defaults["web_search_js_force_domains"] == settings.web_search_js_force_domains
     assert settings.page_load_max_concurrency == 4
     assert defaults["page_load_max_concurrency"] == settings.page_load_max_concurrency
     assert settings.page_load_cache_ttl_seconds == 0
-    assert (
-        defaults["page_load_cache_ttl_seconds"]
-        == settings.page_load_cache_ttl_seconds
-    )
+    assert defaults["page_load_cache_ttl_seconds"] == settings.page_load_cache_ttl_seconds
     assert settings.document_quality_filter_enabled is True
-    assert (
-        defaults["document_quality_filter_enabled"]
-        == settings.document_quality_filter_enabled
-    )
+    assert defaults["document_quality_filter_enabled"] == settings.document_quality_filter_enabled
     assert settings.document_quality_min_text_length == 80
-    assert (
-        defaults["document_quality_min_text_length"]
-        == settings.document_quality_min_text_length
-    )
+    assert defaults["document_quality_min_text_length"] == settings.document_quality_min_text_length
     assert settings.document_quality_min_unique_terms == 8
     assert (
-        defaults["document_quality_min_unique_terms"]
-        == settings.document_quality_min_unique_terms
+        defaults["document_quality_min_unique_terms"] == settings.document_quality_min_unique_terms
     )
     assert settings.document_quality_relevance_query == ""
-    assert (
-        defaults["document_quality_relevance_query"]
-        == settings.document_quality_relevance_query
-    )
+    assert defaults["document_quality_relevance_query"] == settings.document_quality_relevance_query
     assert settings.document_quality_query_min_overlap == 1
     assert (
         defaults["document_quality_query_min_overlap"]
@@ -154,12 +159,16 @@ def test_load_settings_accepts_page_load_max_concurrency_env(tmp_path, monkeypat
     monkeypatch.setenv("PAGE_LOAD_MAX_CONCURRENCY", "0")
     monkeypatch.setenv("PAGE_LOAD_CACHE_TTL_SECONDS", "-10")
     monkeypatch.setenv("WEB_SEARCH_MAX_PAGE_TOKENS", "-50")
+    monkeypatch.setenv("WEB_SEARCH_MIN_PAGE_CHARS", "-50")
+    monkeypatch.setenv("WEB_SEARCH_MIN_PAGE_TOKENS", "-1")
 
     settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
 
     assert settings.page_load_max_concurrency == 1
     assert settings.page_load_cache_ttl_seconds == 0
     assert settings.web_search_max_page_tokens == 0
+    assert settings.web_search_min_page_chars == 0
+    assert settings.web_search_min_page_tokens == 0
 
 
 def test_load_settings_accepts_lightweight_web_search_env(tmp_path, monkeypatch):
@@ -169,6 +178,67 @@ def test_load_settings_accepts_lightweight_web_search_env(tmp_path, monkeypatch)
     settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
 
     assert settings.web_search_lightweight is False
+
+
+def test_load_settings_accepts_web_search_js_policy_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("WEB_SEARCH_JS_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("WEB_SEARCH_JS_FALLBACK_DOMAINS", "Example.COM,sub.test")
+    monkeypatch.setenv("WEB_SEARCH_JS_FORCE_DOMAINS", "force.test")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.web_search_js_fallback_enabled is True
+    assert settings.web_search_js_fallback_domains == ["example.com", "sub.test"]
+    assert settings.web_search_js_force_domains == ["force.test"]
+
+
+def test_load_settings_accepts_web_search_js_policy_yaml(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "\n".join(
+            [
+                "web_search_js_fallback_enabled: true",
+                "web_search_js_fallback_domains:",
+                "  - spa.example.com",
+                "  - Baike.Baidu.com",
+                "web_search_js_force_domains: [force.example.com]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=config_file)
+
+    assert settings.web_search_js_fallback_enabled is True
+    assert settings.web_search_js_fallback_domains == [
+        "spa.example.com",
+        "baike.baidu.com",
+    ]
+    assert settings.web_search_js_force_domains == ["force.example.com"]
+
+
+def test_load_settings_accepts_web_search_readability_thresholds_from_yaml(
+    tmp_path,
+    monkeypatch,
+):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "\n".join(
+            [
+                "web_search_min_page_chars: 123",
+                "web_search_min_page_tokens: 17",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=config_file)
+
+    assert settings.web_search_min_page_chars == 123
+    assert settings.web_search_min_page_tokens == 17
 
 
 def test_load_settings_accepts_page_load_cache_ttl_env(tmp_path, monkeypatch):

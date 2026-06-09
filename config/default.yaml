@@ -34,6 +34,15 @@ web_search_timelimit: null
 web_search_verify_ssl: true
 web_search_lightweight: true
 web_search_max_page_tokens: 8000
+web_search_min_page_chars: 200
+web_search_min_page_tokens: 50
+web_search_js_fallback_enabled: false
+web_search_js_fallback_domains:
+  - baike.baidu.com
+  - zhuanlan.zhihu.com
+  - apps.microsoft.com
+  - deepseek.net
+web_search_js_force_domains: []
 page_load_timeout: 15
 page_load_max_concurrency: 4
 page_load_cache_ttl_seconds: 0

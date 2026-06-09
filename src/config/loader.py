@@ -16,7 +16,6 @@ from ..utils.networking import (
 )
 from .settings import DEFAULT_URLS, Settings
 
-
 DEFAULT_CONFIG_DIR = Path("config")
 DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "default.yaml"
 DEFAULT_ENVIRONMENT = "development"
@@ -50,6 +49,11 @@ SETTING_ENV_NAMES = {
     "web_search_verify_ssl": "WEB_SEARCH_VERIFY_SSL",
     "web_search_lightweight": "WEB_SEARCH_LIGHTWEIGHT",
     "web_search_max_page_tokens": "WEB_SEARCH_MAX_PAGE_TOKENS",
+    "web_search_min_page_chars": "WEB_SEARCH_MIN_PAGE_CHARS",
+    "web_search_min_page_tokens": "WEB_SEARCH_MIN_PAGE_TOKENS",
+    "web_search_js_fallback_enabled": "WEB_SEARCH_JS_FALLBACK_ENABLED",
+    "web_search_js_fallback_domains": "WEB_SEARCH_JS_FALLBACK_DOMAINS",
+    "web_search_js_force_domains": "WEB_SEARCH_JS_FORCE_DOMAINS",
     "page_load_timeout": "PAGE_LOAD_TIMEOUT",
     "page_load_max_concurrency": "PAGE_LOAD_MAX_CONCURRENCY",
     "page_load_cache_ttl_seconds": "PAGE_LOAD_CACHE_TTL_SECONDS",
@@ -70,6 +74,12 @@ def parse_urls(raw_value: str | None) -> list[str]:
 
     urls = [url.strip() for url in raw_value.split(",") if url.strip()]
     return urls or DEFAULT_URLS.copy()
+
+
+def parse_csv_list(raw_value: str | None) -> list[str]:
+    if not raw_value:
+        return []
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 
 def parse_optional_int(raw_value: str | None, default: int | None) -> int | None:
@@ -186,6 +196,13 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         if value is None:
             return list(default or [])
         return [url.strip() for url in str(value).split(",") if url.strip()]
+    if name in ("web_search_js_fallback_domains", "web_search_js_force_domains"):
+        if isinstance(value, list):
+            return [str(domain).strip().lower() for domain in value if str(domain).strip()]
+        if value is None:
+            return list(default or [])
+        domains = [domain.lower() for domain in parse_csv_list(str(value))]
+        return domains if domains else list(default or [])
     if name in ("chroma_dir",):
         return Path(str(value)).expanduser()
     if name in (
@@ -199,6 +216,8 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "web_search_max_results",
         "web_search_top_k",
         "web_search_max_page_tokens",
+        "web_search_min_page_chars",
+        "web_search_min_page_tokens",
         "page_load_timeout",
         "page_load_max_concurrency",
         "page_load_cache_ttl_seconds",
@@ -215,6 +234,8 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
             "max_rewrites",
             "web_search_top_k",
             "web_search_max_page_tokens",
+            "web_search_min_page_chars",
+            "web_search_min_page_tokens",
             "document_quality_min_text_length",
             "document_quality_min_unique_terms",
             "document_quality_query_min_overlap",
@@ -234,6 +255,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "web_search_enabled",
         "web_search_verify_ssl",
         "web_search_lightweight",
+        "web_search_js_fallback_enabled",
         "document_quality_filter_enabled",
     ):
         return parse_bool(value, bool(default))
@@ -271,7 +293,9 @@ def _selected_config_files(config_file: str | Path | None) -> list[Path]:
     return paths
 
 
-def load_selected_yaml_config(config_file: str | Path | None = DEFAULT_CONFIG_FILE) -> dict[str, Any]:
+def load_selected_yaml_config(
+    config_file: str | Path | None = DEFAULT_CONFIG_FILE,
+) -> dict[str, Any]:
     """Load default YAML plus the active RAG_ENV overlay when applicable."""
 
     merged: dict[str, Any] = {}
@@ -318,10 +342,7 @@ def secret_fingerprint(secret: str) -> str:
 
     value = (secret or "").strip()
     digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:10] if value else "none"
-    if len(value) <= 8:
-        preview = "***"
-    else:
-        preview = f"{value[:3]}...{value[-4:]}"
+    preview = "***" if len(value) <= 8 else f"{value[:3]}...{value[-4:]}"
     return f"{preview} (len={len(value)}, sha256={digest})"
 
 
@@ -372,8 +393,8 @@ __all__ = [
     "load_selected_yaml_config",
     "load_yaml_config",
     "parse_bool",
+    "parse_csv_list",
     "parse_optional_int",
     "parse_urls",
     "secret_fingerprint",
 ]
-

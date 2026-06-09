@@ -25,6 +25,7 @@ Parent: [[system-architect]]. Siblings: [[rag-pipeline-architect]], [[knowledge-
 | Region | `web_search_region` (default: "wt-wt") |
 | Time limit | `web_search_timelimit` (optional: "d", "w", "m") |
 | SSL verify | `web_search_verify_ssl` (default: True) |
+| Page fetch fallback | HTTP first; optional Playwright fallback planned for JS-shell domains |
 | Source file (current) | `core/web_search.py` — 363 LOC |
 | Target location | `src/web_search/` |
 
@@ -111,6 +112,8 @@ def discover_urls_from_web(settings: Settings) -> list[str]:
 | 3 | URL normalization is complex (redirect resolution, noise filtering, dedup) | Medium | Multiple functions | Add comprehensive unit tests |
 | 4 | No retry logic on search failures — single attempt per provider | Medium | `discover_urls_from_web()` | Add retry with fallback to alternate provider |
 | 5 | `web_search_region` default "wt-wt" is undocumented | Low | config defaults | Document region code semantics |
+| 6 | `WebBaseLoader` cannot render JS or browser-gated pages | High | `content_fetcher.py`, `playwright_loader.py` | Implemented: optional Playwright fallback after low-text extraction |
+| 7 | No domain-specific fetch policy for known JS/anti-bot hosts | Medium | `fetch_policy.py`, `content_fetcher.py` | Implemented: configured fallback/force-JS domains |
 
 ## Refactoring Target — src/web_search/
 
@@ -121,6 +124,9 @@ src/web_search/
 +-- baidu.py               # BaiduWebSearch implementation
 +-- duckduckgo.py          # DuckDuckGoWebSearch implementation
 +-- factory.py             # Provider selection + instantiation
++-- content_fetcher.py     # Lightweight page fetch/extract/prompt preparation
++-- fetch_policy.py        # Domain-aware HTTP/JS page-fetch policy
++-- playwright_loader.py   # Optional JS-capable page loader adapter
 ```
 
 ### Protocol Definition (Phase 2)
@@ -132,6 +138,56 @@ class WebSearchProvider(Protocol):
     @property
     def provider_name(self) -> str: ...
 ```
+
+## JS Fallback / Domain Fetch Policy Target
+
+Problem 3A/3E is solved with an optional browser-backed fetch path, not by
+weakening the readability guard. Keep `WebBaseLoader` as the fast default and use
+Playwright only when policy says it is worth the cost.
+
+### Config Shape
+
+```python
+web_search_js_fallback_enabled: bool = False
+web_search_js_fallback_domains: list[str] = [
+    "baike.baidu.com",
+    "zhuanlan.zhihu.com",
+    "apps.microsoft.com",
+    "deepseek.net",
+]
+web_search_js_force_domains: list[str] = []
+```
+
+### Fetch Policy Shape
+
+```python
+@dataclass(frozen=True)
+class FetchPolicy:
+    force_js: bool = False
+    retry_js_on_low_text: bool = True
+    request_headers: dict[str, str] = field(default_factory=dict)
+```
+
+### Execution Flow
+
+1. Resolve the URL host through `fetch_policy.py`.
+2. Use `WebBaseLoader` first unless `force_js=True`.
+3. Extract text and check `is_readable_text(...)` with configured thresholds.
+4. If text is below threshold and `retry_js_on_low_text=True`, retry once with
+   `playwright_loader.py`.
+5. If the JS result is still below threshold or Playwright fails, keep the current
+   grounded refusal path. Do not pass shell text to the LLM.
+
+### Implementation Notes
+
+- Keep Playwright optional and disabled by default; document `python -m playwright
+  install chromium` for users who enable it.
+- Normalize metadata from the JS loader to match `WebBaseLoader`: `source`, `url`,
+  and `title`.
+- Use tight per-page timeouts and log whether each page used HTTP, JS fallback, or
+  force-JS.
+- Do not add a broad anti-bot bypass. The goal is rendering legitimate pages when
+  operators opt in, not evading access controls.
 
 ## Refactoring To-Do List
 
@@ -160,6 +216,9 @@ class WebSearchProvider(Protocol):
 - [ ] **3.4 Search result caching** — cache results per query for TTL to reduce external calls
 - [ ] **3.5 Deprecation shim** — `src/core/web_search.py` → re-exports from `src/web_search/`
 
+- [x] **3.5a JS-capable page fetch fallback** -- optional Playwright loader after low-text HTTP extraction
+- [x] **3.5b Domain fetch policy** -- `src/web_search/fetch_policy.py` for fallback/force-JS hosts and request profiles
+
 ## Testing Strategy
 
 | Test | Approach | Phase |
@@ -169,9 +228,14 @@ class WebSearchProvider(Protocol):
 | URL normalization | Redirect resolution, dedup, noise filtering edge cases | Phase 1 |
 | Provider fallback | Mock Baidu failure; verify DDGS kicks in | Phase 2 |
 | Protocol conformance | `isinstance(provider, WebSearchProvider)` | Phase 2 |
+| Low-text JS fallback | Mock HTTP shell text, verify JS loader is retried once | Phase 3 |
+| Force-JS domains | Configured domain skips HTTP and uses JS loader first | Phase 3 |
+| JS fallback failure | Browser loader failure still returns grounded refusal | Phase 3 |
 
 ## Dependencies
 
 - `src/config/` — WebSearchConfig (provider, max_results, top_k, region, timelimit, verify_ssl)
 - `src/utils/networking.py` — SSL config, redirect resolution helpers
 - External: `requests`, `beautifulsoup4`, `ddgs`
+- Optional external: `playwright` (+ Chromium browser install), `html2text` if using
+  `AsyncChromiumLoader` + `Html2TextTransformer`

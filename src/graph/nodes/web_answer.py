@@ -21,9 +21,7 @@ QuestionResolver = Callable[[dict[str, Any]], str]
 # punctuation or ideographs. Without the unicode ranges, a URL written inline in
 # Chinese prose (e.g. "https://deepseek.net/zh）虽为官方渠道") would greedily
 # swallow the surrounding sentence and produce an unreachable garbage URL.
-_URL_RE = re.compile(
-    r"https?://[^\s<>()\[\]{}\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+"
-)
+_URL_RE = re.compile(r"https?://[^\s<>()\[\]{}\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+")
 
 
 def web_answer_factory(
@@ -42,7 +40,7 @@ def web_answer_factory(
         question = question_resolver(state)
         urls = _extract_source_urls(state, settings)
 
-        from ...web_search.content_fetcher import fetch_pages
+        from ...web_search.content_fetcher import fetch_pages, is_readable_text
         from ...web_search.prompt_builder import build_web_search_prompt
 
         pages = fetch_pages(
@@ -51,6 +49,11 @@ def web_answer_factory(
             max_tokens_per_page=settings.web_search_max_page_tokens,
             cache_ttl_seconds=settings.page_load_cache_ttl_seconds,
             max_concurrent_loads=settings.page_load_max_concurrency,
+            min_readable_chars=settings.web_search_min_page_chars,
+            min_readable_tokens=settings.web_search_min_page_tokens,
+            js_fallback_enabled=settings.web_search_js_fallback_enabled,
+            js_fallback_domains=settings.web_search_js_fallback_domains,
+            js_force_domains=settings.web_search_js_force_domains,
         )
 
         # Guard against ungrounded answers: if no fetched page produced
@@ -58,7 +61,15 @@ def web_answer_factory(
         # the model. With an empty context the LLM falls back to its training
         # data and silently answers from stale/parametric knowledge, which is
         # exactly the failure we want to avoid in a retrieval-grounded app.
-        readable_pages = [page for page in pages if (page.text or "").strip()]
+        readable_pages = [
+            page
+            for page in pages
+            if is_readable_text(
+                page.text or "",
+                min_chars=settings.web_search_min_page_chars,
+                min_tokens=settings.web_search_min_page_tokens,
+            )
+        ]
         if not readable_pages:
             attempted = ", ".join(page.url for page in pages if page.url) or "none"
             logger.warning(

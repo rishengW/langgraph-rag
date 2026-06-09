@@ -1312,7 +1312,47 @@ flowchart LR
 - Add progress bars for long indexing operations (CLI only)
 - **Verify:** Adding one URL to existing store takes seconds, not minutes
 
-#### Step 3.5: Deprecation shims and migration (Day 6-7)
+#### Step 3.5: JS-Capable Web Source Fetch Fallback and Domain Policy (Day 6-8)
+
+**Status:** Implemented early as an opt-in lightweight web-search fallback.
+
+This closes the remaining Problem 3A/3E gap: some valid search results are JS-rendered
+or bot-gated, so `WebBaseLoader` returns a page shell that cannot contain readable text.
+The current readability threshold prevents bad grounded answers; this step adds a
+real browser-backed recovery path.
+
+- Add optional dependencies behind an install extra or clearly documented setup path:
+  - `playwright`
+  - optionally `html2text` when using `AsyncChromiumLoader` + `Html2TextTransformer`
+  - browser install step: `python -m playwright install chromium`
+- Add Settings/env/YAML controls:
+  - `web_search_js_fallback_enabled: bool = false`
+  - `web_search_js_fallback_domains: list[str]`
+  - `web_search_js_force_domains: list[str]` for hosts that should skip `WebBaseLoader`
+  - default candidate domains: `baike.baidu.com`, `zhuanlan.zhihu.com`,
+    `apps.microsoft.com`, `deepseek.net`
+- Create `src/web_search/fetch_policy.py`:
+  - canonical host/domain matching
+  - `FetchPolicy(force_js=False, retry_js_on_low_text=True, request_headers={})`
+  - merge built-in known-host policy with operator-configured domains
+- Create a JS loader adapter, e.g. `src/web_search/playwright_loader.py`:
+  - use `langchain_community.document_loaders.PlaywrightURLLoader`, or
+    `AsyncChromiumLoader` + `Html2TextTransformer`
+  - set conservative page timeout and navigation wait strategy
+  - normalize metadata so `source`, `url`, and `title` match `WebBaseLoader`
+- Wire fallback into `src/web_search/content_fetcher.py`:
+  - try `WebBaseLoader` first for normal domains
+  - if extracted text is below `web_search_min_page_chars` /
+    `web_search_min_page_tokens`, retry once with the JS loader when policy allows it
+  - force JS first for configured `web_search_js_force_domains`
+  - if JS fallback fails or remains below threshold, keep the existing grounded refusal
+- Keep the fallback opt-in by default. Browser automation is slower and heavier than
+  HTTP loading, so it should not become the default path for every web-search request.
+- **Verify:** JS-shell fixtures retry once through the JS adapter, normal pages do not
+  invoke Playwright, forced domains use JS first, and fallback failures still return the
+  grounded "couldn't retrieve readable content" response.
+
+#### Step 3.6: Deprecation shims and migration (Day 8)
 
 - `src/core/` module becomes a pure re-export shim:
   ```python
@@ -1331,6 +1371,8 @@ flowchart LR
 - Session persistence tests: restart server, verify sessions restored
 - Metrics tests: verify counter increments match expected counts
 - Incremental index tests: verify only new URLs are processed
+- JS fetch fallback tests: low-text HTTP extraction retries JS once; forced domains
+  skip HTTP; fallback failure still refuses rather than guessing
 - Deprecation warning tests: verify old imports emit warnings
 
 **Phase 3 Exit Criteria:**
@@ -1338,6 +1380,7 @@ flowchart LR
 - Chat sessions survive server restart (with SQLite backend)
 - Metrics endpoint provides useful observability data
 - Incremental indexing is functional
+- JS-rendered source fallback is optional, tested, and domain-policy controlled
 - All old import paths emit deprecation warnings but remain functional
 - README.md updated with new project structure
 
@@ -1427,6 +1470,7 @@ Rollback at any point: `git revert <merge-commit>`. The compatibility shims mean
 | SSE streaming breaks existing clients | Low | Medium | New endpoints only; old POST endpoints remain unchanged |
 | Config YAML parser misses edge case | Low | Medium | Fail back to env-only mode; comprehensive parsing tests |
 | Session SQLite schema needs migration later | Low | Low | Versioned schema with migration support |
+| Playwright fallback slows web search or fails on hosts without browsers installed | Medium | Medium | Keep disabled by default; add explicit browser install docs, tight timeouts, per-domain policy, and graceful refusal on fallback failure |
 
 ---
 
@@ -1456,6 +1500,8 @@ Rollback at any point: `git revert <merge-commit>`. The compatibility shims mean
 | `src/llm/` (new) | NEW | 1-2 | LLM abstractions and prompts |
 | `src/rag/` (new) | NEW | 2 | RAG provider implementations |
 | `src/web_search/` (new) | NEW | 2 | Web search providers |
+| `src/web_search/fetch_policy.py` (new) | NEW | 3 | Domain-aware HTTP/JS fetch policy for web-search page loading |
+| `src/web_search/playwright_loader.py` (new) | NEW | 3 | Optional Playwright-backed loader adapter for JS-rendered pages |
 | `src/events/` (new) | NEW | 2 | Typed event system |
 | `src/api/` (new) | NEW | 2-3 | Restructured API layer |
 | `src/sessions/` (new) | NEW | 2-3 | Session registry + persistence |

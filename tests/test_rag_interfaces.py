@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 import sys
 import threading
 import time
@@ -134,6 +135,20 @@ def test_document_quality_filter_keeps_good_documents():
     assert kept == [document]
 
 
+def test_document_quality_filter_skips_normalized_duplicate_documents():
+    text = (
+        "LangGraph retrieval systems load source documents before splitting "
+        "them into chunks for embeddings. Useful documents contain enough "
+        "specific terms for downstream indexing and question answering."
+    )
+    original = Document(page_content=text)
+    duplicate = Document(page_content=f"  {text.upper()}  ")
+
+    kept = filter_quality_documents([original, duplicate])
+
+    assert kept == [original]
+
+
 def test_load_and_split_documents_raises_when_all_documents_filtered():
     class EmptyLoader:
         def load(self) -> list[Document]:
@@ -173,6 +188,83 @@ def test_document_quality_filter_can_apply_query_overlap():
     kept = filter_quality_documents([relevant, irrelevant], config)
 
     assert kept == [relevant]
+
+
+def test_document_quality_filter_uses_embedding_similarity_gate():
+    class FakeEmbeddings:
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [self.embed_query(text) for text in texts]
+
+        def embed_query(self, text: str) -> list[float]:
+            lowered = text.lower()
+            if lowered == "langgraph retrieval":
+                return [1.0, 0.0]
+            if "state graph orchestration" in lowered:
+                return [0.92, 0.08]
+            return [0.0, 1.0]
+
+    config = DocumentQualityConfig(
+        relevance_query="langgraph retrieval",
+        min_similarity=0.8,
+    )
+    relevant = Document(
+        page_content=(
+            "State graph orchestration coordinates retrieval workflows with "
+            "source indexing, embeddings, chunk storage, and grounded answers."
+        )
+    )
+    irrelevant = Document(
+        page_content=(
+            "Seasonal greenhouse planning explains compost, irrigation, seed "
+            "rotation, pruning schedules, and vegetable harvest preparation."
+        )
+    )
+
+    kept = filter_quality_documents([relevant, irrelevant], config, embeddings=FakeEmbeddings())
+
+    assert kept == [relevant]
+
+
+def test_document_quality_filter_biases_recent_publication_dates():
+    recent_date = date.today() - timedelta(days=30)
+    old_date = date.today() - timedelta(days=800)
+    old = Document(
+        page_content=(
+            "Older LangGraph retrieval notes describe source document loading, "
+            "embedding indexes, retriever tools, chunk storage, and answers."
+        ),
+        metadata={"publication_date": old_date.isoformat()},
+    )
+    recent = Document(
+        page_content=(
+            "Recent LangGraph retrieval notes describe source document loading, "
+            "embedding indexes, retriever tools, chunk storage, and answers."
+        ),
+        metadata={"publication_date": recent_date.isoformat()},
+    )
+
+    kept = filter_quality_documents([old, recent])
+
+    assert kept == [recent, old]
+    assert recent.metadata["document_quality_recency_score"] > 0
+    assert old.metadata["document_quality_recency_score"] == 0
+
+
+def test_document_quality_filter_extracts_publication_date_from_html():
+    document = Document(
+        page_content=(
+            "<html><head><meta property='article:published_time' "
+            "content='2026-02-03T10:15:00Z'></head><body>"
+            "LangGraph retrieval systems load source documents before splitting "
+            "them into chunks for embeddings and grounded question answering."
+            "</body></html>"
+        )
+    )
+
+    kept = filter_quality_documents([document])
+
+    assert kept == [document]
+    assert document.metadata["publication_date"] == "2026-02-03"
 
 
 def test_load_source_documents_raises_when_all_sources_fail():
@@ -515,6 +607,7 @@ def test_chroma_retriever_rebuilds_incompatible_persisted_store(
     )
     loaded_documents: list[list[str]] = []
     loader_calls: list[dict[str, object]] = []
+    embedding_model = object()
 
     class FreshVectorstore:
         def as_retriever(self):
@@ -541,7 +634,7 @@ def test_chroma_retriever_rebuilds_incompatible_persisted_store(
 
     provider = ChromaRetriever(
         settings,
-        embeddings=object(),
+        embeddings=embedding_model,
         chroma_cls=IncompatibleChroma,
     )
 
@@ -560,7 +653,10 @@ def test_chroma_retriever_rebuilds_incompatible_persisted_store(
                 min_unique_terms=settings.document_quality_min_unique_terms,
                 relevance_query=settings.document_quality_relevance_query,
                 min_query_term_overlap=settings.document_quality_query_min_overlap,
+                min_similarity=settings.document_quality_min_similarity,
+                recency_bias_days=settings.document_quality_recency_bias_days,
             ),
+            "embeddings": embedding_model,
         }
     ]
     assert not (chroma_dir / "chroma.sqlite3").exists()

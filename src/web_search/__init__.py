@@ -15,6 +15,7 @@ from .prompt_builder import build_web_search_prompt
 from .protocol import WebSearchProvider
 
 # REFACTOR: Export the LangChain live web search tool builder.
+from .query_prep import build_search_query, prepare_search_query, rewrite_search_query_llm
 from .tool import WebSearchInput, build_web_search_tool, format_web_search_results
 
 __all__ = [
@@ -35,6 +36,9 @@ __all__ = [
     "get_search_provider",
     "is_readable_text",
     "normalize_provider_name",
+    "build_search_query",
+    "prepare_search_query",
     "resolve_fetch_policy",
+    "rewrite_search_query_llm",
     "settings_for_discovered_urls",
 ]

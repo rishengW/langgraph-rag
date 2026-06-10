@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
+from datetime import date
 import logging
 import threading
 import time
@@ -15,6 +16,7 @@ ensure_user_agent()
 from langchain_core.documents import Document
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders.web_base import _build_metadata
 
 from .document_quality import DocumentQualityConfig, filter_quality_documents
 
@@ -111,8 +113,30 @@ def _copy_documents(documents: Sequence[Document]) -> list[Document]:
     return [_copy_document(document) for document in documents]
 
 
+class DateAwareWebBaseLoader(WebBaseLoader):
+    """WebBaseLoader variant that preserves publication-date metadata."""
+
+    def lazy_load(self) -> Iterator[Document]:
+        """Lazy load text and add publication metadata extracted from raw HTML."""
+
+        for path in self.web_paths:
+            soup = self._scrape(path, bs_kwargs=self.bs_kwargs)
+            text = soup.get_text(**self.bs_get_text_kwargs)
+            metadata = _build_metadata(soup, path)
+            published_date = _extract_publication_date(str(soup), metadata)
+            if published_date is not None:
+                metadata["publication_date"] = published_date.isoformat()
+            yield Document(page_content=text, metadata=metadata)
+
+
+def _extract_publication_date(html: str, metadata: dict[str, Any]) -> date | None:
+    from ..web_search.date_extractor import extract_publication_date
+
+    return extract_publication_date(html, metadata)
+
+
 def default_loader_factory(url: str, page_timeout: int) -> WebBaseLoader:
-    return WebBaseLoader(
+    return DateAwareWebBaseLoader(
         url,
         requests_kwargs={"timeout": page_timeout},
     )
@@ -284,6 +308,7 @@ def load_and_split_documents(
     chunk_size: int,
     chunk_overlap: int,
     quality_config: DocumentQualityConfig | None = None,
+    embeddings: Any | None = None,
     loader_factory: LoaderFactory = default_loader_factory,
     splitter_factory: SplitterFactory = default_splitter_factory,
 ) -> list[Document]:
@@ -296,7 +321,7 @@ def load_and_split_documents(
         loader_factory=loader_factory,
     )
     # REFACTOR: Drop clearly poor loaded pages before splitting and embedding.
-    docs = filter_quality_documents(docs, quality_config)
+    docs = filter_quality_documents(docs, quality_config, embeddings=embeddings)
     if not docs:
         raise RuntimeError(
             "All loaded source documents were filtered out before indexing. "

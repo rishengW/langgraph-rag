@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -169,6 +170,36 @@ def test_url_quality_gate_filters_scores_and_deduplicates_candidates():
     ]
 
 
+def test_url_quality_gate_uses_configurable_threshold_and_debug_logs(caplog):
+    caplog.set_level(logging.DEBUG, logger="src.web_search.common")
+    urls = [
+        "https://example.com/a",
+        "https://example.com/blog/2026/rag",
+        "not-a-url",
+    ]
+
+    selected = select_top_urls(urls, top_k=10, min_score=80)
+
+    assert selected == ["https://example.com/blog/2026/rag"]
+    score_records = [
+        record
+        for record in caplog.records
+        if record.message.startswith("Scored web search URL candidate")
+    ]
+    assert [
+        (record.url, record.score, record.min_score, record.usable)
+        for record in score_records
+    ] == [
+        ("https://example.com/a", url_quality_score("https://example.com/a"), 80, False),
+        (
+            "https://example.com/blog/2026/rag",
+            url_quality_score("https://example.com/blog/2026/rag"),
+            80,
+            True,
+        ),
+    ]
+
+
 def test_baidu_provider_reports_verification_page(monkeypatch):
     class FakeHeaders:
         def get_content_charset(self):
@@ -290,6 +321,24 @@ def test_discover_urls_accepts_injected_provider_and_filters_top_k(isolated_sett
     assert provider.calls == [("phase two", 4)]
 
 
+def test_discover_urls_uses_configured_min_url_score(isolated_settings):
+    settings = isolated_settings(
+        web_search_max_results=4,
+        web_search_min_url_score=80,
+        web_search_top_k=2,
+    )
+    provider = StaticSearchProvider(
+        [
+            "https://example.com/a",
+            "https://example.com/blog/2026/rag",
+        ]
+    )
+
+    urls = discover_urls_from_web("phase two", settings, provider=provider)
+
+    assert urls == ["https://example.com/blog/2026/rag"]
+
+
 def test_discover_urls_falls_back_to_alternate_provider(monkeypatch, isolated_settings):
     settings = isolated_settings(
         web_search_provider="baidu",
@@ -312,8 +361,8 @@ def test_discover_urls_falls_back_to_alternate_provider(monkeypatch, isolated_se
     urls = discover_urls_from_web("minimax latest model", settings)
 
     assert urls == ["https://example.com/fallback", "https://example.com/second"]
-    assert providers["baidu"].calls == [("minimax latest model", 4)]
-    assert providers["bing"].calls == [("minimax latest model", 4)]
+    assert providers["baidu"].calls == [("minimax latest model 2026", 4)]
+    assert providers["bing"].calls == [("minimax latest model 2026", 4)]
     assert providers["duckduckgo"].calls == []
 
 
@@ -345,8 +394,8 @@ def test_discover_urls_falls_back_when_provider_urls_fail_quality_gates(
     urls = discover_urls_from_web("minimax latest model", settings)
 
     assert urls == ["https://example.com/news/2026/minimax-model"]
-    assert providers["baidu"].calls == [("minimax latest model", 4)]
-    assert providers["bing"].calls == [("minimax latest model", 4)]
+    assert providers["baidu"].calls == [("minimax latest model 2026", 4)]
+    assert providers["bing"].calls == [("minimax latest model 2026", 4)]
     assert providers["duckduckgo"].calls == []
 
 
@@ -386,10 +435,10 @@ def test_discover_urls_skips_baidu_during_verification_cooldown(
 
     assert first_urls == ["https://example.com/fallback"]
     assert second_urls == ["https://example.com/fallback"]
-    assert providers["baidu"].calls == [("minimax latest model", 4)]
+    assert providers["baidu"].calls == [("minimax latest model 2026", 4)]
     assert providers["bing"].calls == [
-        ("minimax latest model", 4),
-        ("deepseek latest model", 4),
+        ("minimax latest model 2026", 4),
+        ("deepseek latest model 2026", 4),
     ]
     assert providers["duckduckgo"].calls == []
 
@@ -430,10 +479,10 @@ def test_discover_urls_skips_bing_during_verification_cooldown(
 
     assert first_urls == ["https://example.com/fallback"]
     assert second_urls == ["https://example.com/fallback"]
-    assert providers["bing"].calls == [("minimax latest model", 4)]
+    assert providers["bing"].calls == [("minimax latest model 2026", 4)]
     assert providers["baidu"].calls == [
-        ("minimax latest model", 4),
-        ("deepseek latest model", 4),
+        ("minimax latest model 2026", 4),
+        ("deepseek latest model 2026", 4),
     ]
     assert providers["duckduckgo"].calls == []
 
@@ -493,3 +542,131 @@ def test_core_import_path_keeps_provider_injection(isolated_settings):
     assert core_discover_urls_from_web("compat", settings, provider=provider) == [
         "https://example.com/a"
     ]
+
+
+# ── query_prep ──────────────────────────────────────────────────────────────
+
+
+def test_prepare_search_query_strips_filler_words():
+    from src.web_search.query_prep import prepare_search_query
+
+    result = prepare_search_query("what is the latest model of deepseek")
+    assert "what" not in result.lower().split()
+    assert "is" not in result.lower().split()
+    assert "the" not in result.lower().split()
+    assert "of" not in result.lower().split()
+    assert "deepseek" in result.lower()
+    assert "model" in result.lower()
+
+
+def test_prepare_search_query_appends_year_for_time_sensitive():
+    from src.web_search.query_prep import prepare_search_query
+
+    result = prepare_search_query("what is the latest model of deepseek")
+    assert "2026" in result
+
+
+def test_prepare_search_query_preserves_non_time_sensitive():
+    from src.web_search.query_prep import prepare_search_query
+
+    result = prepare_search_query("what is deepseek")
+    # Not time-sensitive: "what" and "is" stripped, but no year appended
+    assert "what" not in result.lower().split()
+    assert "is" not in result.lower().split()
+    assert "2026" not in result
+
+
+def test_prepare_search_query_does_not_double_year():
+    from src.web_search.query_prep import prepare_search_query
+
+    result = prepare_search_query("deepseek v4 pro 2026 release")
+    assert result.count("2026") == 1
+
+
+def test_prepare_search_query_preserves_named_entities():
+    from src.web_search.query_prep import prepare_search_query
+
+    result = prepare_search_query("tell me about DeepSeek V4 Pro")
+    assert "DeepSeek" in result
+    assert "V4" in result
+    assert "Pro" in result
+
+
+def test_rewrite_search_query_llm_skips_when_no_api_key(isolated_settings):
+    from src.web_search.query_prep import rewrite_search_query_llm
+
+    settings = isolated_settings(deepseek_api_key="")
+    result = rewrite_search_query_llm("what is the latest model of deepseek", settings)
+    assert result is None
+
+
+def test_rewrite_search_query_llm_returns_rewritten_query(isolated_settings):
+    from src.web_search.query_prep import rewrite_search_query_llm
+
+    settings = isolated_settings(
+        deepseek_api_key="sk-test",
+        deepseek_base_url="https://api.deepseek.com",
+    )
+
+    class FakeLLM:
+        def invoke(self, messages):
+            class FakeResponse:
+                content = "DeepSeek V4 Pro latest model"
+            return FakeResponse()
+
+    result = rewrite_search_query_llm(
+        "what is the latest model of deepseek", settings, _llm=FakeLLM()
+    )
+    assert result == "DeepSeek V4 Pro latest model"
+
+
+def test_build_search_query_uses_llm_when_available(isolated_settings, monkeypatch):
+    from src.web_search import query_prep as qp
+
+    settings = isolated_settings(
+        deepseek_api_key="sk-test",
+        deepseek_base_url="https://api.deepseek.com",
+    )
+
+    def fake_rewrite(question, settings_obj, *, _llm=None):
+        if settings_obj.deepseek_api_key:
+            return "deepseek latest model"
+        return None
+
+    monkeypatch.setattr(qp, "rewrite_search_query_llm", fake_rewrite)
+    result = qp.build_search_query("what is the latest model of deepseek", settings)
+    assert "deepseek" in result.lower()
+    assert "what" not in result.lower()
+
+
+# ── url_quality_score query relevance ───────────────────────────────────────
+
+
+def test_url_quality_score_relevance_bonus():
+    from src.web_search.common import url_quality_score
+
+    base = url_quality_score("https://example.com/blog/deepseek-v4-pro")
+    with_query = url_quality_score(
+        "https://example.com/blog/deepseek-v4-pro",
+        query="deepseek v4 pro",
+    )
+    assert with_query > base
+
+    no_match = url_quality_score(
+        "https://other.com/about",
+        query="deepseek v4 pro",
+    )
+    assert no_match < with_query
+
+
+def test_select_top_urls_passes_query_through(isolated_settings):
+    from src.web_search.common import select_top_urls
+
+    urls = [
+        "https://deepseek.net/docs/v4",
+        "https://other.com/about",
+        "https://deepseek.net/blog",
+    ]
+    selected = select_top_urls(urls, top_k=3, query="deepseek v4")
+    # URLs matching the query should rank higher
+    assert "deepseek.net" in selected[0]

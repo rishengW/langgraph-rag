@@ -87,8 +87,12 @@ def _question_tokens(question: str) -> set[str]:
 
 
 # REFACTOR: Deterministically rerank retrieved chunks before grading/generation.
-def rerank_retrieved_context(question: str, retrieved_message: Any) -> str:
-    """Return retrieved context ordered by lexical relevance to the query."""
+def rerank_retrieved_context(
+    question: str,
+    retrieved_message: Any,
+    settings: Settings | None = None,
+) -> str:
+    """Return retrieved context ordered by the configured relevance strategy."""
 
     content: str = message_text(retrieved_message)
     document_chunks: list[str] = _document_chunks_from_message(retrieved_message)
@@ -96,7 +100,24 @@ def rerank_retrieved_context(question: str, retrieved_message: Any) -> str:
     if len(chunks) <= 1:
         return content
 
-    return "\n\n".join(_rank_chunks(question, chunks))
+    strategy = _rerank_strategy(settings)
+    if strategy == "embedding":
+        ranked_chunks = _rank_chunks_by_embedding(question, chunks, settings)
+    elif strategy == "hybrid":
+        ranked_chunks = _rank_chunks_by_hybrid_score(question, chunks, settings)
+    else:
+        ranked_chunks = _rank_chunks(question, chunks)
+    return "\n\n".join(ranked_chunks)
+
+
+def _rerank_strategy(settings: Settings | None) -> str:
+    if settings is None:
+        return "lexical"
+    strategy = settings.rerank_strategy.strip().lower()
+    if strategy not in ("lexical", "embedding", "hybrid"):
+        logger.warning("Unknown rerank strategy %r; using lexical", strategy)
+        return "lexical"
+    return strategy
 
 
 def _document_chunks_from_message(message: Any) -> list[str]:
@@ -137,6 +158,111 @@ def _rank_chunks(question: str, chunks: list[str]) -> list[str]:
         score: int = _lexical_relevance_score(query_tokens, query_phrases, chunk)
         scored.append((score, index, chunk))
     return [chunk for _, _, chunk in sorted(scored, key=lambda item: (-item[0], item[1]))]
+
+
+def _rank_chunks_by_embedding(
+    question: str,
+    chunks: list[str],
+    settings: Settings | None,
+) -> list[str]:
+    if settings is None:
+        return _rank_chunks(question, chunks)
+    try:
+        scores = _embedding_relevance_scores(question, chunks, settings)
+    except Exception as exc:
+        logger.warning("Embedding rerank failed; using lexical rerank: %s", exc)
+        return _rank_chunks(question, chunks)
+    return _rank_chunks_by_scores(scores, chunks)
+
+
+def _rank_chunks_by_hybrid_score(
+    question: str,
+    chunks: list[str],
+    settings: Settings | None,
+) -> list[str]:
+    query_tokens: set[str] = _question_tokens(question)
+    query_phrases: set[str] = _query_phrases(question)
+    lexical_scores = [
+        float(_lexical_relevance_score(query_tokens, query_phrases, chunk))
+        for chunk in chunks
+    ]
+    if settings is None:
+        return _rank_chunks_by_scores(lexical_scores, chunks)
+    try:
+        embedding_scores = _embedding_relevance_scores(question, chunks, settings)
+    except Exception as exc:
+        logger.warning(
+            "Hybrid rerank embedding score failed; using lexical rerank: %s",
+            exc,
+        )
+        return _rank_chunks_by_scores(lexical_scores, chunks)
+    scores = [
+        lexical + embedding
+        for lexical, embedding in zip(
+            _normalize_scores(lexical_scores),
+            _normalize_scores(embedding_scores),
+        )
+    ]
+    return _rank_chunks_by_scores(scores, chunks)
+
+
+def _embedding_relevance_scores(
+    question: str,
+    chunks: list[str],
+    settings: Settings,
+) -> list[float]:
+    embeddings = _build_rerank_embeddings(settings)
+    query_vector = embeddings.embed_query(question)
+    chunk_vectors = embeddings.embed_documents(chunks)
+    if len(chunk_vectors) != len(chunks):
+        raise RuntimeError(
+            "Embedding provider returned the wrong number of chunk vectors."
+        )
+    return [
+        _cosine_similarity(query_vector, chunk_vector)
+        for chunk_vector in chunk_vectors
+    ]
+
+
+def _build_rerank_embeddings(settings: Settings) -> Any:
+    from ...rag.embeddings import build_embeddings
+
+    return build_embeddings(settings)
+
+
+def _rank_chunks_by_scores(scores: list[float], chunks: list[str]) -> list[str]:
+    scored = [
+        (score, index, chunk)
+        for index, (score, chunk) in enumerate(zip(scores, chunks))
+    ]
+    return [
+        chunk
+        for _, _, chunk in sorted(scored, key=lambda item: (-item[0], item[1]))
+    ]
+
+
+def _normalize_scores(scores: list[float]) -> list[float]:
+    if not scores:
+        return []
+    lowest = min(scores)
+    highest = max(scores)
+    if highest == lowest:
+        return [0.0 for _score in scores]
+    return [(score - lowest) / (highest - lowest) for score in scores]
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    dot_product = sum(
+        left_value * right_value
+        for left_value, right_value in zip(left, right)
+    )
+    left_norm = sum(value * value for value in left) ** 0.5
+    right_norm = sum(value * value for value in right) ** 0.5
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return dot_product / (left_norm * right_norm)
 
 
 def _query_phrases(question: str) -> set[str]:
@@ -239,10 +365,17 @@ def grade_documents_factory(
             explanation: Optional[str] = Field(None, description="Optional short explanation")
 
         llm_with_tool = new_chat_model(settings).with_structured_output(Grade)
-        chain = GRADE_PROMPT | llm_with_tool
+        # Bind today's date so the grader is anchored in the present and does
+        # not flag post-cutoff information as "not relevant".
+        dated_grade_prompt = GRADE_PROMPT.partial(current_date=date.today().isoformat())
+        chain = dated_grade_prompt | llm_with_tool
 
         question = question_resolver(state)
-        retrieved_docs_text = rerank_retrieved_context(question, state["messages"][-1])
+        retrieved_docs_text = rerank_retrieved_context(
+            question,
+            state["messages"][-1],
+            settings,
+        )
         rewrite_count = int(state.get("rewrite_count", 0) or 0)
 
         llm_failed = False
@@ -356,6 +489,9 @@ def rewrite_factory(
         rewrite_prompt = [
             HumanMessage(
                 content=(
+                    f"Today's date is {date.today().isoformat()}. Treat any "
+                    "time references in the question as relative to this date "
+                    "and do not assume facts must predate this date.\n\n"
                     "Look at the input and reason about the underlying semantic intent.\n\n"
                     "Initial question:\n"
                     "-------\n"
@@ -396,7 +532,11 @@ def generate_factory(
     def generate(state):
         logger.info("GENERATE")
         question = question_resolver(state)
-        retrieved_docs_text = rerank_retrieved_context(question, state["messages"][-1])
+        retrieved_docs_text = rerank_retrieved_context(
+            question,
+            state["messages"][-1],
+            settings,
+        )
         # Bind today's date so the model is anchored in the present and treats
         # retrieved context as current rather than dismissing post-cutoff facts.
         dated_prompt = RAG_PROMPT.partial(current_date=date.today().isoformat())

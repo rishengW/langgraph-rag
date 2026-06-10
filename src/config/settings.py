@@ -53,6 +53,7 @@ class Settings:
     web_search_max_results: int = 20
     # REFACTOR: Use one canonical web-search fetch default and expose URL load concurrency.
     web_search_top_k: int = 6
+    web_search_min_url_score: int = 45
     web_search_region: str = "wt-wt"
     web_search_timelimit: str | None = None
     web_search_verify_ssl: bool = True
@@ -74,6 +75,10 @@ class Settings:
     document_quality_min_unique_terms: int = 8
     document_quality_relevance_query: str = ""
     document_quality_query_min_overlap: int = 1
+    document_quality_min_similarity: float = 0.5
+    document_quality_recency_bias_days: int = 365
+    # REFACTOR: Optional post-retrieval re-ranking strategy.
+    rerank_strategy: str = "lexical"
     dashscope_request_timeout: int = 120
     dashscope_max_retries: int = 3
     dashscope_http_base_url: str = ""

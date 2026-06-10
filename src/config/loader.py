@@ -44,6 +44,7 @@ SETTING_ENV_NAMES = {
     "web_search_provider": "WEB_SEARCH_PROVIDER",
     "web_search_max_results": "WEB_SEARCH_MAX_RESULTS",
     "web_search_top_k": "WEB_SEARCH_TOP_K",
+    "web_search_min_url_score": "WEB_SEARCH_MIN_URL_SCORE",
     "web_search_region": "WEB_SEARCH_REGION",
     "web_search_timelimit": "WEB_SEARCH_TIMELIMIT",
     "web_search_verify_ssl": "WEB_SEARCH_VERIFY_SSL",
@@ -62,6 +63,9 @@ SETTING_ENV_NAMES = {
     "document_quality_min_unique_terms": "DOCUMENT_QUALITY_MIN_UNIQUE_TERMS",
     "document_quality_relevance_query": "DOCUMENT_QUALITY_RELEVANCE_QUERY",
     "document_quality_query_min_overlap": "DOCUMENT_QUALITY_QUERY_MIN_OVERLAP",
+    "document_quality_min_similarity": "DOCUMENT_QUALITY_MIN_SIMILARITY",
+    "document_quality_recency_bias_days": "DOCUMENT_QUALITY_RECENCY_BIAS_DAYS",
+    "rerank_strategy": "RERANK_STRATEGY",
     "llm_provider": "LLM_PROVIDER",
     "deepseek_model": "DEEPSEEK_MODEL",
     "deepseek_base_url": "DEEPSEEK_BASE_URL",
@@ -135,7 +139,10 @@ def _parse_yaml_scalar(value: str) -> Any:
     try:
         return int(value)
     except ValueError:
-        return value
+        try:
+            return float(value)
+        except ValueError:
+            return value
 
 
 def load_yaml_config(config_file: str | Path | None = DEFAULT_CONFIG_FILE) -> dict[str, Any]:
@@ -218,6 +225,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "max_rewrites",
         "web_search_max_results",
         "web_search_top_k",
+        "web_search_min_url_score",
         "web_search_max_page_tokens",
         "web_search_min_page_chars",
         "web_search_min_page_tokens",
@@ -227,6 +235,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "document_quality_min_text_length",
         "document_quality_min_unique_terms",
         "document_quality_query_min_overlap",
+        "document_quality_recency_bias_days",
         "dashscope_request_timeout",
         "dashscope_max_retries",
     ):
@@ -236,12 +245,14 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         if name in (
             "max_rewrites",
             "web_search_top_k",
+            "web_search_min_url_score",
             "web_search_max_page_tokens",
             "web_search_min_page_chars",
             "web_search_min_page_tokens",
             "document_quality_min_text_length",
             "document_quality_min_unique_terms",
             "document_quality_query_min_overlap",
+            "document_quality_recency_bias_days",
         ):
             return max(0, parsed)
         if name in (
@@ -253,6 +264,8 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         if name == "page_load_cache_ttl_seconds":
             return max(0, parsed)
         return parsed
+    if name == "document_quality_min_similarity":
+        return max(0.0, min(1.0, float(value)))
     if name in (
         "allow_low_relevance_generate",
         "web_search_enabled",
@@ -264,6 +277,13 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         return parse_bool(value, bool(default))
     if name in ("web_search_provider",):
         return str(value).strip().lower() or str(default)
+    if name == "rerank_strategy":
+        strategy = str(value).strip().lower() or str(default or "lexical")
+        if strategy not in ("lexical", "embedding", "hybrid"):
+            raise ValueError(
+                "rerank_strategy must be one of: lexical, embedding, hybrid"
+            )
+        return strategy
     if name in ("web_search_timelimit",):
         text = "" if value is None else str(value).strip()
         return text or None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from langchain_core.output_parsers import StrOutputParser
 
@@ -63,7 +64,10 @@ def condense_question_factory(settings: Settings):
             }
 
         history_text = format_history(history)
-        chain = CONDENSE_PROMPT | new_chat_model(settings) | StrOutputParser()
+        # Bind today's date so the condenser doesn't rewrite "the latest" into
+        # "the latest as of 2024" or otherwise inject a stale temporal anchor.
+        dated_prompt = CONDENSE_PROMPT.partial(current_date=date.today().isoformat())
+        chain = dated_prompt | new_chat_model(settings) | StrOutputParser()
 
         try:
             standalone = invoke_with_retry(

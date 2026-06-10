@@ -282,7 +282,10 @@ class ChromaRetriever:
                 min_unique_terms=settings.document_quality_min_unique_terms,
                 relevance_query=settings.document_quality_relevance_query,
                 min_query_term_overlap=settings.document_quality_query_min_overlap,
+                min_similarity=settings.document_quality_min_similarity,
+                recency_bias_days=settings.document_quality_recency_bias_days,
             ),
+            embeddings=embeddings,
         )
 
         logger.info("BUILD CHROMA VECTORSTORE")

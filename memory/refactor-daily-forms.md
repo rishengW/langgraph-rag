@@ -3,7 +3,7 @@ name: refactor-daily-forms
 description: Dated refactoring process forms with complete, to-do, blocked, and note lines
 metadata:
   type: project
-  updated: 2026-06-09
+  updated: 2026-06-10
 ---
 
 # Refactor Daily Forms
@@ -24,6 +24,41 @@ Each date gets one form. Every form line must start with one of these labels:
 | to do |  |  |  |
 | blocked |  |  |  |
 | note |  |  |  |
+
+## 2026-06-10 Form
+
+| Label | Scope | Line Item | Evidence / Next Action |
+|---|---|---|---|
+| complete | LLM / provider | Added `DeepSeekLLMProvider` using `ChatOpenAI` pointed at `api.deepseek.com`. | `src/llm/provider.py`: `DeepSeekLLMProvider.chat_model()` constructs `ChatOpenAI(model=deepseek_model, base_url=deepseek_base_url)`. `build_chat_model()` dispatches on `settings.llm_provider`. |
+| complete | Config / settings | Added `llm_provider`, `deepseek_api_key`, `deepseek_model`, `deepseek_base_url` fields. | `src/config/settings.py`: `llm_provider="dashscope"`, `deepseek_model="deepseek-v4-pro"`, `deepseek_base_url="https://api.deepseek.com"`. |
+| complete | Config / loader | Added `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `LLM_PROVIDER` env vars + provider-key validation. | `src/config/loader.py`: `SETTING_ENV_NAMES` updated; `load_settings()` raises when `llm_provider=deepseek` and `DEEPSEEK_API_KEY` is missing; `apply_runtime_environment()` exports `DEEPSEEK_API_KEY`. |
+| complete | Config / YAML | Added new keys to default config. | `config/default.yaml`: `llm_provider: dashscope`, `deepseek_model: deepseek-v4-pro`, `deepseek_base_url: https://api.deepseek.com`. |
+| complete | Config / .env | Added new env vars to example file. | `.env.example`: added `LLM_PROVIDER`, `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`. |
+| complete | API / readiness | Updated readiness checks to validate active provider's API key. | `src/api/dependencies.py`: added `_llm_api_key_configured()` helper; QA/chat readiness now include `llm_api_key_configured` check. |
+| complete | Dependencies | Added `langchain-openai==0.3.17`. | `requirements.txt`: added `langchain-openai==0.3.17`. |
+| complete | Docs | Updated README, root SKILL.md, graph SKILL.md model references. | `README.md`: added `LLM_PROVIDER`/`DEEPSEEK_API_KEY` to settings table and updated Notes. `SKILL.md`: updated LLM Provider row. `src/graph/SKILL.md`: updated LLM row. |
+| complete | Tests | Added 3 DeepSeek config tests: provider settings loading, missing-key error, dashscope default. | `tests/test_config.py`: `test_load_settings_deepseek_provider`, `test_load_settings_deepseek_requires_api_key`, `test_load_settings_defaults_to_dashscope`. |
+| complete | Verification | Full test suite green. | `python -m pytest -q` → 144 passed (was 134, +10 from new config tests and existing test fixes). Smoke test confirmed `build_chat_model()` constructs `ChatTongyi` (dashscope) by default. |
+| note | DeepSeek | DeepSeek API key integration testing blocked on having a valid key and the model available. | Once you add `LLM_PROVIDER=deepseek` and `DEEPSEEK_API_KEY=<key>` to `.env`, the chat model will switch automatically. Verify with `python -c "from src.config.loader import load_settings; from src.llm.provider import build_chat_model; s=load_settings(); print(build_chat_model(s))"`. |
+| note | Web search / quality | Identified 5 gaps in the deterministic filtering pipeline (Stages 1-4) that can be strengthened without adding external API dependencies. | The pipeline is currently rule-based only: URL noise patterns, pre-index text quality checks, lexical re-ranking, and a readability guard. Five concrete improvements identified below — ordered by impact-to-effort ratio. |
+| complete | Stage 2 / dedup | **Gap 3: Content deduplication.** Tracks SHA256 hashes of normalized document text in `filter_quality_documents()` and skips duplicates. | `src/rag/document_quality.py`: added normalized lowercase content hashing and `duplicate_content` rejection accounting. Covered by `test_document_quality_filter_skips_normalized_duplicate_documents`. |
+| complete | Stage 2 / semantic | **Gap 1: Embedding similarity gate.** Added cosine-similarity relevance gating against the query embedding, reusing the Chroma build embedding instance. | `src/rag/document_quality.py`, `src/rag/document_loader.py`, `src/rag/chroma_retriever.py`: query plus first 800 document chars are embedded when `document_quality_relevance_query` is set and embeddings are available; keyword overlap remains fallback. Added `document_quality_min_similarity=0.5` config. |
+| complete | Stage 1 / scoring | **Gap 2: Configurable URL score threshold.** Exposed the URL quality threshold as `web_search_min_url_score` and added DEBUG score logging for each usable candidate. | `src/web_search/common.py`, `src/web_search/discovery.py`, `src/config/settings.py`, `src/config/loader.py`, `config/default.yaml`, `.env.example`: default remains 45, env var is `WEB_SEARCH_MIN_URL_SCORE`, and focused tests cover filtering/logging. |
+| complete | Stage 3 / re-rank | **Gap 4: Embedding-based re-ranking option.** Added optional `RERANK_STRATEGY=lexical|embedding|hybrid`; lexical remains the default. | `src/graph/nodes/common.py`: embedding and hybrid paths score chunks against query embeddings with lexical fallback on provider failure. Config/default/env docs and graph/config tests updated. |
+| complete | Stage 2 / recency | **Gap 5: Date extraction from HTML.** Extracts publication dates from `article:published_time` meta tags, `<time>` tags, JSON-LD, and date metadata; biases recent pages first. | Added `src/web_search/date_extractor.py`; `DateAwareWebBaseLoader` preserves publication dates in metadata; `filter_quality_documents()` annotates recency score and sorts recent documents higher. Added `document_quality_recency_bias_days=365` config and focused tests. |
+| complete | Verification | Stage 2 document-quality slice verified. | `python -m pytest -q tests\test_rag_interfaces.py tests\test_config.py` passed (40 tests); `python -m pytest -q` passed (153 tests); `python -m compileall src tests` passed; `git diff --check` passed with line-ending warnings only. |
+| note | Web search / quality | All five planned 2026-06-10 deterministic filtering/re-ranking gaps are implemented in the working tree. | Parent integration owns final full-suite verification and any cleanup after subagent merge review. |
+| complete | Verification | Parent integrated and verified the 2026-06-10 quality wave. | `.venv\Scripts\python.exe -m pytest -q` passed (153 tests); `.venv\Scripts\python.exe -m compileall src tests` passed; `git diff --check` passed with line-ending warnings only. |
+| complete | Web search / tool description | **Fix 1:** Updated `live_web_search` tool description to instruct LLM to formulate keyword queries (not NL questions) and include current year for time-sensitive queries. | `src/web_search/tool.py`: description now includes examples and explicit keyword-formulation instructions. |
+| complete | Web search / query preprocessing | **Fix 2 + 3:** Added `prepare_search_query()` that strips question filler words and appends current year. Wired into `_discover_with_provider()` so all search engine queries are preprocessed. | New `src/web_search/query_prep.py`; `src/web_search/discovery.py` imports and calls it before each search provider call. |
+| complete | Web search / URL relevance | **Fix 4:** Added query-term relevance bonus to `url_quality_score()`. URLs whose hostname/path contain query keywords get up to +20 extra points. Threaded via `select_top_urls()` and `ranked_usable_urls()`. | `src/web_search/common.py`: `url_quality_score()` now accepts `query=` keyword arg; `_url_query_relevance_bonus()` scores hostname (+8) and path segments (+5 each, max +20); `select_top_urls()` and `ranked_usable_urls()` pass `query=` through. |
+| complete | LLM / prompts | **Fix 6:** Added semantic-matching instructions to both the lightweight web-answer prompt and the heavy `RAG_PROMPT`. Instructs the LLM to match on meaning, not exact phrasing — bridging vocabulary gaps like "latest model" ↔ "V4 Pro release 2026". | `src/web_search/prompt_builder.py`: added "IMPORTANT — Semantic matching" block; `src/llm/prompts.py`: same instruction in `RAG_PROMPT`. |
+| complete | Web search / refusal message | **Fix 5:** Updated `web_answer` refusal message to suggest keyword-based queries and year inclusion when no readable pages are found. | `src/graph/nodes/web_answer.py`: refusal message now suggests "Try using specific keywords instead of a full question" with example. |
+| complete | Tests | Added 7 focused tests: `prepare_search_query` unit tests (5) + URL relevance scoring tests (2). Updated 4 existing discovery fallback tests to expect preprocessed queries with appended year. | `tests/test_web_search_providers.py`: `test_prepare_search_query_*` (5 tests), `test_url_quality_score_relevance_bonus`, `test_select_top_urls_passes_query_through`. Updated 4 fallback test expected queries. |
+| complete | Verification | Full test suite green after all 6 fixes. | `python -m pytest -q` → 160 passed (was 153, +7 new tests); `python -m compileall src tests` passed. |
+| complete | Web search / LLM rewrite | **Proactive LLM query rewrite.** Added `rewrite_search_query_llm()` using DeepSeek V4 Flash (`deepseek-v4-flash`) to rewrite user questions into keyword search queries before calling the search engine. Gracefully falls back to mechanical `prepare_search_query()` when API key is missing or LLM is unavailable. | `src/web_search/query_prep.py`: `rewrite_search_query_llm()` with `_llm` injection for testing, `build_search_query()` as the unified entry point (LLM → mechanical fallback). `src/web_search/discovery.py`: `_discover_with_provider()` now calls `build_search_query(question, settings)`. Smoke tested: "what is the latest model of deepseek" → "DeepSeek latest model 2026". |
+| complete | Tests / LLM rewrite | Added 3 tests: skip-when-no-api-key, returns-rewritten-query (with fake LLM), build_search_query integration. | `tests/test_web_search_providers.py`: `test_rewrite_search_query_llm_skips_when_no_api_key`, `test_rewrite_search_query_llm_returns_rewritten_query`, `test_build_search_query_uses_llm_when_available`. |
+| complete | Verification | Full test suite green after LLM rewrite. | `python -m pytest -q` → 163 passed (was 160, +3 new tests); `python -m compileall src tests` passed. |
 
 ## 2026-06-09 Form (web-answer grounding + date-aware prompts)
 
@@ -143,19 +178,3 @@ Each date gets one form. Every form line must start with one of these labels:
 | to do | Phase 2 remaining | Decide whether to continue Phase 2 config/YAML/error-code work before Phase 3. | Compare against `REFACTORING_PLAN.md` Phase 2 exit criteria. |
 | to do | Phase 3 planning | Prepare SSE/session persistence/observability work only after Phase 2 verification is green. | Add the next dated form before starting Phase 3 work. |
 | note | Agent workflow | Future RAGRefactorDeveloper workers must update this file when they finish. | Add or update the current date form, mark completed lines, refresh to-do lines, and record blocked checks. |
-
-## 2026-06-10 Form
-
-| Label | Scope | Line Item | Evidence / Next Action |
-|---|---|---|---|
-| complete | LLM / provider | Added `DeepSeekLLMProvider` using `ChatOpenAI` pointed at `api.deepseek.com`. | `src/llm/provider.py`: `DeepSeekLLMProvider.chat_model()` constructs `ChatOpenAI(model=deepseek_model, base_url=deepseek_base_url)`. `build_chat_model()` dispatches on `settings.llm_provider`. |
-| complete | Config / settings | Added `llm_provider`, `deepseek_api_key`, `deepseek_model`, `deepseek_base_url` fields. | `src/config/settings.py`: `llm_provider="dashscope"`, `deepseek_model="deepseek-v4-pro"`, `deepseek_base_url="https://api.deepseek.com"`. |
-| complete | Config / loader | Added `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `LLM_PROVIDER` env vars + provider-key validation. | `src/config/loader.py`: `SETTING_ENV_NAMES` updated; `load_settings()` raises when `llm_provider=deepseek` and `DEEPSEEK_API_KEY` is missing; `apply_runtime_environment()` exports `DEEPSEEK_API_KEY`. |
-| complete | Config / YAML | Added new keys to default config. | `config/default.yaml`: `llm_provider: dashscope`, `deepseek_model: deepseek-v4-pro`, `deepseek_base_url: https://api.deepseek.com`. |
-| complete | Config / .env | Added new env vars to example file. | `.env.example`: added `LLM_PROVIDER`, `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`. |
-| complete | API / readiness | Updated readiness checks to validate active provider's API key. | `src/api/dependencies.py`: added `_llm_api_key_configured()` helper; QA/chat readiness now include `llm_api_key_configured` check. |
-| complete | Dependencies | Added `langchain-openai==0.3.17`. | `requirements.txt`: added `langchain-openai==0.3.17`. |
-| complete | Docs | Updated README, root SKILL.md, graph SKILL.md model references. | `README.md`: added `LLM_PROVIDER`/`DEEPSEEK_API_KEY` to settings table and updated Notes. `SKILL.md`: updated LLM Provider row. `src/graph/SKILL.md`: updated LLM row. |
-| complete | Tests | Added 3 DeepSeek config tests: provider settings loading, missing-key error, dashscope default. | `tests/test_config.py`: `test_load_settings_deepseek_provider`, `test_load_settings_deepseek_requires_api_key`, `test_load_settings_defaults_to_dashscope`. |
-| complete | Verification | Full test suite green. | `python -m pytest -q` → 144 passed (was 134, +10 from new config tests and existing test fixes). Smoke test confirmed `build_chat_model()` constructs `ChatTongyi` (dashscope) by default. |
-| note | DeepSeek | DeepSeek API key integration testing blocked on having a valid key and the model available. | Once you add `LLM_PROVIDER=deepseek` and `DEEPSEEK_API_KEY=<key>` to `.env`, the chat model will switch automatically. Verify with `python -c "from src.config.loader import load_settings; from src.llm.provider import build_chat_model; s=load_settings(); print(build_chat_model(s))"`. |

@@ -56,9 +56,14 @@ def build_web_search_tool(
         func=_run_web_search,
         name="live_web_search",
         description=(
-            "Search the live web for current or external information. Returns "
-            "provider-ranked result URLs only; use source-document retrieval for "
-            "configured local sources."
+            "Search the live web for current or external information. "
+            "IMPORTANT: Formulate the query as search-engine keywords, NOT a "
+            "natural-language question. Extract core concepts and named entities, "
+            "drop filler words (what, is, the, of, does, etc.), and include the "
+            "current year when the question is about recent events or releases. "
+            "For example, instead of 'what is the latest model of deepseek' use "
+            "'DeepSeek latest model 2026' or 'DeepSeek new model release 2026'. "
+            "Returns provider-ranked result URLs."
         ),
         args_schema=WebSearchInput,
     )

@@ -39,6 +39,8 @@ def test_web_search_and_page_load_defaults_align_with_yaml():
 
     assert settings.web_search_top_k == 6
     assert defaults["web_search_top_k"] == settings.web_search_top_k
+    assert settings.web_search_min_url_score == 45
+    assert defaults["web_search_min_url_score"] == settings.web_search_min_url_score
     assert settings.web_search_lightweight is True
     assert defaults["web_search_lightweight"] == settings.web_search_lightweight
     assert settings.web_search_max_page_tokens == 8000
@@ -72,6 +74,18 @@ def test_web_search_and_page_load_defaults_align_with_yaml():
         defaults["document_quality_query_min_overlap"]
         == settings.document_quality_query_min_overlap
     )
+    assert settings.document_quality_min_similarity == 0.5
+    assert (
+        defaults["document_quality_min_similarity"]
+        == settings.document_quality_min_similarity
+    )
+    assert settings.document_quality_recency_bias_days == 365
+    assert (
+        defaults["document_quality_recency_bias_days"]
+        == settings.document_quality_recency_bias_days
+    )
+    assert settings.rerank_strategy == "lexical"
+    assert defaults["rerank_strategy"] == settings.rerank_strategy
 
 
 def test_load_settings_from_env_file(tmp_path, monkeypatch):
@@ -161,6 +175,7 @@ def test_load_settings_accepts_page_load_max_concurrency_env(tmp_path, monkeypat
     monkeypatch.setenv("WEB_SEARCH_MAX_PAGE_TOKENS", "-50")
     monkeypatch.setenv("WEB_SEARCH_MIN_PAGE_CHARS", "-50")
     monkeypatch.setenv("WEB_SEARCH_MIN_PAGE_TOKENS", "-1")
+    monkeypatch.setenv("WEB_SEARCH_MIN_URL_SCORE", "-10")
 
     settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
 
@@ -169,6 +184,7 @@ def test_load_settings_accepts_page_load_max_concurrency_env(tmp_path, monkeypat
     assert settings.web_search_max_page_tokens == 0
     assert settings.web_search_min_page_chars == 0
     assert settings.web_search_min_page_tokens == 0
+    assert settings.web_search_min_url_score == 0
 
 
 def test_load_settings_accepts_lightweight_web_search_env(tmp_path, monkeypatch):
@@ -229,6 +245,7 @@ def test_load_settings_accepts_web_search_readability_thresholds_from_yaml(
             [
                 "web_search_min_page_chars: 123",
                 "web_search_min_page_tokens: 17",
+                "web_search_min_url_score: 70",
             ]
         ),
         encoding="utf-8",
@@ -239,6 +256,7 @@ def test_load_settings_accepts_web_search_readability_thresholds_from_yaml(
 
     assert settings.web_search_min_page_chars == 123
     assert settings.web_search_min_page_tokens == 17
+    assert settings.web_search_min_url_score == 70
 
 
 def test_load_settings_accepts_page_load_cache_ttl_env(tmp_path, monkeypatch):
@@ -257,6 +275,8 @@ def test_load_settings_accepts_document_quality_env(tmp_path, monkeypatch):
     monkeypatch.setenv("DOCUMENT_QUALITY_MIN_UNIQUE_TERMS", "0")
     monkeypatch.setenv("DOCUMENT_QUALITY_RELEVANCE_QUERY", "langgraph retrieval")
     monkeypatch.setenv("DOCUMENT_QUALITY_QUERY_MIN_OVERLAP", "-5")
+    monkeypatch.setenv("DOCUMENT_QUALITY_MIN_SIMILARITY", "0.75")
+    monkeypatch.setenv("DOCUMENT_QUALITY_RECENCY_BIAS_DAYS", "-7")
 
     settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
 
@@ -265,6 +285,17 @@ def test_load_settings_accepts_document_quality_env(tmp_path, monkeypatch):
     assert settings.document_quality_min_unique_terms == 0
     assert settings.document_quality_relevance_query == "langgraph retrieval"
     assert settings.document_quality_query_min_overlap == 0
+    assert settings.document_quality_min_similarity == 0.75
+    assert settings.document_quality_recency_bias_days == 0
+
+
+def test_load_settings_accepts_rerank_strategy_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("RERANK_STRATEGY", "HyBrId")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.rerank_strategy == "hybrid"
 
 
 def test_load_settings_deepseek_provider(tmp_path, monkeypatch):

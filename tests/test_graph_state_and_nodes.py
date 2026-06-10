@@ -109,6 +109,81 @@ def test_rerank_retrieved_context_prefers_lexically_relevant_chunks():
     ]
 
 
+def test_rerank_retrieved_context_supports_embedding_strategy(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(rerank_strategy="embedding")
+    message = ToolMessage(
+        content="lexical PAI reinforcement note\n\nsemantic vector match",
+        tool_call_id="call_1",
+        artifact=[
+            Document(page_content="lexical PAI reinforcement note"),
+            Document(page_content="semantic vector match"),
+        ],
+    )
+
+    class FakeEmbeddings:
+        def embed_query(self, _text):
+            return [1.0, 0.0]
+
+        def embed_documents(self, texts):
+            vectors = {
+                "lexical PAI reinforcement note": [0.0, 1.0],
+                "semantic vector match": [1.0, 0.0],
+            }
+            return [vectors[text] for text in texts]
+
+    monkeypatch.setattr(
+        common_nodes,
+        "_build_rerank_embeddings",
+        lambda _settings: FakeEmbeddings(),
+    )
+
+    context = common_nodes.rerank_retrieved_context(
+        "How does PAI use reinforcement learning?",
+        message,
+        settings,
+    )
+
+    assert context.split("\n\n") == [
+        "semantic vector match",
+        "lexical PAI reinforcement note",
+    ]
+
+
+def test_rerank_retrieved_context_hybrid_combines_scores(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(rerank_strategy="hybrid")
+    message = ToolMessage(
+        content="PAI reinforcement learning exact guide\n\nsemantic neighbor",
+        tool_call_id="call_1",
+    )
+
+    class FakeEmbeddings:
+        def embed_query(self, _text):
+            return [1.0, 0.0]
+
+        def embed_documents(self, _texts):
+            return [[0.8, 0.2], [1.0, 0.0]]
+
+    monkeypatch.setattr(
+        common_nodes,
+        "_build_rerank_embeddings",
+        lambda _settings: FakeEmbeddings(),
+    )
+
+    context = common_nodes.rerank_retrieved_context(
+        "PAI reinforcement learning guide",
+        message,
+        settings,
+    )
+
+    assert context.split("\n\n")[0] == "PAI reinforcement learning exact guide"
+
+
 def test_grade_documents_uses_reranked_context_and_binary_score(
     monkeypatch,
     isolated_settings,

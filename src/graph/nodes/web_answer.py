@@ -85,8 +85,12 @@ def web_answer_factory(
                             "sources for this question, so I don't have grounded "
                             "information to answer it and won't guess.\n\n"
                             f"Attempted sources: {attempted}\n\n"
-                            "Try rephrasing the question, or provide a specific "
-                            "source URL you'd like me to read."
+                            "Suggestions:\n"
+                            "- Try using specific keywords instead of a full question "
+                            "(e.g. 'DeepSeek V4 Pro release' instead of 'what is the "
+                            "latest model of deepseek')\n"
+                            "- Include a year if your question is time-sensitive\n"
+                            "- Provide a specific source URL you'd like me to read"
                         )
                     )
                 ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import ssl
 from typing import Iterable
@@ -15,6 +16,7 @@ SEARCH_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0 Safari/537.36"
 )
+logger = logging.getLogger(__name__)
 
 
 def normalize_urls(urls: Iterable[str]) -> list[str]:
@@ -156,7 +158,8 @@ CONTENT_PATH_CUES = {
     "research",
 }
 SEARCH_QUERY_KEYS = {"keyword", "keywords", "q", "query", "s", "search", "wd"}
-MIN_USABLE_URL_SCORE = 45
+# REFACTOR: Keep the default URL quality threshold explicit for Settings wiring.
+DEFAULT_MIN_USABLE_URL_SCORE = 45
 
 
 def is_noise_url(url: str) -> bool:
@@ -224,7 +227,7 @@ def canonical_url_key(url: str) -> tuple[str, str]:
     return hostname, path or "/"
 
 
-def url_quality_score(url: str) -> int:
+def url_quality_score(url: str, *, query: str = "") -> int:
     if is_noise_url(url):
         return 0
 
@@ -237,24 +240,88 @@ def url_quality_score(url: str) -> int:
     score -= 5 if parsed.query else 0
     score += 15 if set(segments) & CONTENT_PATH_CUES else 0
     score += 8 if any(re.fullmatch(r"20\d{2}", segment) for segment in segments) else 0
+    score += _url_query_relevance_bonus(segments, parsed.hostname or "", query)
     return score
 
 
-def select_top_urls(urls: list[str], top_k: int | None) -> list[str]:
+def _url_query_relevance_bonus(
+    segments: list[str],
+    hostname: str,
+    query: str,
+) -> int:
+    if not query:
+        return 0
+    query_terms = _search_query_terms(query)
+    if not query_terms:
+        return 0
+    bonus = 0
+    path_text = " ".join(segments).lower()
+    for term in query_terms:
+        if term in hostname.lower():
+            bonus += 8
+        if term in path_text:
+            bonus += 5
+    return min(bonus, 20)
+
+
+_SEARCH_QUERY_FILLER_RE = re.compile(
+    r"\b(?:a|an|the|is|are|was|were|of|in|on|at|to|for|with|by|about|"
+    r"what|when|where|which|who|how|does|do|did|can|could|will|would|"
+    r"should|tell|explain|find|show|give|list|please|just|latest|newest|"
+    r"current|recent|new|now)\b",
+    re.I,
+)
+
+
+def _search_query_terms(query: str) -> list[str]:
+    cleaned = _SEARCH_QUERY_FILLER_RE.sub(" ", query)
+    return [
+        token.lower()
+        for token in re.findall(r"[a-zA-Z][a-zA-Z0-9_-]{2,}", cleaned)
+        if len(token) >= 3
+    ]
+
+
+def select_top_urls(
+    urls: list[str],
+    top_k: int | None,
+    min_score: int = DEFAULT_MIN_USABLE_URL_SCORE,
+    *,
+    query: str = "",
+) -> list[str]:
     """Keep high-quality URLs after deterministic filtering and deduplication."""
 
-    filtered = ranked_usable_urls(urls)
+    filtered = ranked_usable_urls(urls, min_score=min_score, query=query)
     if top_k and top_k > 0:
         return filtered[:top_k]
     return filtered
 
 
-def ranked_usable_urls(urls: Iterable[str]) -> list[str]:
+def ranked_usable_urls(
+    urls: Iterable[str],
+    min_score: int = DEFAULT_MIN_USABLE_URL_SCORE,
+    *,
+    query: str = "",
+) -> list[str]:
     best_by_key: dict[tuple[str, str], tuple[int, int, str]] = {}
 
     for position, url in enumerate(normalize_urls(urls)):
-        score = url_quality_score(url)
-        if score < MIN_USABLE_URL_SCORE:
+        score = url_quality_score(url, query=query)
+        usable = score >= min_score
+        logger.debug(
+            "Scored web search URL candidate url=%s score=%s min_score=%s usable=%s",
+            url,
+            score,
+            min_score,
+            usable,
+            extra={
+                "url": url,
+                "score": score,
+                "min_score": min_score,
+                "usable": usable,
+            },
+        )
+        if score < min_score:
             continue
 
         key = canonical_url_key(url)

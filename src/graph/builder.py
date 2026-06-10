@@ -25,9 +25,15 @@ GraphMode = Literal["qa", "chat"]
 NodeCallable = Callable[[dict[str, Any]], dict[str, Any]]
 GradeEdgeCallable = Callable[[dict[str, Any]], Literal["generate", "rewrite"]]
 
+# When the agent calls the live_web_search tool, hand off to the web_answer
+# node to ground the reply in the fetched pages. When the agent answers
+# directly (e.g. for arithmetic, common knowledge, or chitchat where the
+# system prompt steers it away from tools), end the graph immediately so the
+# direct answer is preserved instead of being overridden by web_answer
+# re-prompting against irrelevant fetched pages.
 LIGHTWEIGHT_AGENT_EDGE_MAP = {
     "tools": "web_search",
-    END: "web_answer",
+    END: END,
 }
 
 _DEFAULT_CHECKPOINTER = object()

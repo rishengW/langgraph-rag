@@ -6,13 +6,13 @@ from collections.abc import Callable
 from datetime import date
 from typing import Any, Literal, Optional
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel, Field
 
 from ...config import Settings
 from ...llm.provider import build_chat_model
-from ...llm.prompts import GRADE_PROMPT, RAG_PROMPT
+from ...llm.prompts import AGENT_SYSTEM_PROMPT, GRADE_PROMPT, RAG_PROMPT
 from ...utils.networking import configure_ssl_from_env
 from ...utils.retry import invoke_with_retry
 
@@ -442,6 +442,10 @@ def agent_factory(
     def agent(state):
         logger.info("CALL AGENT")
         messages = state["messages"]
+        # Prepend a system prompt so the model knows when to use tools and
+        # when to answer directly from its own knowledge.
+        dated_prompt = AGENT_SYSTEM_PROMPT.format(current_date=date.today().isoformat())
+        messages = [SystemMessage(content=dated_prompt)] + list(messages)
         model = new_chat_model(settings).bind_tools(tools)
 
         try:

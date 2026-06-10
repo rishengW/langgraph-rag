@@ -300,19 +300,25 @@ def test_build_lightweight_graph_routes_tool_calls_to_web_answer(isolated_settin
     assert state["messages"][-1].content == "final lightweight answer"
 
 
-def test_build_lightweight_graph_routes_direct_agent_output_to_web_answer(
+def test_build_lightweight_graph_routes_direct_agent_output_to_end(
     isolated_settings,
 ):
+    # When the agent answers directly (no tool call), the graph must terminate
+    # with the agent's reply. Routing direct answers through web_answer would
+    # discard them and re-prompt against the fetched (often irrelevant) pages,
+    # which is exactly the failure mode the system prompt steers away from for
+    # trivial questions like math, definitions, or chitchat.
     seen: list[str] = []
 
     def agent(_state):
         seen.append("agent")
-        return {"messages": [AIMessage(content="no tool needed")]}
-
-    def web_answer(state):
-        seen.append("web_answer")
-        assert state["messages"][-1].content == "no tool needed"
         return {"messages": [AIMessage(content="direct final answer")]}
+
+    def web_answer(_state):  # pragma: no cover - must not run
+        seen.append("web_answer")
+        raise AssertionError(
+            "web_answer must not run when the agent answers directly without a tool call"
+        )
 
     graph = build_lightweight_graph(
         settings=isolated_settings(),
@@ -322,9 +328,9 @@ def test_build_lightweight_graph_routes_direct_agent_output_to_web_answer(
         ),
     )
 
-    state = graph.invoke({"messages": [HumanMessage(content="What is new?")]})
+    state = graph.invoke({"messages": [HumanMessage(content="What is 1+1?")]})
 
-    assert seen == ["agent", "web_answer"]
+    assert seen == ["agent"]
     assert state["messages"][-1].content == "direct final answer"
 
 
@@ -336,7 +342,20 @@ def test_build_lightweight_graph_chat_mode_uses_chat_state_and_checkpointer(
 
     def agent(state):
         seen.append(state["current_question"])
-        return {"messages": [AIMessage(content="chat agent output")]}
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "live_web_search",
+                            "args": {"query": state["current_question"]},
+                            "id": "call_live_web_search_chat",
+                        }
+                    ],
+                )
+            ]
+        }
 
     def web_answer(state):
         assert state["current_question"] == "standalone chat question"

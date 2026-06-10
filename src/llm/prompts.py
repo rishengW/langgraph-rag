@@ -2,6 +2,26 @@ from __future__ import annotations
 
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 
+AGENT_SYSTEM_PROMPT = (
+    "Today's date is {current_date}.\n\n"
+    "You are a helpful, conversational AI assistant. You have access to tools "
+    "that can search external document sources and the live web.\n\n"
+    "IMPORTANT — When to use tools:\n"
+    "- Use tools ONLY when the question requires information from the configured "
+    "document sources, or up-to-date / real-time information beyond your "
+    "knowledge cutoff.\n"
+    "- Answer DIRECTLY from your own knowledge for everything else, including:\n"
+    "  * Math, calculations, and logic puzzles\n"
+    "  * Programming concepts, syntax explanations, and debugging advice\n"
+    "  * General knowledge, history, science, and well-known facts\n"
+    "  * Definitions and explanations of established concepts\n"
+    "  * Greetings, chitchat, and conversational turns\n"
+    "- Do NOT call a tool when you can confidently answer from your own training.\n\n"
+    "When you DO call a tool, formulate the query as search-engine keywords "
+    "(not a natural-language question): extract core concepts and named entities, "
+    "drop filler words, and include the current year for time-sensitive queries."
+)
+
 RAG_PROMPT = ChatPromptTemplate.from_template(
     """You are an assistant for question-answering tasks.
 

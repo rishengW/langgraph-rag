@@ -2,52 +2,49 @@
 
 A local LangGraph retrieval-augmented generation project with two FastAPI apps:
 
-- `src.qa`: single-shot question answering on configured URLs, custom URLs, or web-search results.
-- `src.chat`: multi-turn chat with per-thread source sets, persisted session metadata, and persisted LangGraph checkpoints.
+- **QA** (`src/qa`): single-shot question answering on configured URLs, custom URLs, or web-search results.
+- **Chat** (`src/chat`): multi-turn chat with per-thread source sets, persisted session metadata, and SQLite-backed LangGraph checkpoints.
 
-The project started as a Python extraction of `rag-langgraph.ipynb`; it is now organized as a reusable codebase with YAML configuration, typed graph events, SSE streaming, health/readiness/metrics endpoints, optional API-key auth, Docker support, CI quality gates, and company-readiness documentation.
+The project supports two LangGraph workflows:
 
-## Security Note
+- **Full graph**: agent → retrieve (Chroma) → grade → generate, with query rewrite on low-relevance grades.
+- **Lightweight graph**: agent → live web search → direct web answer. Skips Chroma, embeddings, grading, and rewriting entirely.
 
-The original notebook contained hard-coded API keys. They were removed. Put local secrets in `.env` or process environment variables, and rotate any key that was previously committed, shared, or pasted into notebooks.
-
-Never commit these values:
-
-```text
-DASHSCOPE_API_KEY
-API_KEY
-LANGCHAIN_API_KEY
-```
+The project started as a Python extraction of a Jupyter notebook; it is now organized as a reusable codebase with YAML configuration, typed graph events, SSE streaming, health/readiness/metrics endpoints, optional API-key auth, Docker support, CI quality gates, and company-readiness documentation.
 
 ## Project Structure
 
 ```text
 langgraph-rag/
-|-- config/                  # Default YAML plus RAG_ENV overlays
-|-- memory/                  # Project process and refactor tracking notes
+|-- .github/workflows/        # CI
+|-- config/                   # YAML config (default + per-environment overlays)
 |-- src/
-|   |-- api/                 # Shared FastAPI auth, errors, readiness, metrics helpers
-|   |-- chat/                # Multi-turn chat app, API, UI, graph wiring
-|   |-- config/              # Settings loading from YAML, env, .env, CLI flags
-|   |-- core/                # Shared RAG compatibility surface
-|   |-- graph/               # LangGraph builder, typed events, executor, metrics
-|   |-- qa/                  # Single-shot QA app, API, UI, CLI
-|   |-- rag/                 # Retrieval, indexing, embeddings, web loading/search
-|   |-- sessions/            # Session registry, SQLite metadata, checkpoint persistence
-|   `-- llm/                 # Model and prompt helpers
-|-- tests/                   # Offline-focused pytest suite
-|-- .github/workflows/       # CI
-|-- ARCHITECTURE.md
-|-- COMPANY_READINESS_GAPS.md
-|-- CONTRIBUTING.md
-|-- SECURITY.md
+|   |-- api/                  # Shared FastAPI helpers (auth, CORS, errors, streaming, dependencies)
+|   |-- chat/                 # Multi-turn chat app (API, UI, entry point)
+|   |-- config/               # Settings dataclass + YAML/env loader
+|   |-- core/                 # Deprecated re-exports (redirect to src/graph, src/rag, etc.)
+|   |-- errors.py             # Typed RAG exceptions
+|   |-- graph/                # LangGraph builder, state, edges, executor, metrics
+|   |   |-- nodes/            # Node factories (agent, rewrite, grade, generate, condense, web_answer)
+|   |-- llm/                  # LLM provider seam (DashScope, DeepSeek) + prompt templates
+|   |-- qa/                   # Single-shot QA app (API, CLI, UI)
+|   |-- rag/                  # Chroma retriever, embeddings (DashScope, HuggingFace), document loader/quality
+|   |-- sessions/             # Chat session registry, SQLite metadata + checkpoint persistence
+|   |-- utils/                # Retry, networking, URL parsing helpers
+|   |-- web_search/           # Live web search providers (Bing, Baidu, DuckDuckGo), discovery, content fetching
+|-- tests/                    # Offline-focused pytest suite
+|-- ARCHITECTURE.md           # System architecture and operational notes
+|-- COMPANY_READINESS_GAPS.md # Completed and remaining company-readiness work
+|-- CONTRIBUTING.md           # Local development workflow and quality gates
+|-- SECURITY.md               # Secret handling and API security behavior
+|-- CHANGELOG.md              # Notable project changes
 |-- Dockerfile
-`-- docker-compose.yml
+|-- docker-compose.yml
 ```
 
 ## Setup
 
-Create and activate a virtual environment from this folder:
+Create and activate a virtual environment:
 
 ```powershell
 python -m venv .venv
@@ -60,22 +57,7 @@ Install runtime dependencies:
 python -m pip install -r requirements.txt
 ```
 
-If pip reports `No matching distribution found for langchain<0.4,>=0.3.0`,
-force the project venv to use PyPI explicitly:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install --index-url https://pypi.org/simple -r requirements.txt
-```
-
-If a previously-used venv contains newer LangChain packages, reinstall the
-project-pinned dependency set and verify it:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install --upgrade --force-reinstall --index-url https://pypi.org/simple -r requirements.txt
-.\.venv\Scripts\python.exe -m pip check
-```
-
-For local development and CI-equivalent checks, install dev dependencies too:
+For local development and CI-equivalent checks:
 
 ```powershell
 python -m pip install -r requirements-dev.txt
@@ -84,56 +66,95 @@ python -m pip install -r requirements-dev.txt
 Create a local environment file:
 
 ```powershell
-Copy-Item .env.example .env
+Copy-Item .env.example .env       # Windows
+cp .env.example .env              # macOS / Linux
 ```
 
-On macOS or Linux:
-
-```bash
-cp .env.example .env
-```
-
-Set your DashScope key in `.env`:
+Set your API keys in `.env`:
 
 ```text
-DASHSCOPE_API_KEY=your_real_key_here
-```
-
-Optional runtime settings commonly changed in `.env`:
-
-```text
-RAG_ENV=development
-API_KEY=
-LLM_PROVIDER=dashscope
-DEEPSEEK_API_KEY=your_key_here
-QWEN_MODEL=qwen-plus
-EMBEDDING_MODEL=text-embedding-v4
-EMBEDDING_DIMENSION=1024
-CHROMA_DIR=.chroma
-WEB_SEARCH_ENABLED=true
-WEB_SEARCH_PROVIDER=bing
-WEB_SEARCH_TOP_K=6
-PAGE_LOAD_MAX_CONCURRENCY=4
-PAGE_LOAD_CACHE_TTL_SECONDS=0
-DOCUMENT_QUALITY_FILTER_ENABLED=true
+DASHSCOPE_API_KEY=your_key_here
+DEEPSEEK_API_KEY=your_key_here    # optional, only if LLM_PROVIDER=deepseek
 ```
 
 ## Configuration
 
 Settings are loaded with this precedence:
 
-1. CLI flags, such as `--urls`, `--rebuild`, `--host`, or `--port`
+1. CLI flags (`--urls`, `--rebuild`, `--host`, `--port`)
 2. Process environment variables and `.env`
 3. YAML config files
-4. Built-in defaults
+4. Built-in defaults in `src/config/settings.py`
 
-By default, the app reads `config/default.yaml` and overlays `config/{RAG_ENV}.yaml`. `RAG_ENV` defaults to `development`; `staging` and `production` overlays are included. Secrets stay outside YAML.
+By default the app reads `config/default.yaml` and overlays `config/{RAG_ENV}.yaml`. `RAG_ENV` defaults to `development`; `staging` and `production` overlays are included. Secrets stay outside YAML.
 
-You can also pass a custom YAML file to the app commands:
+Key settings:
 
-```powershell
-python -m src.qa.main serve --config config\staging.yaml
+| Env variable | Default | Notes |
+|---|---|---|
+| `LLM_PROVIDER` | `dashscope` | `dashscope` or `deepseek` |
+| `QWEN_MODEL` | `qwen-plus` | DashScope model name |
+| `DEEPSEEK_MODEL` | `deepseek-v4-pro` | DeepSeek model name |
+| `EMBEDDING_MODEL` | `text-embedding-v4` | Embedding model |
+| `WEB_SEARCH_ENABLED` | `true` | Enable live web search |
+| `WEB_SEARCH_PROVIDER` | `bing` | `bing`, `baidu`, or `duckduckgo` |
+| `WEB_SEARCH_LIGHTWEIGHT` | — | Use lightweight graph for web search |
+| `CHROMA_DIR` | `.chroma` | Vector store location |
+| `API_KEY` | — | API auth key (open when unset) |
+| `RERANK_STRATEGY` | `lexical` | `lexical`, `embedding`, or `hybrid` |
+
+## LangGraph Architecture
+
+### Full Graph (QA and Chat)
+
 ```
+START → agent → retrieve → grade → generate → END
+                 ↑                     ↓
+                 └── rewrite ←─────────┘ (on "not relevant")
+```
+
+- **agent**: LLM with bound tools (Chroma retriever + optional live web search). A system prompt (`AGENT_SYSTEM_PROMPT`) guides the model to answer directly from its own knowledge for math, general knowledge, coding, and chitchat — only calling tools when external or up-to-date information is needed.
+- **retrieve**: `ToolNode` executes the selected tool (Chroma vector search or live web search).
+- **grade**: LLM grades retrieved context relevance. Routes to `generate` if relevant, `rewrite` if not (up to `max_rewrites` limit).
+- **rewrite**: LLM rewrites the query with semantic intent clarification, then loops back to `agent`.
+- **generate**: LLM synthesizes a final answer from the retrieved context using `RAG_PROMPT`.
+- **condense** (chat only): Standalone question extraction from conversation history using `CONDENSE_PROMPT`.
+
+### Lightweight Graph (Web Search)
+
+```
+START → agent → web_search → web_answer → END
+           ↓                     
+           └── END (when agent answers directly)
+```
+
+Skips Chroma, embeddings, grading, and rewriting. The agent either answers directly (system prompt steers it away from tools for simple questions) or calls the live web search tool. `web_answer` fetches and reads the discovered pages, then prompts the LLM to synthesize an answer grounded in the fetched content.
+
+### Graph Nodes
+
+| Node | Factory | Prompt |
+|---|---|---|
+| agent | `agent_factory` | `AGENT_SYSTEM_PROMPT` |
+| retrieve | `ToolNode` | — |
+| grade | `grade_documents_factory` | `GRADE_PROMPT` |
+| rewrite | `rewrite_factory` | inline prompt |
+| generate | `generate_factory` | `RAG_PROMPT` |
+| condense | `condense_question_factory` | `CONDENSE_PROMPT` |
+| web_answer | `web_answer_factory` | `build_web_search_prompt` |
+
+### LLM Provider Seam
+
+`src/llm/provider.py` implements a provider protocol with two backends:
+
+- **DashScopeLLMProvider** — ChatTongyi with DashScope models (default: `qwen-plus`)
+- **DeepSeekLLMProvider** — ChatOpenAI pointed at `api.deepseek.com` (default: `deepseek-v4-pro`)
+
+### Embedding Providers
+
+`src/rag/embeddings.py` supports:
+
+- **DashScopeEmbeddings** — Tongyi text embeddings (default: `text-embedding-v4`)
+- **HuggingFaceEmbeddingModel** — Local HuggingFace embedding models
 
 ## Running QA
 
@@ -146,7 +167,7 @@ python -m src.qa.main query "What does this source say about fine-tuning?" --reb
 Use custom sources:
 
 ```powershell
-python -m src.qa.main query "Your question here" --urls "https://example.com,https://another.com" --rebuild
+python -m src.qa.main query "Your question" --urls "https://example.com,https://another.com" --rebuild
 ```
 
 Start the QA web/API server:
@@ -157,25 +178,16 @@ python -m src.qa.main serve --host 127.0.0.1 --port 8000
 
 Then open `http://127.0.0.1:8000`.
 
-Important QA endpoints:
+API endpoints:
 
-- `GET /`: browser UI
-- `GET /health`: liveness
-- `GET /ready`: readiness with local app-state checks
-- `GET /metrics`: in-process graph metrics snapshot
-- `POST /query`: non-streaming answer
-- `POST /query/stream`: SSE graph event stream
-
-Example request:
-
-```json
-{
-  "question": "Your question here",
-  "urls": "https://example.com,https://another.com",
-  "web_search": true,
-  "rebuild": false
-}
-```
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Browser UI |
+| `GET` | `/health` | Liveness probe |
+| `GET` | `/ready` | Readiness with app-state checks |
+| `GET` | `/metrics` | In-process graph metrics |
+| `POST` | `/query` | Non-streaming answer |
+| `POST` | `/query/stream` | SSE graph event stream |
 
 ## Running Chat
 
@@ -191,26 +203,22 @@ Use the terminal REPL:
 
 ```powershell
 python -m src.chat.main chat --urls "https://example.com,https://another.com"
+python -m src.chat.main chat --seed-question "latest model releases 2026"
 ```
 
-Or seed a chat with an initial web search. Later turns refresh web-search
-sources automatically unless explicit URLs were provided:
+API endpoints:
 
-```powershell
-python -m src.chat.main chat --seed-question "Qwen fine-tuning best practices"
-```
-
-Important chat endpoints:
-
-- `GET /`: browser UI
-- `GET /health`: liveness
-- `GET /ready`: readiness with local session-registry checks
-- `GET /metrics`: in-process graph metrics snapshot
-- `POST /chat`: create a thread
-- `POST /chat/{thread_id}/message`: send a turn
-- `POST /chat/{thread_id}/message/stream`: SSE graph event stream for a turn
-- `GET /chat/{thread_id}/history`: read transcript
-- `DELETE /chat/{thread_id}`: delete a thread
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Browser UI |
+| `GET` | `/health` | Liveness probe |
+| `GET` | `/ready` | Readiness with session-registry checks |
+| `GET` | `/metrics` | In-process graph metrics |
+| `POST` | `/chat` | Create a thread |
+| `POST` | `/chat/{id}/message` | Send a turn |
+| `POST` | `/chat/{id}/message/stream` | SSE graph event stream |
+| `GET` | `/chat/{id}/history` | Read transcript |
+| `DELETE` | `/chat/{id}` | Delete a thread |
 
 ## Persistence
 
@@ -218,88 +226,61 @@ The default Chroma vector store lives under `.chroma/`.
 
 Chat uses additional persisted state:
 
-- `.chroma/chat/<thread_id>/`: isolated Chroma store for thread-specific sources
-- `.chroma/chat/sessions.sqlite3`: session metadata and history
-- `.chroma/chat/checkpoints.sqlite3`: LangGraph checkpoint state via `SQLiteMemorySaver`
+- `.chroma/chat/<thread_id>/`: isolated Chroma store for per-thread sources
+- `.chroma/chat/sessions.sqlite3`: session metadata via `SQLiteStorage`
+- `.chroma/chat/checkpoints.sqlite3`: LangGraph checkpoints via `SQLiteMemorySaver`
 
-That means normal chat sessions can survive an app restart. Sessions that use the global default source set share the global Chroma collection; sessions with explicit URLs or web-discovered sources get isolated per-thread stores.
+Chat sessions survive app restarts. Sessions with the global default source set share the global Chroma collection; sessions with explicit URLs or web-discovered sources get isolated per-thread stores.
 
-## Auth, CORS, And Readiness
+## Web Search
 
-Local development remains open when `API_KEY` is unset.
+Live web search is provided by three providers in `src/web_search/`:
 
-When `API_KEY` is set, mutation endpoints require:
+- **Bing** (`BingWebSearch`) — HTML scraping
+- **Baidu** (`BaiduWebSearch`) — HTML scraping with captcha detection
+- **DuckDuckGo** (`DuckDuckGoWebSearch`) — HTML scraping
+
+The default provider order is Bing → Baidu → DuckDuckGo, with automatic fallback on failure. Results are deduplicated and ranked.
+
+When `web_search_lightweight` is enabled, the lightweight graph bypasses Chroma entirely and feeds fetched page content directly to the LLM for answer synthesis.
+
+## Auth, CORS, and Security
+
+Local development is open when `API_KEY` is unset. When set, mutation endpoints require:
 
 ```text
 Authorization: Bearer <API_KEY>
 ```
 
-Protected mutation endpoints include `POST /query`, `POST /query/stream`, `POST /chat`, `POST /chat/{thread_id}/message`, `POST /chat/{thread_id}/message/stream`, and `DELETE /chat/{thread_id}`.
+Protected endpoints: `POST /query`, `POST /query/stream`, `POST /chat`, `POST /chat/{id}/message`, `POST /chat/{id}/message/stream`, `DELETE /chat/{id}`.
 
-CORS is configured through `cors_allow_origins` in YAML or `CORS_ALLOW_ORIGINS` in the environment. `/health`, `/ready`, `/metrics`, and read-only endpoints remain available for platform checks and observability.
+CORS is configured via `cors_allow_origins` in YAML or `CORS_ALLOW_ORIGINS` env var. Health, readiness, metrics, and read-only endpoints remain available for platform checks.
 
 ## Docker
 
-Build and run both apps:
-
 ```powershell
+$env:DASHSCOPE_API_KEY = "your_key"
+$env:API_KEY = "optional_key"
 docker compose up --build
 ```
 
-The compose file starts:
-
-- QA on `http://127.0.0.1:8000`
-- Chat on `http://127.0.0.1:8001`
-
-It mounts named volumes for `.chroma` and session data. Pass secrets through your shell or `.env` before starting compose:
-
-```powershell
-$env:DASHSCOPE_API_KEY = "your_real_key_here"
-$env:API_KEY = "optional_gateway_key"
-docker compose up --build
-```
+Starts QA on `http://127.0.0.1:8000` and Chat on `http://127.0.0.1:8001` with named volumes for `.chroma` and session data.
 
 ## Verification
 
-Run the local test suite:
-
 ```powershell
-python -m pytest -q
-```
-
-The latest integrated local verification passed with 113 tests.
-
-With dev dependencies installed, run CI-style checks:
-
-```powershell
-ruff check .
-mypy src/
+python -m pytest -q                         # Run tests
+ruff check .                                # Lint
+mypy src/                                   # Type check
 python -m pytest --tb=short --cov=src --cov-report=term --cov-fail-under=70
-python -m compileall src tests
-git diff --check
+python -m compileall src tests              # Syntax check
+git diff --check                            # Whitespace check
 ```
-
-`git diff --check` may report line-ending warnings on Windows; those are separate from whitespace errors.
-
-## Documentation
-
-- `ARCHITECTURE.md`: current system architecture and operational notes
-- `CONTRIBUTING.md`: local development workflow and quality gates
-- `SECURITY.md`: secret handling and API security behavior
-- `CHANGELOG.md`: notable project changes
-- `COMPANY_READINESS_GAPS.md`: completed and remaining company-readiness work
-- `memory/current-process.md`: latest recorded process checkpoint
-- `memory/refactor-daily-forms.md`: chronological refactor/process log
-
-## Current Readiness Snapshot
-
-Completed foundations include YAML environment overlays, typed errors, typed graph events, SSE streaming, metrics, readiness checks, API-key auth, CORS config, CI, Docker, dev tooling, SQLite session metadata, and SQLite LangGraph checkpoint persistence.
-
-Remaining work called out in `COMPANY_READINESS_GAPS.md` includes dependency/security scanning, fuller structured logging and request IDs, API versioning, rate limiting/session export, deployment-specific infrastructure, and broader public API documentation.
 
 ## Notes
 
-- This project still calls DashScope/Tongyi for embeddings. The chat model is configurable: DashScope (`qwen-plus`, default) or DeepSeek (`deepseek-v4-pro`). Set `LLM_PROVIDER=deepseek` and `DEEPSEEK_API_KEY` in `.env` to switch.
-- The default chat model is `qwen-plus`; the DeepSeek option uses `deepseek-v4-pro`.
-- The default embedding model is `text-embedding-v4`; existing Chroma stores with incompatible embedding metadata are rebuilt automatically.
-- Web search defaults to Bing, then falls back through Baidu and DuckDuckGo. If Baidu returns a verification/captcha page, discovery temporarily skips Baidu during the fallback pass. Set `WEB_SEARCH_PROVIDER=baidu` or `WEB_SEARCH_PROVIDER=duckduckgo` if preferred.
+- The chat model is configurable via `LLM_PROVIDER` — DashScope (`qwen-plus`) or DeepSeek (`deepseek-v4-pro`). Embeddings always use DashScope/Tongyi unless `embedding_model` is set to a HuggingFace model.
+- Existing Chroma stores with incompatible embedding metadata are rebuilt automatically on startup.
+- Web search defaults to Bing with Baidu and DuckDuckGo fallback. If Baidu returns a captcha/verification page, it is temporarily skipped. Set `WEB_SEARCH_PROVIDER` to pin a single provider.
+- The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
+- Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.

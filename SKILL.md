@@ -19,7 +19,7 @@ Sub-architects: `src/graph/SKILL.md`, `src/rag/SKILL.md`, `src/web_search/SKILL.
 |---|---|
 | Project | `langgraph-rag` ("only Subcribers") |
 | Language | Python 3.11+ |
-| LLM Provider | DashScope (Alibaba Tongyi/Qwen) -- `qwen-plus` |
+| LLM Provider | DashScope (`qwen-plus`) or DeepSeek (`deepseek-v4-pro`) — configurable via `LLM_PROVIDER` |
 | Embeddings | DashScope `text-embedding-v4` (1024-dim) + HuggingFace fallback |
 | Vector Store | Chroma (SQLite, local `.chroma/` directory) |
 | Framework | LangGraph 0.2-0.7, LangChain 0.3.x |

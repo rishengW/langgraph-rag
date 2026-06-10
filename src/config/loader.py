@@ -62,6 +62,9 @@ SETTING_ENV_NAMES = {
     "document_quality_min_unique_terms": "DOCUMENT_QUALITY_MIN_UNIQUE_TERMS",
     "document_quality_relevance_query": "DOCUMENT_QUALITY_RELEVANCE_QUERY",
     "document_quality_query_min_overlap": "DOCUMENT_QUALITY_QUERY_MIN_OVERLAP",
+    "llm_provider": "LLM_PROVIDER",
+    "deepseek_model": "DEEPSEEK_MODEL",
+    "deepseek_base_url": "DEEPSEEK_BASE_URL",
     "dashscope_request_timeout": "DASHSCOPE_REQUEST_TIMEOUT",
     "dashscope_max_retries": "DASHSCOPE_MAX_RETRIES",
     "dashscope_http_base_url": "DASHSCOPE_HTTP_BASE_URL",
@@ -176,7 +179,7 @@ def load_yaml_config(config_file: str | Path | None = DEFAULT_CONFIG_FILE) -> di
 def _settings_defaults() -> dict[str, Any]:
     defaults: dict[str, Any] = {}
     for item in fields(Settings):
-        if item.name == "dashscope_api_key":
+        if item.name in ("dashscope_api_key", "deepseek_api_key"):
             continue
         if item.default is not MISSING:
             defaults[item.name] = item.default
@@ -334,6 +337,9 @@ def apply_runtime_environment(settings: Settings) -> None:
         os.environ["LANGCHAIN_API_KEY"] = settings.langchain_api_key
         os.environ["LANGCHAIN_PROJECT"] = settings.langchain_project
 
+    if settings.deepseek_api_key:
+        os.environ["DEEPSEEK_API_KEY"] = settings.deepseek_api_key
+
     ensure_user_agent()
 
 
@@ -362,6 +368,8 @@ def load_settings(
             "DASHSCOPE_API_KEY is missing. Copy .env.example to .env and add your key."
         )
 
+    deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+
     values = _settings_defaults()
     for key, value in load_selected_yaml_config(config_file).items():
         if key in values:
@@ -376,7 +384,18 @@ def load_settings(
         if key in values and value is not None:
             values[key] = _coerce_setting(key, value, values.get(key))
 
-    settings = Settings(dashscope_api_key=dashscope_api_key, **values)
+    settings = Settings(
+        dashscope_api_key=dashscope_api_key,
+        deepseek_api_key=deepseek_api_key,
+        **values,
+    )
+
+    llm_provider = (values.get("llm_provider") or "dashscope").strip().lower()
+    if llm_provider == "deepseek" and not deepseek_api_key:
+        raise RuntimeError(
+            "LLM_PROVIDER is set to 'deepseek' but DEEPSEEK_API_KEY is missing. "
+            "Copy .env.example to .env and add your DeepSeek API key."
+        )
 
     apply_runtime_environment(settings)
     return settings

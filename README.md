@@ -104,6 +104,8 @@ Optional runtime settings commonly changed in `.env`:
 ```text
 RAG_ENV=development
 API_KEY=
+LLM_PROVIDER=dashscope
+DEEPSEEK_API_KEY=your_key_here
 QWEN_MODEL=qwen-plus
 EMBEDDING_MODEL=text-embedding-v4
 EMBEDDING_DIMENSION=1024
@@ -297,7 +299,7 @@ Remaining work called out in `COMPANY_READINESS_GAPS.md` includes dependency/sec
 
 ## Notes
 
-- This project still calls DashScope/Tongyi for the default LLM and embedding model. It runs locally, but the model calls are remote unless you replace those integrations.
-- The default chat model is `qwen-plus`.
+- This project still calls DashScope/Tongyi for embeddings. The chat model is configurable: DashScope (`qwen-plus`, default) or DeepSeek (`deepseek-v4-pro`). Set `LLM_PROVIDER=deepseek` and `DEEPSEEK_API_KEY` in `.env` to switch.
+- The default chat model is `qwen-plus`; the DeepSeek option uses `deepseek-v4-pro`.
 - The default embedding model is `text-embedding-v4`; existing Chroma stores with incompatible embedding metadata are rebuilt automatically.
 - Web search defaults to Bing, then falls back through Baidu and DuckDuckGo. If Baidu returns a verification/captcha page, discovery temporarily skips Baidu during the fallback pass. Set `WEB_SEARCH_PROVIDER=baidu` or `WEB_SEARCH_PROVIDER=duckduckgo` if preferred.

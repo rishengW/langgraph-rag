@@ -4,6 +4,7 @@ from __future__ import annotations
 from .provider import (
     DEFAULT_LLM_PROVIDER,
     DashScopeLLMProvider,
+    DeepSeekLLMProvider,
     LLMProvider,
     build_chat_model,
 )
@@ -11,6 +12,7 @@ from .provider import (
 __all__ = [
     "DEFAULT_LLM_PROVIDER",
     "DashScopeLLMProvider",
+    "DeepSeekLLMProvider",
     "LLMProvider",
     "build_chat_model",
 ]

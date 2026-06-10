@@ -148,6 +148,17 @@ def get_metrics(request: Request) -> MetricsCollector:
     return metrics
 
 
+def _llm_api_key_configured(settings: Any) -> bool:
+    """Check whether the active LLM provider's API key is set."""
+    if settings is None:
+        return False
+    provider = getattr(settings, "llm_provider", "dashscope") or "dashscope"
+    provider = provider.strip().lower()
+    if provider == "deepseek":
+        return bool(getattr(settings, "deepseek_api_key", ""))
+    return bool(getattr(settings, "dashscope_api_key", ""))
+
+
 def qa_readiness_response(request: Request) -> JSONResponse:
     """Return QA readiness without making external network calls."""
 
@@ -156,6 +167,7 @@ def qa_readiness_response(request: Request) -> JSONResponse:
     checks = {
         "settings_loaded": settings is not None,
         "dashscope_api_key_configured": bool(getattr(settings, "dashscope_api_key", "")),
+        "llm_api_key_configured": _llm_api_key_configured(settings),
         "graph_ready": graph_ready,
         "chroma_dir_configured": bool(getattr(settings, "chroma_dir", "")),
     }
@@ -174,6 +186,7 @@ def chat_readiness_response(request: Request) -> JSONResponse:
     checks = {
         "settings_loaded": settings is not None,
         "dashscope_api_key_configured": bool(getattr(settings, "dashscope_api_key", "")),
+        "llm_api_key_configured": _llm_api_key_configured(settings),
         "session_registry_ready": registry is not None,
     }
     ready = all(checks.values())

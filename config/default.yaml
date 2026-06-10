@@ -4,6 +4,9 @@
 # require Authorization headers.
 
 qwen_model: qwen-plus
+llm_provider: dashscope
+deepseek_model: deepseek-v4-pro
+deepseek_base_url: https://api.deepseek.com
 embedding_model: text-embedding-v4
 embedding_dimension: 1024
 embedding_batch_size: 10

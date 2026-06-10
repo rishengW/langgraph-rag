@@ -20,7 +20,7 @@ Parent: `SKILL.md` (root). Siblings: `src/rag/SKILL.md`, `src/web_search/SKILL.m
 |---|---|
 | Graph type | LangGraph `StateGraph[RAGState]` |
 | Nodes | agent, retrieve (ToolNode), grade_documents, rewrite, generate |
-| LLM | `ChatTongyi` (`qwen-plus`) via DashScope |
+| LLM | `ChatTongyi` (`qwen-plus`) or `ChatOpenAI` (`deepseek-v4-pro`) via `LLM_PROVIDER` |
 | Max rewrites | 2 (configurable via `max_rewrites`) |
 | Source files (current) | `core/graph.py`, `core/nodes.py`, `core/state.py`, `core/graph_executor.py` |
 | Target location | `src/graph/` |

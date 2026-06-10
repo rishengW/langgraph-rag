@@ -265,3 +265,37 @@ def test_load_settings_accepts_document_quality_env(tmp_path, monkeypatch):
     assert settings.document_quality_min_unique_terms == 0
     assert settings.document_quality_relevance_query == "langgraph retrieval"
     assert settings.document_quality_query_min_overlap == 0
+
+
+def test_load_settings_deepseek_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-key")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-key")
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.llm_provider == "deepseek"
+    assert settings.deepseek_api_key == "deepseek-key"
+    assert settings.deepseek_model == "deepseek-v4-pro"
+    assert settings.deepseek_base_url == "https://api.deepseek.com"
+
+
+def test_load_settings_deepseek_requires_api_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-key")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+
+    import pytest as pytest_mod
+
+    with pytest_mod.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
+        load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+
+def test_load_settings_defaults_to_dashscope(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-key")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.llm_provider == "dashscope"
+    assert settings.deepseek_api_key == ""

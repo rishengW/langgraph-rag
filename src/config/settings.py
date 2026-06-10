@@ -27,6 +27,10 @@ class Settings:
     dashscope_api_key: str
     qwen_model: str = "qwen-plus"
     embedding_model: str = "text-embedding-v4"
+    llm_provider: str = "dashscope"
+    deepseek_api_key: str = ""
+    deepseek_model: str = "deepseek-v4-pro"
+    deepseek_base_url: str = "https://api.deepseek.com"
     embedding_dimension: int | None = 1024
     embedding_batch_size: int = 10
     chroma_dir: Path = Path(".chroma")

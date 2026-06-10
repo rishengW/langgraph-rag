@@ -143,3 +143,19 @@ Each date gets one form. Every form line must start with one of these labels:
 | to do | Phase 2 remaining | Decide whether to continue Phase 2 config/YAML/error-code work before Phase 3. | Compare against `REFACTORING_PLAN.md` Phase 2 exit criteria. |
 | to do | Phase 3 planning | Prepare SSE/session persistence/observability work only after Phase 2 verification is green. | Add the next dated form before starting Phase 3 work. |
 | note | Agent workflow | Future RAGRefactorDeveloper workers must update this file when they finish. | Add or update the current date form, mark completed lines, refresh to-do lines, and record blocked checks. |
+
+## 2026-06-10 Form
+
+| Label | Scope | Line Item | Evidence / Next Action |
+|---|---|---|---|
+| complete | LLM / provider | Added `DeepSeekLLMProvider` using `ChatOpenAI` pointed at `api.deepseek.com`. | `src/llm/provider.py`: `DeepSeekLLMProvider.chat_model()` constructs `ChatOpenAI(model=deepseek_model, base_url=deepseek_base_url)`. `build_chat_model()` dispatches on `settings.llm_provider`. |
+| complete | Config / settings | Added `llm_provider`, `deepseek_api_key`, `deepseek_model`, `deepseek_base_url` fields. | `src/config/settings.py`: `llm_provider="dashscope"`, `deepseek_model="deepseek-v4-pro"`, `deepseek_base_url="https://api.deepseek.com"`. |
+| complete | Config / loader | Added `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `LLM_PROVIDER` env vars + provider-key validation. | `src/config/loader.py`: `SETTING_ENV_NAMES` updated; `load_settings()` raises when `llm_provider=deepseek` and `DEEPSEEK_API_KEY` is missing; `apply_runtime_environment()` exports `DEEPSEEK_API_KEY`. |
+| complete | Config / YAML | Added new keys to default config. | `config/default.yaml`: `llm_provider: dashscope`, `deepseek_model: deepseek-v4-pro`, `deepseek_base_url: https://api.deepseek.com`. |
+| complete | Config / .env | Added new env vars to example file. | `.env.example`: added `LLM_PROVIDER`, `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`. |
+| complete | API / readiness | Updated readiness checks to validate active provider's API key. | `src/api/dependencies.py`: added `_llm_api_key_configured()` helper; QA/chat readiness now include `llm_api_key_configured` check. |
+| complete | Dependencies | Added `langchain-openai==0.3.17`. | `requirements.txt`: added `langchain-openai==0.3.17`. |
+| complete | Docs | Updated README, root SKILL.md, graph SKILL.md model references. | `README.md`: added `LLM_PROVIDER`/`DEEPSEEK_API_KEY` to settings table and updated Notes. `SKILL.md`: updated LLM Provider row. `src/graph/SKILL.md`: updated LLM row. |
+| complete | Tests | Added 3 DeepSeek config tests: provider settings loading, missing-key error, dashscope default. | `tests/test_config.py`: `test_load_settings_deepseek_provider`, `test_load_settings_deepseek_requires_api_key`, `test_load_settings_defaults_to_dashscope`. |
+| complete | Verification | Full test suite green. | `python -m pytest -q` → 144 passed (was 134, +10 from new config tests and existing test fixes). Smoke test confirmed `build_chat_model()` constructs `ChatTongyi` (dashscope) by default. |
+| note | DeepSeek | DeepSeek API key integration testing blocked on having a valid key and the model available. | Once you add `LLM_PROVIDER=deepseek` and `DEEPSEEK_API_KEY=<key>` to `.env`, the chat model will switch automatically. Verify with `python -c "from src.config.loader import load_settings; from src.llm.provider import build_chat_model; s=load_settings(); print(build_chat_model(s))"`. |

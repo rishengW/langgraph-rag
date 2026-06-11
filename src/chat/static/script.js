@@ -19,7 +19,6 @@ const chatScreen = document.getElementById("chatScreen");
 const sessionControls = document.getElementById("sessionControls");
 
 const seedField = document.getElementById("seedQuestion");
-const urlsField = document.getElementById("urls");
 const startBtn = document.getElementById("startBtn");
 const startError = document.getElementById("startError");
 
@@ -122,7 +121,6 @@ async function apiDelete(path) {
 
 startBtn.addEventListener("click", async () => {
     const seed = seedField.value.trim();
-    const urls = urlsField.value.trim();
 
     startError.textContent = "";
     startBtn.disabled = true;
@@ -130,8 +128,6 @@ startBtn.addEventListener("click", async () => {
 
     try {
         const data = await apiPost("/chat", {
-            urls: urls || null,
-            web_search: true,
             seed_question: seed || null,
         });
         threadId = data.thread_id;
@@ -238,7 +234,6 @@ newChatBtn.addEventListener("click", async () => {
     clearTranscript();
     clearError();
     seedField.value = "";
-    urlsField.value = "";
     showStart();
 });
 

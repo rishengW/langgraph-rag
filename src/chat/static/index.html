@@ -174,25 +174,19 @@
         <header>
             <div>
                 <h1>only Subscribers</h1>
-                <div class="subtitle">Chat with me</div>
+                <div class="subtitle">Start a conversation — I'll search the web when needed</div>
             </div>
             <div id="sessionControls" class="hidden">
                 <button id="newChatBtn" class="btn-ghost" type="button">New chat</button>
             </div>
         </header>
 
-        <!-- Start screen: pick sources -->
+        <!-- Start screen: begin a conversation -->
         <section id="startScreen" class="start-screen">
             <div class="form-group">
-                <label for="seedQuestion">Topic or first question</label>
-                <textarea id="seedQuestion" placeholder="What do you want to chat about? (e.g. PAI fine-tuning best practices)"></textarea>
-                <div class="help-text">If Source URLs is empty, this seeds the web search.</div>
-            </div>
-
-            <div class="form-group">
-                <label for="urls">Source URLs (optional)</label>
-                <input type="text" id="urls" placeholder="https://example.com, https://another.com">
-                <div class="help-text">Comma-separated. If filled, the topic is used only as your first message.</div>
+                <label for="seedQuestion">What do you want to chat about?</label>
+                <textarea id="seedQuestion" placeholder="e.g. &quot;Explain PAI fine-tuning best practices&quot; or &quot;Help me understand the latest research on...&quot;"></textarea>
+                <div class="help-text">Just start typing — the assistant will decide when to search the web for the best answer.</div>
             </div>
 
             <button id="startBtn" class="btn-primary" type="button">Start chat</button>

@@ -36,6 +36,7 @@ python-dotenv==1.2.2
 PyYAML==6.0.3
 requests==2.34.2
 typing-extensions==4.15.0
+yfinance==1.4.1
 
 # Local test runner. CI/dev quality tools live in requirements-dev.txt.
 pytest==8.4.2

@@ -66,6 +66,14 @@ class Settings:
         default_factory=lambda: DEFAULT_WEB_SEARCH_JS_FALLBACK_DOMAINS.copy()
     )
     web_search_js_force_domains: list[str] = field(default_factory=list)
+    weather_enabled: bool = False
+    stock_enabled: bool = False
+    currency_enabled: bool = False
+    wikipedia_enabled: bool = False
+    wikipedia_max_summary_chars: int = 1500
+    wikipedia_user_agent: str = (
+        "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
+    )
     page_load_timeout: int = 15
     page_load_max_concurrency: int = 4
     page_load_cache_ttl_seconds: int = 0

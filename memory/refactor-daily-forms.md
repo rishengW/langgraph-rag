@@ -3,7 +3,7 @@ name: refactor-daily-forms
 description: Dated refactoring process forms with complete, to-do, blocked, and note lines
 metadata:
   type: project
-  updated: 2026-06-10
+  updated: 2026-06-12
 ---
 
 # Refactor Daily Forms
@@ -24,6 +24,25 @@ Each date gets one form. Every form line must start with one of these labels:
 | to do |  |  |  |
 | blocked |  |  |  |
 | note |  |  |  |
+
+## 2026-06-12 Form — Multi-Tool Agent Expansion Plan
+
+| Label | Scope | Line Item | Evidence / Next Action |
+|---|---|---|---|
+| note | Agent tools | **Plan: Add 4 new LangChain tools to the agent.** The agent currently has `retrieve_source_documents` (Chroma) and `live_web_search` (URLs only). Adding Weather, Stock, Currency, and Wikipedia tools makes the agent capable of answering real-time factual questions without needing the user to provide URLs. All target APIs are free, require no API key, and follow the existing `StructuredTool.from_function()` pattern. | Architecture: new `src/tools/` package. Each tool = one module with `build_<name>_tool(settings)` → `BaseTool`. Added to `_resolve_tools()` in `src/graph/builder.py` behind a `settings.<tool>_enabled` flag. Config/default/env wiring for each tool toggle. |
+| note | Coordination | Spawned RAGRefactorDeveloper for the 2026-06-12 tool-expansion pass. | Agent `Nietzsche` is reviewing this form, code dependencies, and implementation order while parent work proceeds. |
+| complete | Agent tools / weather | **Weather Forecast Tool** — `build_weather_tool()` using Open-Meteo API (`https://api.open-meteo.com/v1/forecast`). No API key, global coverage, current conditions + daily forecast up to 16 days. | Added `src/tools/weather.py` with city geocoding, coordinate support, formatted current conditions, and mocked unit coverage in `tests/test_agent_tools.py`. Settings: `weather_enabled: bool = False`. |
+| complete | Agent tools / stock | **Stock Quote Tool** — `build_stock_tool()` using `yfinance` library. Free, no API key, global market coverage via Yahoo Finance. | Added `src/tools/stock.py` with lazy `yfinance` import, injected ticker factory for tests, formatted price/change/range/volume/market-cap output, and graceful missing-dependency/upstream errors. Settings: `stock_enabled: bool = False`. |
+| complete | Agent tools / currency | **Currency Converter Tool** — `build_currency_tool()` using Frankfurter API (`https://api.frankfurter.dev/v2/rate`). Public no-key API with 201 currencies. | Added `src/tools/currency.py`; switched away from exchangerate.host after RAGRefactorDeveloper review because Frankfurter's current docs explicitly preserve no-key public access. Input: amount, from_currency, to_currency. Settings: `currency_enabled: bool = False`. |
+| complete | Agent tools / wikipedia | **Wikipedia Search Tool** — `build_wikipedia_tool()` using MediaWiki API (`https://en.wikipedia.org/w/api.php`). Free, no API key, rate-limited by User-Agent. | Added `src/tools/wikipedia_tool.py`; uses search then extracts for summaries, returns page URLs, and sends configurable `User-Agent`/`Api-User-Agent`. Settings: `wikipedia_enabled: bool = False`, `wikipedia_max_summary_chars: int = 1500`, `wikipedia_user_agent`. |
+| complete | Agent tools / wiring | Wired all new tools into `_resolve_tools()` in `src/graph/builder.py`, gated behind `settings.<tool>_enabled` flags. | Tools appear after `retrieve_source_documents` and optional `live_web_search` in the main RAG graph. Lightweight web-search graph intentionally remains URL-only because its answer node expects web URLs, not arbitrary tool text. |
+| complete | Agent tools / config | Added new Settings fields and env-var mappings for all tool toggles. | `src/config/settings.py`, `src/config/loader.py`, `config/default.yaml`, and `.env.example` now include `WEATHER_ENABLED`, `STOCK_ENABLED`, `CURRENCY_ENABLED`, `WIKIPEDIA_ENABLED`, `WIKIPEDIA_MAX_SUMMARY_CHARS`, and `WIKIPEDIA_USER_AGENT`. `.env.example` fake DeepSeek-looking key was replaced with a placeholder. |
+| complete | Agent tools / tests | Added focused tests for each tool builder and graph/config gating. | `tests/test_agent_tools.py` covers mocked Weather, Stock, Currency, and Wikipedia outputs. `tests/test_graph_builder.py` covers gated graph resolution. `tests/test_config.py` covers defaults/env coercion. |
+| complete | Agent tools / prompt | Updated `AGENT_SYSTEM_PROMPT` to describe the optional tools and when to use them. | `src/llm/prompts.py` now lists `get_weather`, `get_stock_quote`, `convert_currency`, and `search_wikipedia` alongside retriever/web-search guidance. |
+| complete | Agent tools / deps | Added `yfinance` to requirements. | `requirements.txt`: added `yfinance==1.4.1` after checking the current PyPI release. Installed it into `.venv`, then repaired the pinned requirements stack and confirmed `pip check` is clean. |
+| complete | Agent tools / verification | Ran full verification after all tool implementations. | `.\.venv\Scripts\python.exe -m pytest -q` passed; `.\.venv\Scripts\python.exe -m ruff check ...` passed; `.\.venv\Scripts\python.exe -m compileall src tests` passed; `.\.venv\Scripts\python.exe -m pip check` passed; `git diff --check` passed with line-ending warnings only. |
+| note | Agent tools / future | Follow-up tools after the initial 4: ArXiv academic paper search, GitHub repo search, built-in calculator (no API needed), and news headlines. | These follow the same pattern and can be added after the initial wave is verified. Calculator is the simplest — pure Python, no network, always-on. |
+| note | Agent tools / design | Each tool follows the `live_web_search` pattern: `build_<name>_tool(settings) → StructuredTool` with Pydantic `args_schema`, clear name, and descriptive docstring that helps the LLM decide when to call it. Tools return formatted text (not raw JSON) because the graph's generate node consumes tool output as context text. | Reference: `src/web_search/tool.py` for the canonical pattern. |
 
 ## 2026-06-10 Form
 

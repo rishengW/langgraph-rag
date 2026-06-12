@@ -4,7 +4,12 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 
-from src.graph.builder import _resolve_tools, GraphNodeOverrides, GraphProviders, build_graph
+from src.graph.builder import (
+    GraphNodeOverrides,
+    GraphProviders,
+    _resolve_tools,
+    build_graph,
+)
 
 
 @tool
@@ -130,6 +135,81 @@ def test_resolve_tools_adds_web_search_when_enabled(monkeypatch, isolated_settin
     assert calls == [
         ("retriever", settings, True),
         ("web_search", settings),
+    ]
+
+
+def test_resolve_tools_adds_enabled_agent_tools(monkeypatch, isolated_settings):
+    import src.core.retriever as retriever_module
+    import src.tools as tools_module
+    import src.web_search as web_search_module
+
+    settings = isolated_settings(
+        web_search_enabled=False,
+        weather_enabled=True,
+        stock_enabled=True,
+        currency_enabled=True,
+        wikipedia_enabled=True,
+    )
+    retriever_tool = object()
+    weather_tool = object()
+    stock_tool = object()
+    currency_tool = object()
+    wikipedia_tool = object()
+    calls = []
+
+    monkeypatch.setattr(
+        retriever_module,
+        "build_retriever_tool",
+        lambda _settings, rebuild=False: retriever_tool,
+    )
+    monkeypatch.setattr(
+        web_search_module,
+        "build_web_search_tool",
+        lambda _settings: pytest.fail("web search tool should not be built"),
+    )
+
+    def fake_tool_builder(name, tool):
+        def _build(resolved_settings):
+            calls.append((name, resolved_settings))
+            return tool
+
+        return _build
+
+    monkeypatch.setattr(
+        tools_module,
+        "build_weather_tool",
+        fake_tool_builder("weather", weather_tool),
+    )
+    monkeypatch.setattr(
+        tools_module,
+        "build_stock_tool",
+        fake_tool_builder("stock", stock_tool),
+    )
+    monkeypatch.setattr(
+        tools_module,
+        "build_currency_tool",
+        fake_tool_builder("currency", currency_tool),
+    )
+    monkeypatch.setattr(
+        tools_module,
+        "build_wikipedia_tool",
+        fake_tool_builder("wikipedia", wikipedia_tool),
+    )
+
+    tools = _resolve_tools(settings, GraphProviders(), rebuild_vectorstore=False)
+
+    assert tools == [
+        retriever_tool,
+        weather_tool,
+        stock_tool,
+        currency_tool,
+        wikipedia_tool,
+    ]
+    assert calls == [
+        ("weather", settings),
+        ("stock", settings),
+        ("currency", settings),
+        ("wikipedia", settings),
     ]
 
 

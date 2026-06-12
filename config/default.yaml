@@ -47,6 +47,12 @@ web_search_js_fallback_domains:
   - apps.microsoft.com
   - deepseek.net
 web_search_js_force_domains: []
+weather_enabled: false
+stock_enabled: false
+currency_enabled: false
+wikipedia_enabled: false
+wikipedia_max_summary_chars: 1500
+wikipedia_user_agent: "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
 page_load_timeout: 15
 page_load_max_concurrency: 4
 page_load_cache_ttl_seconds: 0

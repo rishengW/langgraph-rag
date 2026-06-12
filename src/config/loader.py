@@ -55,6 +55,12 @@ SETTING_ENV_NAMES = {
     "web_search_js_fallback_enabled": "WEB_SEARCH_JS_FALLBACK_ENABLED",
     "web_search_js_fallback_domains": "WEB_SEARCH_JS_FALLBACK_DOMAINS",
     "web_search_js_force_domains": "WEB_SEARCH_JS_FORCE_DOMAINS",
+    "weather_enabled": "WEATHER_ENABLED",
+    "stock_enabled": "STOCK_ENABLED",
+    "currency_enabled": "CURRENCY_ENABLED",
+    "wikipedia_enabled": "WIKIPEDIA_ENABLED",
+    "wikipedia_max_summary_chars": "WIKIPEDIA_MAX_SUMMARY_CHARS",
+    "wikipedia_user_agent": "WIKIPEDIA_USER_AGENT",
     "page_load_timeout": "PAGE_LOAD_TIMEOUT",
     "page_load_max_concurrency": "PAGE_LOAD_MAX_CONCURRENCY",
     "page_load_cache_ttl_seconds": "PAGE_LOAD_CACHE_TTL_SECONDS",
@@ -236,6 +242,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "document_quality_min_unique_terms",
         "document_quality_query_min_overlap",
         "document_quality_recency_bias_days",
+        "wikipedia_max_summary_chars",
         "dashscope_request_timeout",
         "dashscope_max_retries",
     ):
@@ -253,6 +260,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
             "document_quality_min_unique_terms",
             "document_quality_query_min_overlap",
             "document_quality_recency_bias_days",
+            "wikipedia_max_summary_chars",
         ):
             return max(0, parsed)
         if name in (
@@ -272,6 +280,10 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "web_search_verify_ssl",
         "web_search_lightweight",
         "web_search_js_fallback_enabled",
+        "weather_enabled",
+        "stock_enabled",
+        "currency_enabled",
+        "wikipedia_enabled",
         "document_quality_filter_enabled",
     ):
         return parse_bool(value, bool(default))

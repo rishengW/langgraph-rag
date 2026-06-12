@@ -300,6 +300,76 @@ def test_build_lightweight_graph_routes_tool_calls_to_web_answer(isolated_settin
     assert state["messages"][-1].content == "final lightweight answer"
 
 
+def test_build_lightweight_graph_routes_non_web_search_tools_back_to_agent(
+    isolated_settings,
+):
+    # Regression guard: when the agent calls a non-web-search tool (weather,
+    # stock, currency, wikipedia, ...), the lightweight graph must route the
+    # ToolMessage back to the agent so it can synthesize a final answer from
+    # the structured tool output. Routing it to ``web_answer`` would discard
+    # the tool result and re-prompt the LLM against the session's curated URLs,
+    # which is exactly what produces "the sources don't contain weather data"
+    # answers when the agent had already fetched real weather data.
+    @tool
+    def get_weather(city: str) -> str:
+        """Return mock weather output for tests."""
+
+        return f"Weather for {city}: 25.2C, overcast, humidity 65%"
+
+    invocations: list[str] = []
+
+    def agent(state):
+        # First turn: ask for the weather tool. Second turn: synthesize from
+        # the ToolMessage. The router must take us back to ``agent`` after
+        # the tool node, otherwise the second invocation never happens.
+        last = state["messages"][-1]
+        if getattr(last, "type", "") == "tool":
+            invocations.append("synthesize")
+            return {
+                "messages": [
+                    AIMessage(content=f"final synthesized answer from {last.content}")
+                ]
+            }
+        invocations.append("call_tool")
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "get_weather",
+                            "args": {"city": "Shanghai"},
+                            "id": "call_get_weather",
+                        }
+                    ],
+                )
+            ]
+        }
+
+    def web_answer(_state):  # pragma: no cover - must not run
+        raise AssertionError(
+            "web_answer must not run for non-web-search tools; the agent must "
+            "synthesize the answer from the structured tool output"
+        )
+
+    graph = build_lightweight_graph(
+        settings=isolated_settings(),
+        providers=GraphProviders(
+            tools=[live_web_search, get_weather],
+            nodes=GraphNodeOverrides(agent=agent, web_answer=web_answer),
+        ),
+    )
+
+    state = graph.invoke(
+        {"messages": [HumanMessage(content="What is the weather in Shanghai?")]}
+    )
+
+    assert invocations == ["call_tool", "synthesize"]
+    final = state["messages"][-1].content
+    assert final.startswith("final synthesized answer from ")
+    assert "25.2C" in final
+
+
 def test_build_lightweight_graph_routes_direct_agent_output_to_end(
     isolated_settings,
 ):

@@ -8,7 +8,13 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from ..config import Settings
-from .edges import AGENT_EDGE_MAP, GRADE_EDGE_MAP, route_after_agent
+from .edges import (
+    AGENT_EDGE_MAP,
+    GRADE_EDGE_MAP,
+    LIGHTWEIGHT_TOOL_EDGE_MAP,
+    route_after_agent,
+    route_after_lightweight_tool,
+)
 from .nodes import (
     agent_factory,
     chat_question_resolver,
@@ -216,7 +222,11 @@ def build_lightweight_graph(
         route_after_agent,
         LIGHTWEIGHT_AGENT_EDGE_MAP,
     )
-    workflow.add_edge("web_search", "web_answer")
+    workflow.add_conditional_edges(
+        "web_search",
+        route_after_lightweight_tool,
+        LIGHTWEIGHT_TOOL_EDGE_MAP,
+    )
     workflow.add_edge("web_answer", END)
 
     resolved_checkpointer = _resolve_checkpointer(mode, providers, checkpointer)
@@ -237,12 +247,26 @@ def _resolve_tools(
         return []
 
     from ..core.retriever import build_retriever_tool
+    from ..tools import (
+        build_currency_tool,
+        build_stock_tool,
+        build_weather_tool,
+        build_wikipedia_tool,
+    )
     from ..web_search import build_web_search_tool
 
     # REFACTOR: Default settings-based graph tools now include live web search.
     tools = [build_retriever_tool(settings, rebuild=rebuild_vectorstore)]
     if settings.web_search_enabled:
         tools.append(build_web_search_tool(settings))
+    if settings.weather_enabled:
+        tools.append(build_weather_tool(settings))
+    if settings.stock_enabled:
+        tools.append(build_stock_tool(settings))
+    if settings.currency_enabled:
+        tools.append(build_currency_tool(settings))
+    if settings.wikipedia_enabled:
+        tools.append(build_wikipedia_tool(settings))
     return tools
 
 
@@ -256,9 +280,24 @@ def _resolve_lightweight_tools(
     if settings is None:
         return []
 
+    from ..tools import (
+        build_currency_tool,
+        build_stock_tool,
+        build_weather_tool,
+        build_wikipedia_tool,
+    )
     from ..web_search import build_web_search_tool
 
-    return [build_web_search_tool(settings)]
+    tools: list[Any] = [build_web_search_tool(settings)]
+    if settings.weather_enabled:
+        tools.append(build_weather_tool(settings))
+    if settings.stock_enabled:
+        tools.append(build_stock_tool(settings))
+    if settings.currency_enabled:
+        tools.append(build_currency_tool(settings))
+    if settings.wikipedia_enabled:
+        tools.append(build_wikipedia_tool(settings))
+    return tools
 
 
 def _resolve_checkpointer(

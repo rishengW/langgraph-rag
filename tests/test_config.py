@@ -55,6 +55,20 @@ def test_web_search_and_page_load_defaults_align_with_yaml():
     assert defaults["web_search_js_fallback_domains"] == settings.web_search_js_fallback_domains
     assert settings.web_search_js_force_domains == []
     assert defaults["web_search_js_force_domains"] == settings.web_search_js_force_domains
+    assert settings.weather_enabled is False
+    assert defaults["weather_enabled"] == settings.weather_enabled
+    assert settings.stock_enabled is False
+    assert defaults["stock_enabled"] == settings.stock_enabled
+    assert settings.currency_enabled is False
+    assert defaults["currency_enabled"] == settings.currency_enabled
+    assert settings.wikipedia_enabled is False
+    assert defaults["wikipedia_enabled"] == settings.wikipedia_enabled
+    assert settings.wikipedia_max_summary_chars == 1500
+    assert (
+        defaults["wikipedia_max_summary_chars"]
+        == settings.wikipedia_max_summary_chars
+    )
+    assert defaults["wikipedia_user_agent"] == settings.wikipedia_user_agent
     assert settings.page_load_max_concurrency == 4
     assert defaults["page_load_max_concurrency"] == settings.page_load_max_concurrency
     assert settings.page_load_cache_ttl_seconds == 0
@@ -207,6 +221,25 @@ def test_load_settings_accepts_web_search_js_policy_env(tmp_path, monkeypatch):
     assert settings.web_search_js_fallback_enabled is True
     assert settings.web_search_js_fallback_domains == ["example.com", "sub.test"]
     assert settings.web_search_js_force_domains == ["force.test"]
+
+
+def test_load_settings_accepts_agent_tool_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("WEATHER_ENABLED", "true")
+    monkeypatch.setenv("STOCK_ENABLED", "true")
+    monkeypatch.setenv("CURRENCY_ENABLED", "true")
+    monkeypatch.setenv("WIKIPEDIA_ENABLED", "true")
+    monkeypatch.setenv("WIKIPEDIA_MAX_SUMMARY_CHARS", "-50")
+    monkeypatch.setenv("WIKIPEDIA_USER_AGENT", "test-agent/1.0 (contact: tests)")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.weather_enabled is True
+    assert settings.stock_enabled is True
+    assert settings.currency_enabled is True
+    assert settings.wikipedia_enabled is True
+    assert settings.wikipedia_max_summary_chars == 0
+    assert settings.wikipedia_user_agent == "test-agent/1.0 (contact: tests)"
 
 
 def test_load_settings_accepts_web_search_js_policy_yaml(tmp_path, monkeypatch):

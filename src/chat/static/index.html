@@ -129,6 +129,62 @@
             border: 1px solid #e5e7eb;
             border-bottom-left-radius: 2px;
         }
+        .turn.assistant .bubble.markdown-preview {
+            white-space: normal;
+        }
+        .markdown-preview p,
+        .markdown-preview ul,
+        .markdown-preview ol,
+        .markdown-preview blockquote,
+        .markdown-preview pre {
+            margin: 0 0 10px;
+        }
+        .markdown-preview > :last-child { margin-bottom: 0; }
+        .markdown-preview ul,
+        .markdown-preview ol {
+            padding-left: 20px;
+        }
+        .markdown-preview li + li { margin-top: 4px; }
+        .markdown-preview h1,
+        .markdown-preview h2,
+        .markdown-preview h3,
+        .markdown-preview h4,
+        .markdown-preview h5,
+        .markdown-preview h6 {
+            font-size: 15px;
+            line-height: 1.35;
+            margin: 2px 0 8px;
+        }
+        .markdown-preview code {
+            background: #f3f4f6;
+            border-radius: 4px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+            font-size: 12px;
+            padding: 1px 4px;
+        }
+        .markdown-preview pre {
+            background: #111827;
+            border-radius: 8px;
+            color: #f9fafb;
+            overflow-x: auto;
+            padding: 10px 12px;
+            white-space: pre;
+        }
+        .markdown-preview pre code {
+            background: transparent;
+            color: inherit;
+            padding: 0;
+        }
+        .markdown-preview blockquote {
+            border-left: 3px solid #c7d2fe;
+            color: #4b5563;
+            padding-left: 10px;
+        }
+        .markdown-preview a {
+            color: #4f46e5;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
         .turn.thinking .bubble {
             background: white;
             color: #6b7280;

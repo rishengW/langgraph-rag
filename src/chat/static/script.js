@@ -39,6 +39,120 @@ function escapeHtml(text) {
     return String(text).replace(/[&<>"']/g, (m) => map[m]);
 }
 
+function safeHref(url) {
+    const value = String(url || "").trim();
+    if (/^(https?:|mailto:)/i.test(value)) {
+        return escapeHtml(value);
+    }
+    return "";
+}
+
+function renderInlineMarkdown(text) {
+    const codeTokens = [];
+    let value = String(text).replace(/`([^`]+)`/g, (_match, code) => {
+        const token = `\u0000CODE${codeTokens.length}\u0000`;
+        codeTokens.push(`<code>${escapeHtml(code)}</code>`);
+        return token;
+    });
+
+    value = escapeHtml(value);
+    value = value.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    value = value.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+    value = value.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+    value = value.replace(/_([^_]+)_/g, "<em>$1</em>");
+    value = value.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, url) => {
+        const href = safeHref(url);
+        if (!href) return label;
+        return `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    });
+
+    for (const [index, html] of codeTokens.entries()) {
+        value = value.replaceAll(`\u0000CODE${index}\u0000`, html);
+    }
+    return value;
+}
+
+function renderMarkdownBlocks(text) {
+    const lines = String(text).replace(/\r\n/g, "\n").split("\n");
+    const html = [];
+    let paragraph = [];
+    let listType = null;
+
+    function closeParagraph() {
+        if (!paragraph.length) return;
+        html.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`);
+        paragraph = [];
+    }
+
+    function closeList() {
+        if (!listType) return;
+        html.push(`</${listType}>`);
+        listType = null;
+    }
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+            closeParagraph();
+            closeList();
+            continue;
+        }
+
+        const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (heading) {
+            closeParagraph();
+            closeList();
+            const level = heading[1].length;
+            html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+            continue;
+        }
+
+        const unordered = trimmed.match(/^[-*]\s+(.+)$/);
+        const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
+        if (unordered || ordered) {
+            closeParagraph();
+            const nextType = unordered ? "ul" : "ol";
+            if (listType !== nextType) {
+                closeList();
+                html.push(`<${nextType}>`);
+                listType = nextType;
+            }
+            html.push(`<li>${renderInlineMarkdown((unordered || ordered)[1])}</li>`);
+            continue;
+        }
+
+        const quote = trimmed.match(/^>\s?(.+)$/);
+        if (quote) {
+            closeParagraph();
+            closeList();
+            html.push(`<blockquote>${renderInlineMarkdown(quote[1])}</blockquote>`);
+            continue;
+        }
+
+        closeList();
+        paragraph.push(trimmed);
+    }
+
+    closeParagraph();
+    closeList();
+    return html.join("");
+}
+
+function renderMarkdownPreview(text) {
+    const parts = String(text).replace(/\r\n/g, "\n").split(/```/);
+    return parts.map((part, index) => {
+        if (index % 2 === 0) {
+            return renderMarkdownBlocks(part);
+        }
+
+        const lines = part.split("\n");
+        if (/^[A-Za-z0-9_+.-]+$/.test(lines[0].trim())) {
+            lines.shift();
+        }
+        return `<pre><code>${escapeHtml(lines.join("\n").trim())}</code></pre>`;
+    }).join("");
+}
+
 function showError(msg) {
     errorBanner.textContent = msg;
     errorBanner.classList.remove("hidden");
@@ -54,7 +168,12 @@ function appendTurn(role, content, opts = {}) {
     div.className = `turn ${role}` + (opts.thinking ? " thinking" : "");
     const bubble = document.createElement("div");
     bubble.className = "bubble";
-    bubble.innerHTML = escapeHtml(content);
+    if (role === "assistant" && !opts.thinking) {
+        bubble.classList.add("markdown-preview");
+        bubble.innerHTML = renderMarkdownPreview(content);
+    } else {
+        bubble.innerHTML = escapeHtml(content);
+    }
     div.appendChild(bubble);
     transcript.appendChild(div);
     transcript.scrollTop = transcript.scrollHeight;

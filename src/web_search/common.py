@@ -3,10 +3,9 @@ from __future__ import annotations
 import logging
 import re
 import ssl
-from typing import Iterable
+from collections.abc import Iterable
 from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request
-
 
 BAIDU_BASE_URL = "https://www.baidu.com"
 BING_BASE_URL = "https://cn.bing.com"
@@ -177,9 +176,7 @@ def is_noise_url(url: str) -> bool:
         return True
     if has_noise_path(parsed.path):
         return True
-    if has_search_query(parsed.path, parsed.query):
-        return True
-    return False
+    return bool(has_search_query(parsed.path, parsed.query))
 
 
 def has_noise_path(path: str) -> bool:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
 
 from src.chat import api as chat_api
 from src.qa import api as qa_api

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, Sequence
+from collections.abc import Sequence
+from typing import Annotated, Literal
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
@@ -19,6 +20,13 @@ class RAGState(TypedDict, total=False):
     source_mode: Literal["explicit", "web_search", "defaults"]
     source_note: str | None
     errors: list[str]
+    # REFACTOR: Lightweight web-search fallback. When ``web_answer`` produces
+    # no readable page text, ``web_answer_no_readable_content`` is set to True
+    # so the post-``web_answer`` edge can route back to the agent for one
+    # retry, and ``web_answer_attempts`` bounds that loop to a single retry
+    # (the second failure terminates the graph with the grounded refusal).
+    web_answer_attempts: int
+    web_answer_no_readable_content: bool
 
 
 AgentState = RAGState

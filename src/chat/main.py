@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from typing import Iterable
+from collections.abc import Iterable
 
 from langchain_core.messages import HumanMessage
 
@@ -90,8 +90,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def _serve(args: argparse.Namespace) -> None:
-    from .api import create_app
     import uvicorn
+
+    from .api import create_app
 
     app = create_app(api_host=args.host, api_port=args.port, config_file=args.config)
     print(f"💬 Starting only Subcribers chat server at http://{args.host}:{args.port}")

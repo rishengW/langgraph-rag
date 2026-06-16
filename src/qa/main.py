@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import os
+from collections.abc import Iterable
 from dataclasses import replace
-from typing import Iterable
 
 from ..config import load_settings, secret_fingerprint
 from ..core.graph import build_graph
@@ -163,8 +163,9 @@ def main() -> None:
     
     if args.mode == "serve":
         # Start the FastAPI server
-        from .api import create_app
         import uvicorn
+
+        from .api import create_app
         app = create_app(
             rebuild_db=args.rebuild,
             api_host=args.host,

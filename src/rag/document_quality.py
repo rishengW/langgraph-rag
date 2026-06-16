@@ -1,14 +1,14 @@
 # Purpose: deterministic pre-index quality checks for loaded source documents.
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import date
 import hashlib
 import logging
 import math
 import re
+from collections import Counter
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import date
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -262,7 +262,7 @@ def _query_embedding(
 def _cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
     if not left or not right or len(left) != len(right):
         return 0.0
-    dot = sum(a * b for a, b in zip(left, right))
+    dot = sum(a * b for a, b in zip(left, right, strict=False))
     left_norm = math.sqrt(sum(value * value for value in left))
     right_norm = math.sqrt(sum(value * value for value in right))
     if left_norm == 0.0 or right_norm == 0.0:

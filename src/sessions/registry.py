@@ -5,13 +5,13 @@ import shutil
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..config import Settings
 from .models import ChatSession
 from .storage import SessionMetadata, StorageBackend
-
 
 logger = logging.getLogger(__name__)
 

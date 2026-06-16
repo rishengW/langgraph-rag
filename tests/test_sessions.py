@@ -11,9 +11,9 @@ from src.sessions import (
     ChatSession,
     ChatSessionRegistry,
     InMemoryStorage,
+    SessionMetadata,
     SQLiteMemorySaver,
     SQLiteStorage,
-    SessionMetadata,
     _settings_for_session,
     settings_for_session,
 )
@@ -381,3 +381,130 @@ def test_sqlite_memory_saver_restores_graph_state_after_reopen(tmp_path):
     second_graph = builder.compile(checkpointer=second_saver)
 
     assert second_graph.get_state(config).values == {"value": 2}
+
+
+def test_sqlite_memory_saver_serializes_writes_under_lock(tmp_path, monkeypatch):
+    # Structural regression guard for the original crash surface: when
+    # two concurrent ``/chat`` requests hit the same session, the
+    # inherited ``MemorySaver.put`` / ``put_writes`` mutations and the
+    # ``_plain_writes`` snapshot in ``_persist_state`` must run under
+    # the same critical section. Otherwise the dict comprehension can
+    # race with a concurrent key insertion and raise
+    # ``RuntimeError: dictionary changed size during iteration``.
+    #
+    # The race window in production is sub-millisecond and hard to hit
+    # deterministically, so this test asserts the structural invariant
+    # directly: while the inherited ``super().put`` /
+    # ``super().put_writes`` is running, ``self._lock`` must be held.
+    # If a future change reverts the lock scoping, this test fires
+    # immediately without depending on timing.
+    import threading
+
+    from langgraph.checkpoint.memory import MemorySaver
+
+    db_path = tmp_path / "checkpoints.sqlite3"
+    saver = SQLiteMemorySaver(db_path)
+
+    held_during_super: list[bool] = []
+    config = {"configurable": {"thread_id": "lock-test"}}
+
+    real_put = MemorySaver.put
+    real_put_writes = MemorySaver.put_writes
+
+    def _is_held(lock: object) -> bool:
+        # ``threading.RLock`` exposes ``_is_owned()`` (current thread holds
+        # the lock) on every supported Python version. ``Lock.locked()``
+        # is only on the non-reentrant ``Lock`` and only added to
+        # ``RLock`` in 3.13. ``_is_owned`` works on both.
+        is_owned = getattr(lock, "_is_owned", None)
+        if callable(is_owned):
+            return bool(is_owned())
+        return bool(getattr(lock, "locked", lambda: False)())
+
+    def tracking_put(self, config, checkpoint, metadata, new_versions):
+        held_during_super.append(_is_held(self._lock) if hasattr(self, "_lock") else False)
+        return real_put(self, config, checkpoint, metadata, new_versions)
+
+    def tracking_put_writes(self, config, writes, task_id, task_path=""):
+        held_during_super.append(_is_held(self._lock) if hasattr(self, "_lock") else False)
+        return real_put_writes(self, config, writes, task_id, task_path)
+
+    monkeypatch.setattr(MemorySaver, "put", tracking_put)
+    monkeypatch.setattr(MemorySaver, "put_writes", tracking_put_writes)
+
+    checkpoint = {
+        "v": 1,
+        "id": "cp-1",
+        "ts": "2026-01-01T00:00:00+00:00",
+        "channel_values": {"value": 1},
+        "channel_versions": {"value": 1},
+        "versions_seen": {},
+        "pending_sends": [],
+    }
+    full_config = {
+        "configurable": {
+            "thread_id": "lock-test",
+            "checkpoint_ns": "ns-1",
+            "checkpoint_id": "cp-1",
+        }
+    }
+
+    saver.put(full_config, checkpoint, {}, {})
+    saver.put_writes(full_config, [(("value",), 1)], task_id="t-1")
+
+    assert held_during_super == [True, True], (
+        "self._lock must be held during the inherited super().put and "
+        "super().put_writes calls; otherwise concurrent writers can race "
+        "with the _plain_writes snapshot and crash with "
+        "'dictionary changed size during iteration'."
+    )
+
+
+def test_sqlite_memory_saver_concurrent_writers_do_not_corrupt_state(tmp_path):
+    # Behavioral smoke test for the production crash: spin up several
+    # threads that each call ``put`` and ``put_writes`` in a tight loop
+    # against the same saver. The exact ``RuntimeError`` is timing-
+    # dependent and hard to reproduce in a unit test, but this test
+    # catches the broader class of "concurrent access corrupts the
+    # saver" failures and ensures the fix is not silently regressed.
+    import threading
+
+    db_path = tmp_path / "checkpoints.sqlite3"
+    saver = SQLiteMemorySaver(db_path)
+    thread_id = "concurrent-thread"
+
+    errors: list[BaseException] = []
+    stop = threading.Event()
+
+    def runner(index: int) -> None:
+        try:
+            iteration = 0
+            while not stop.is_set():
+                config = {
+                    "configurable": {
+                        "thread_id": thread_id,
+                        "checkpoint_ns": f"ns-{index}",
+                        "checkpoint_id": f"cp-{index}-{iteration}",
+                    }
+                }
+                saver.put_writes(
+                    config,
+                    [(("value",), iteration)],
+                    task_id=f"task-{index}-{iteration}",
+                )
+                iteration += 1
+        except BaseException as exc:  # pragma: no cover - assertion below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=runner, args=(i,)) for i in range(6)]
+    for thread in threads:
+        thread.start()
+
+    import time
+
+    time.sleep(0.3)
+    stop.set()
+    for thread in threads:
+        thread.join()
+
+    assert errors == [], f"concurrent put_writes raised: {errors!r}"

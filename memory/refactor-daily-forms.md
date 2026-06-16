@@ -3,7 +3,7 @@ name: refactor-daily-forms
 description: Dated refactoring process forms with complete, to-do, blocked, and note lines
 metadata:
   type: project
-  updated: 2026-06-12
+  updated: 2026-06-15
 ---
 
 # Refactor Daily Forms
@@ -24,6 +24,34 @@ Each date gets one form. Every form line must start with one of these labels:
 | to do |  |  |  |
 | blocked |  |  |  |
 | note |  |  |  |
+
+## 2026-06-15 Form -- Readiness Docs Repair
+
+| Label | Scope | Line Item | Evidence / Next Action |
+|---|---|---|---|
+| complete | Docs / env | Removed stale merge conflict markers from `.env.example` around `DEEPSEEK_API_KEY`. | Verify with `rg -n "<<<<<<<|=======|>>>>>>>" .env.example SECURITY.md CONTRIBUTING.md README.md`. |
+| complete | Security docs | Updated `SECURITY.md` to reflect implemented optional API-key auth and configurable CORS. | Auth remains open when `API_KEY` is unset; shared deployments should configure `API_KEY` and scoped CORS origins. |
+| complete | Dev docs | Updated `CONTRIBUTING.md` to reflect configured Ruff, MyPy, pre-commit, and coverage checks. | Verify whitespace with `git diff --check` for the touched docs/env files. |
+| blocked | Verification | Full source/test verification was intentionally not run for this docs-only worker scope. | User requested conflict-marker and whitespace checks only; no source, tests, requirements, or CI files were edited. |
+
+## 2026-06-15 Form -- Worker C API Ruff/Mypy Slice
+
+| Label | Scope | Line Item | Evidence / Next Action |
+|---|---|---|---|
+| complete | API / Ruff | Fixed Ruff issues in owned FastAPI/API paths. | `src/api`, `src/qa`, and `src/chat` now use sorted imports, `| None` annotations, and FastAPI `Annotated` dependency aliases instead of `Depends(...)` defaults. |
+| complete | API / mypy | Reduced owned-path mypy issues without changing API behavior. | Added route/helper return annotations, typed SSE iterators, response-model field completion, app-state casts, and a typed FastAPI exception-handler adapter. |
+| blocked | mypy / imports | Remaining mypy errors are in non-owned imported modules. | Current blockers are outside Worker C ownership: `src/errors.py`, `src/config`, `src/web_search`, `src/tools`, `src/sessions`, `src/llm`, `src/graph`, `src/rag`, and `src/core`. |
+| to do | Verification | Re-run final Ruff, mypy, and targeted API tests after this form update. | Commands: `.\.venv\Scripts\ruff.exe check src/api src/qa src/chat`, `.\.venv\Scripts\mypy.exe src/api src/qa src/chat`, and focused `tests/test_api_*` where available. |
+
+## 2026-06-15 Form -- Worker A Core Ruff/Mypy Slice
+
+| Label | Scope | Line Item | Evidence / Next Action |
+|---|---|---|---|
+| complete | Core / Ruff | Fixed Ruff issues in owned non-API paths. | `.\.venv\Scripts\ruff.exe check src/errors.py src/utils src/config src/web_search src/rag src/sessions src/graph src/llm` passed. |
+| complete | Core / mypy | Fixed owned-slice mypy errors without changing RAG behavior. | `.\.venv\Scripts\mypy.exe src/errors.py src/utils src/config src/web_search src/rag src/sessions src/graph src/llm` passed after isolating lazy tool imports and typing third-party boundaries. |
+| complete | Core / tests | Ran focused tests for the owned slice. | `.\.venv\Scripts\pytest.exe tests\test_config.py tests\test_graph_builder.py tests\test_graph_executor.py tests\test_graph_state_and_nodes.py tests\test_rag_interfaces.py tests\test_retry.py tests\test_sessions.py tests\test_urls.py tests\test_web_search_lightweight_primitives.py tests\test_web_search_providers.py -q` passed with 131 tests. |
+| blocked | Verification | Full `tests -q` verification did not complete in this worker turn. | `.\.venv\Scripts\pytest.exe tests -q` timed out after 120s while running; focused owned-slice tests completed successfully. |
+| note | Coordination | Other workers have active edits outside Worker A ownership. | Left API/chat/qa/docs/env changes untouched; Worker A edits are limited to assigned core paths plus this required process form. |
 
 ## 2026-06-12 Form — Multi-Tool Agent Expansion Plan
 

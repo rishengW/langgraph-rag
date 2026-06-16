@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from src.chat import api as chat_api
 from src.errors import (
     AllSourcesFailedError,
     ConfigurationError,
@@ -13,7 +14,6 @@ from src.errors import (
     RetrieverError,
     WebSearchError,
 )
-from src.chat import api as chat_api
 from src.qa import api as qa_api
 
 

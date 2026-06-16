@@ -8,7 +8,6 @@ from langchain_core.runnables import RunnableLambda
 
 from src.chat.state import ChatState
 from src.core.state import AgentState
-from src.graph.nodes import common as common_nodes
 from src.graph.nodes import (
     chat_question_resolver,
     condense_question_factory,
@@ -17,6 +16,7 @@ from src.graph.nodes import (
     latest_user_index,
     qa_question_resolver,
 )
+from src.graph.nodes import common as common_nodes
 from src.graph.state import RAGState
 
 

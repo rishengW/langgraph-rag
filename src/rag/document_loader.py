@@ -1,24 +1,23 @@
 from __future__ import annotations
 
+import logging
+import threading
+import time
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import date
-import logging
-import threading
-import time
 from typing import Any
 
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_community.document_loaders.web_base import _build_metadata
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from ..utils.networking import ensure_user_agent
+from .document_quality import DocumentQualityConfig, filter_quality_documents
 
 ensure_user_agent()
-
-from langchain_core.documents import Document
-from langchain_community.document_loaders import WebBaseLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders.web_base import _build_metadata
-
-from .document_quality import DocumentQualityConfig, filter_quality_documents
 
 logger = logging.getLogger(__name__)
 

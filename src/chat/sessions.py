@@ -5,10 +5,10 @@ from ..sessions import (
     ChatSession,
     ChatSessionRegistry,
     SQLiteMemorySaver,
+    SQLiteStorage,
     _settings_for_session,
     cleanup_isolated_chroma,
     settings_for_session,
-    SQLiteStorage,
 )
 
 warn_deprecated_import("src.chat.sessions", "src.sessions")

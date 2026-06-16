@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
 import sys
 import threading
 import time
+from datetime import date, timedelta
 from types import ModuleType
 
 import pytest

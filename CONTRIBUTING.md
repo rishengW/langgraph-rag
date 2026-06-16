@@ -50,15 +50,21 @@ Run the existing test suite:
 python -m pytest -q
 ```
 
-Check for whitespace errors before handing work off:
+Run the configured local quality checks when changing source code:
 
 ```powershell
+ruff check .
+mypy src/
+python -m pytest --tb=short --cov=src --cov-report=term --cov-fail-under=70
 git diff --check
 ```
 
-The current project does not yet configure Ruff, MyPy, pre-commit, or coverage
-thresholds. Treat those as company-readiness follow-up items, not required
-local gates for this snapshot.
+Install the pre-commit hooks if you want the same formatting, lint, and type
+checks to run before commits:
+
+```powershell
+pre-commit install
+```
 
 ## Development Rules
 

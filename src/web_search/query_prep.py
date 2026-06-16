@@ -1,13 +1,15 @@
 # Purpose: preprocess search queries for better search-engine results.
 from __future__ import annotations
 
-from datetime import date
 import logging
 import re
-from typing import TYPE_CHECKING
+from datetime import date
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 if TYPE_CHECKING:
     from ..config import Settings
+
+from langchain_core.messages import BaseMessage, HumanMessage
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,13 @@ _REWRITE_PROMPT = (
 )
 
 
+class QueryRewriteLLM(Protocol):
+    """Minimal LLM surface used by query rewrite tests and providers."""
+
+    def invoke(self, input_data: list[BaseMessage]) -> Any:
+        """Invoke the chat model with one prompt message."""
+
+
 def prepare_search_query(question: str) -> str:
     """Return a search-engine-optimized query string using mechanical rules.
 
@@ -71,9 +80,9 @@ def prepare_search_query(question: str) -> str:
 
 def rewrite_search_query_llm(
     question: str,
-    settings: "Settings",
+    settings: Settings,
     *,
-    _llm: object = None,
+    _llm: QueryRewriteLLM | None = None,
 ) -> str | None:
     """Use a lightweight LLM to rewrite the question into search keywords.
 
@@ -97,7 +106,8 @@ def rewrite_search_query_llm(
             logger.warning("Skipping LLM query rewrite: langchain-openai not installed.")
             return None
 
-        llm = ChatOpenAI(
+        chat_openai = cast(Any, ChatOpenAI)
+        llm = chat_openai(
             model="deepseek-v4-flash",
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,
@@ -108,8 +118,6 @@ def rewrite_search_query_llm(
         )
 
     try:
-        from langchain_core.messages import HumanMessage
-
         response = llm.invoke([HumanMessage(content=prompt)])
         rewritten = str(response.content).strip().strip("\"'")
     except Exception as exc:
@@ -127,7 +135,7 @@ def rewrite_search_query_llm(
     return rewritten
 
 
-def build_search_query(question: str, settings: "Settings") -> str:
+def build_search_query(question: str, settings: Settings) -> str:
     """Produce the best available search query using LLM rewrite + mechanical fallback.
 
     Tries an LLM-based rewrite first (DeepSeek V4 Flash), then applies

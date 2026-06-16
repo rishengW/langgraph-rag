@@ -459,3 +459,332 @@ def test_build_lightweight_graph_chat_mode_uses_chat_state_and_checkpointer(
 
 def test_web_answer_is_exported_from_graph_nodes():
     assert graph_nodes.web_answer_factory is web_answer_module.web_answer_factory
+
+
+def test_web_answer_no_readable_content_sets_fallback_state(monkeypatch, isolated_settings):
+    # Regression guard: when no fetched page yields readable text, the node
+    # must signal the post-web-answer edge to retry the agent by setting
+    # ``web_answer_no_readable_content`` to True and bumping the attempt
+    # counter, in addition to returning the grounded refusal message.
+    settings = isolated_settings(source_urls=["https://dead.test/a"])
+
+    def fake_fetch_pages(urls, **_kwargs):
+        return [SimpleNamespace(url=u, title="", text="") for u in urls]
+
+    _install_lightweight_web_modules(monkeypatch, fake_fetch_pages, lambda *_: "unused")
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "fake-model")
+    monkeypatch.setattr(
+        web_answer_module,
+        "invoke_with_retry",
+        lambda *_a, **_k: AIMessage(content="unused"),
+    )
+
+    node = web_answer_module.web_answer_factory(settings)
+    result = node({"messages": [HumanMessage(content="When was UniMelb founded?")]})
+
+    assert result["web_answer_no_readable_content"] is True
+    assert result["web_answer_attempts"] == 1
+    assert "couldn't retrieve readable content" in result["messages"][-1].content
+
+
+def test_web_answer_success_clears_fallback_state(monkeypatch, isolated_settings):
+    # Regression guard: on the success branch the node must explicitly clear
+    # ``web_answer_no_readable_content`` so a later failure in the same
+    # session starts from a clean state, and stamp the attempt counter for
+    # parity with the failure branch.
+    settings = isolated_settings(source_urls=["https://good.test/a"])
+
+    def fake_fetch_pages(urls, **_kwargs):
+        return [SimpleNamespace(url=urls[0], title="T", text=_readable_text())]
+
+    def fake_build_prompt(_question, _pages):
+        return "prompt"
+
+    def fake_invoke(*_a, **_k):
+        return AIMessage(content="grounded answer")
+
+    _install_lightweight_web_modules(monkeypatch, fake_fetch_pages, fake_build_prompt)
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "fake-model")
+    monkeypatch.setattr(web_answer_module, "invoke_with_retry", fake_invoke)
+
+    node = web_answer_module.web_answer_factory(settings)
+    result = node(
+        {
+            "messages": [HumanMessage(content="Q?")],
+            # Pre-seed stale state from a prior failure in the same session.
+            "web_answer_no_readable_content": True,
+            "web_answer_attempts": 1,
+        }
+    )
+
+    assert result["web_answer_no_readable_content"] is False
+    assert result["web_answer_attempts"] == 2
+    assert result["messages"][-1].content == "grounded answer"
+
+
+def test_web_answer_increments_attempts_from_existing_counter(
+    monkeypatch, isolated_settings
+):
+    # Regression guard: the attempt counter must be derived from the current
+    # state, not always reset to 1, so a second invocation in the same
+    # session reports the correct cumulative count.
+    settings = isolated_settings(source_urls=["https://good.test/a"])
+
+    def fake_fetch_pages(urls, **_kwargs):
+        return [SimpleNamespace(url=urls[0], title="T", text=_readable_text())]
+
+    _install_lightweight_web_modules(
+        monkeypatch, fake_fetch_pages, lambda *_: "prompt"
+    )
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "fake-model")
+    monkeypatch.setattr(
+        web_answer_module,
+        "invoke_with_retry",
+        lambda *_a, **_k: AIMessage(content="ok"),
+    )
+
+    node = web_answer_module.web_answer_factory(settings)
+    result = node(
+        {
+            "messages": [HumanMessage(content="Q?")],
+            "web_answer_attempts": 3,
+        }
+    )
+
+    assert result["web_answer_attempts"] == 4
+
+
+def test_route_after_web_answer_routes_to_agent_on_first_failure():
+    # Unit test for the post-web-answer conditional edge: when the previous
+    # ``web_answer`` run produced no readable content, the edge must route
+    # back to the agent (one retry) so the LLM can answer from training
+    # data instead of the user seeing a hard refusal.
+    from src.graph.edges import route_after_web_answer
+
+    state = {
+        "web_answer_no_readable_content": True,
+        "web_answer_attempts": 1,
+    }
+    assert route_after_web_answer(state) == "agent"
+
+
+def test_route_after_web_answer_terminates_after_max_attempts():
+    # Unit test: after the bounded retry budget is exhausted, the edge must
+    # terminate so the user sees the grounded refusal rather than the
+    # agent/web_answer loop spinning forever.
+    from src.graph.edges import (
+        WEB_ANSWER_FALLBACK_MAX_ATTEMPTS,
+        route_after_web_answer,
+    )
+
+    state = {
+        "web_answer_no_readable_content": True,
+        "web_answer_attempts": WEB_ANSWER_FALLBACK_MAX_ATTEMPTS,
+    }
+    assert route_after_web_answer(state) == "__end__"
+
+
+def test_route_after_web_answer_terminates_on_success():
+    # Unit test: when ``web_answer`` succeeded, the edge must terminate so
+    # the agent's synthesized answer is not overridden by a redundant
+    # re-prompt through the agent node.
+    from src.graph.edges import route_after_web_answer
+
+    state = {
+        "web_answer_no_readable_content": False,
+        "web_answer_attempts": 1,
+    }
+    assert route_after_web_answer(state) == "__end__"
+
+
+def test_build_lightweight_graph_falls_back_to_agent_when_no_readable_content(
+    monkeypatch, isolated_settings
+):
+    # End-to-end regression guard for the failure mode that motivated the
+    # fallback: an over-eager web search returns pages that don't contain
+    # the answer to a stable historical question. The lightweight graph
+    # must loop back to the agent once so the LLM can answer from its own
+    # knowledge instead of the user seeing the "I couldn't retrieve
+    # readable content" refusal.
+    import src.web_search.content_fetcher as content_fetcher_module
+    import src.web_search.prompt_builder as prompt_builder_module
+    from src.web_search.tool import build_web_search_tool
+
+    settings = isolated_settings()
+
+    # Build a real tool so the lightweight graph's ToolNode sees a real
+    # ``live_web_search`` tool call from the agent. The discovery function
+    # is monkeypatched to return a deterministic URL regardless of provider.
+    def fake_discover(query, _settings, _provider):
+        return ["https://junk.test/page"]
+
+    def fake_fetch_pages(urls, **_kwargs):
+        return [SimpleNamespace(url=urls[0], title="Junk", text="")]
+
+    def fake_build_prompt(_question, _pages):  # pragma: no cover - must not run
+        raise AssertionError("prompt must not be built when no readable pages")
+
+    tool = build_web_search_tool(settings, discovery=fake_discover)
+    monkeypatch.setattr(content_fetcher_module, "fetch_pages", fake_fetch_pages)
+    monkeypatch.setattr(
+        prompt_builder_module, "build_web_search_prompt", fake_build_prompt
+    )
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _s: "fake-model")
+    monkeypatch.setattr(
+        web_answer_module,
+        "invoke_with_retry",
+        lambda *_a, **_k: AIMessage(content="must not run"),
+    )
+
+    seen: list[str] = []
+    call_count = {"agent": 0}
+
+    def agent(state):
+        call_count["agent"] += 1
+        # Track which run we're on so we can verify the fallback retry.
+        seen.append(f"agent-run-{call_count['agent']}")
+        if call_count["agent"] == 1:
+            # First turn: search the web (over-eager, will return junk).
+            return {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "live_web_search",
+                                "args": {"query": "University of Melbourne founded"},
+                                "id": "call_live_web_search",
+                            }
+                        ],
+                    )
+                ]
+            }
+        # Second turn (fallback): the LLM has decided to answer from its
+        # own knowledge. The graph must allow this -- the previous behavior
+        # would have left the user with the hard refusal.
+        assert (
+            "couldn't retrieve readable content" in state["messages"][-1].content
+        )
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "I couldn't verify against the live web, but the "
+                        "University of Melbourne was founded in 1853."
+                    )
+                )
+            ]
+        }
+
+    graph = build_lightweight_graph(
+        settings=settings,
+        providers=GraphProviders(
+            tools=[tool],
+            nodes=GraphNodeOverrides(agent=agent),
+        ),
+    )
+
+    state = graph.invoke(
+        {"messages": [HumanMessage(content="When was the University of Melbourne founded?")]}
+    )
+
+    # The agent must run exactly twice: once to search, once to answer.
+    assert seen == ["agent-run-1", "agent-run-2"]
+    assert call_count["agent"] == 2
+    # The final user-visible answer is the agent's training-data fallback,
+    # not the grounded refusal.
+    final = state["messages"][-1].content
+    assert "1853" in final
+    assert "couldn't retrieve readable content" not in final
+
+
+def test_build_lightweight_graph_terminates_with_refusal_after_two_web_answer_failures(
+    monkeypatch, isolated_settings
+):
+    # End-to-end regression guard for the loop bound: if the second
+    # ``web_answer`` run also fails to find readable content, the graph
+    # must terminate with the grounded refusal rather than spinning
+    # forever between the agent and ``web_answer``.
+    import src.web_search.content_fetcher as content_fetcher_module
+    import src.web_search.prompt_builder as prompt_builder_module
+    from src.web_search.tool import build_web_search_tool
+
+    settings = isolated_settings()
+
+    def fake_discover(query, _settings, _provider):
+        return ["https://junk.test/page"]
+
+    def fake_fetch_pages(urls, **_kwargs):
+        return [SimpleNamespace(url=urls[0], title="Junk", text="")]
+
+    def fake_build_prompt(_question, _pages):  # pragma: no cover - must not run
+        raise AssertionError("prompt must not be built when no readable pages")
+
+    tool = build_web_search_tool(settings, discovery=fake_discover)
+    monkeypatch.setattr(content_fetcher_module, "fetch_pages", fake_fetch_pages)
+    monkeypatch.setattr(
+        prompt_builder_module, "build_web_search_prompt", fake_build_prompt
+    )
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _s: "fake-model")
+    monkeypatch.setattr(
+        web_answer_module,
+        "invoke_with_retry",
+        lambda *_a, **_k: AIMessage(content="must not run"),
+    )
+
+    call_count = {"agent": 0, "web_answer": 0}
+
+    def agent(state):
+        call_count["agent"] += 1
+        # Keep re-issuing the same tool call so ``web_answer`` runs twice.
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "live_web_search",
+                            "args": {"query": "Q"},
+                            "id": "call_live_web_search",
+                        }
+                    ],
+                )
+            ]
+        }
+
+    def web_answer(state):
+        call_count["web_answer"] += 1
+        # Mirror the real node's behavior: no readable content, bump the
+        # attempt counter, set the fallback flag. The graph loop bound
+        # must stop the iteration after this second call.
+        return {
+            "messages": [
+                AIMessage(
+                    content=(
+                        "I couldn't retrieve readable content from the web "
+                        f"sources for this question (call #{call_count['web_answer']})."
+                    )
+                )
+            ],
+            "web_answer_no_readable_content": True,
+            "web_answer_attempts": call_count["web_answer"],
+        }
+
+    graph = build_lightweight_graph(
+        settings=settings,
+        providers=GraphProviders(
+            tools=[tool],
+            nodes=GraphNodeOverrides(agent=agent, web_answer=web_answer),
+        ),
+    )
+
+    state = graph.invoke({"messages": [HumanMessage(content="Q?")]})
+
+    # Two web_answer calls (the bound) and the same number of agent
+    # invocations: search, then the loop-bounded retry, then END with the
+    # grounded refusal.
+    assert call_count["web_answer"] == 2
+    assert call_count["agent"] == 2
+    final = state["messages"][-1].content
+    assert "couldn't retrieve readable content" in final
+    assert "call #2" in final

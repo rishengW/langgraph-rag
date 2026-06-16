@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import logging
 import gc
+import logging
 import os
 import shutil
 import ssl
@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
+from types import TracebackType
 from typing import Any, TypeVar
 
 from requests.exceptions import RequestException
@@ -181,7 +182,12 @@ def remove_tree_with_retry(
     if not path.exists():
         return
 
-    def handle_remove_error(func, fpath, exc_info):
+    def handle_remove_error(
+        func: Callable[[str], object],
+        fpath: str,
+        exc_info: tuple[type[BaseException], BaseException, TracebackType],
+    ) -> None:
+        del func, exc_info
         try:
             if os.path.exists(fpath):
                 os.chmod(fpath, stat.S_IWUSR | stat.S_IRUSR)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -15,15 +15,15 @@ from langchain_core.tools.retriever import create_retriever_tool
 
 from ..config import Settings
 from ..utils.retry import call_with_retry, remove_tree_with_retry
-from .document_quality import DocumentQualityConfig
 from .document_loader import load_and_split_documents
+from .document_quality import DocumentQualityConfig
 from .embeddings import build_embeddings
 from .retriever import Retriever
 
 try:
-    from langchain_chroma import Chroma
+    from langchain_chroma import Chroma as Chroma
 except ImportError:
-    from langchain_community.vectorstores import Chroma
+    from langchain_community.vectorstores import Chroma as Chroma  # type: ignore[assignment]
 
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ def _write_embedding_config(settings: Settings) -> None:
     )
 
 
-def _paths_match(left: str | os.PathLike | None, right: Path) -> bool:
+def _paths_match(left: str | os.PathLike[str] | None, right: Path) -> bool:
     if not left:
         return False
 
@@ -197,7 +197,7 @@ class ChromaRetriever:
 
         if hasattr(retriever, "search_kwargs"):
             try:
-                original_search_kwargs = dict(getattr(retriever, "search_kwargs") or {})
+                original_search_kwargs = dict(retriever.search_kwargs or {})
                 retriever.search_kwargs = {**original_search_kwargs, "k": k}
             except Exception:
                 original_search_kwargs = None
@@ -211,10 +211,8 @@ class ChromaRetriever:
                 raise TypeError("Wrapped Chroma retriever does not expose a retrieval method.")
         finally:
             if original_search_kwargs is not None:
-                try:
+                with suppress(Exception):
                     retriever.search_kwargs = original_search_kwargs
-                except Exception:
-                    pass
 
         return list(docs)
 

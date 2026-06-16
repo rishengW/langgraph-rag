@@ -4,6 +4,7 @@ import base64
 import binascii
 import logging
 from dataclasses import dataclass
+from typing import cast
 from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlparse
 from urllib.request import urlopen
 
@@ -15,7 +16,6 @@ from .common import (
     search_request,
     urlopen_context,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +154,7 @@ def candidate_bing_hrefs(soup: BeautifulSoup) -> list[str]:
 
     for selector in selectors:
         for anchor in soup.select(selector):
-            href = anchor.get("href", "")
+            href = cast(str, anchor.get("href", ""))
             if href and href not in seen:
                 seen.add(href)
                 hrefs.append(href)

@@ -2,20 +2,41 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
+from langchain_core.tools import BaseTool
+
 from .._compat import warn_deprecated_import
 from ..config import Settings
 from ..graph.nodes import (
     build_extractive_answer as _build_extractive_answer,
+)
+from ..graph.nodes import (
     chat_question_resolver as _question_from_state,
+)
+from ..graph.nodes import (
     condense_question_factory,
+)
+from ..graph.nodes import (
     format_history as _format_history,
+)
+from ..graph.nodes import (
     latest_user_index as _latest_user_index,
+)
+from ..graph.nodes import (
     new_chat_model as _new_chat_model,
 )
 from ..graph.nodes.common import (
     agent_factory as _shared_agent_factory,
+)
+from ..graph.nodes.common import (
     generate_factory as _shared_generate_factory,
+)
+from ..graph.nodes.common import (
     grade_documents_factory as _shared_grade_documents_factory,
+)
+from ..graph.nodes.common import (
     rewrite_factory as _shared_rewrite_factory,
 )
 from ..llm.prompts import CONDENSE_PROMPT, RAG_PROMPT
@@ -24,15 +45,18 @@ from ..utils.retry import invoke_with_retry as _invoke_with_retry
 warn_deprecated_import("src.chat.nodes", "src.graph.nodes")
 
 
-def agent_factory(settings: Settings, tools):
+def agent_factory(
+    settings: Settings,
+    tools: list[BaseTool],
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
     return _shared_agent_factory(settings, tools, _question_from_state)
 
 
-def grade_documents_factory(settings: Settings):
+def grade_documents_factory(settings: Settings) -> Callable[[dict[str, Any]], str]:
     return _shared_grade_documents_factory(settings, _question_from_state)
 
 
-def rewrite_factory(settings: Settings):
+def rewrite_factory(settings: Settings) -> Callable[[dict[str, Any]], dict[str, Any]]:
     return _shared_rewrite_factory(
         settings,
         _question_from_state,
@@ -40,7 +64,7 @@ def rewrite_factory(settings: Settings):
     )
 
 
-def generate_factory(settings: Settings):
+def generate_factory(settings: Settings) -> Callable[[dict[str, Any]], dict[str, Any]]:
     return _shared_generate_factory(settings, _question_from_state)
 
 

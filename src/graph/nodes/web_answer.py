@@ -27,7 +27,7 @@ _URL_RE = re.compile(r"https?://[^\s<>()\[\]{}\u3000-\u303f\uff00-\uffef\u4e00-\
 def web_answer_factory(
     settings: Settings,
     question_resolver: QuestionResolver = qa_question_resolver,
-):
+) -> Callable[[dict[str, Any]], dict[str, list[AIMessage]]]:
     """Return a node that answers directly from fetched web pages.
 
     The node intentionally avoids retrievers, embeddings, Chroma, grading, and
@@ -39,6 +39,11 @@ def web_answer_factory(
         logger.info("GENERATE WEB ANSWER")
         question = question_resolver(state)
         urls = _extract_source_urls(state, settings)
+        # REFACTOR: Increment the lightweight web-answer attempt counter on
+        # every entry so the post-web-answer edge can bound the fallback loop
+        # to a single retry. The counter is read by ``route_after_web_answer``
+        # in src/graph/edges.py.
+        attempts = int(state.get("web_answer_attempts", 0) or 0) + 1
 
         from ...web_search.content_fetcher import fetch_pages, is_readable_text
         from ...web_search.prompt_builder import build_web_search_prompt
@@ -93,7 +98,14 @@ def web_answer_factory(
                             "- Provide a specific source URL you'd like me to read"
                         )
                     )
-                ]
+                ],
+                # REFACTOR: Signal the post-web-answer edge to route back to the
+                # agent for a single retry. The agent can then answer from its
+                # own knowledge (with a "I couldn't verify" caveat) instead of
+                # the user seeing the hard refusal. ``attempts`` is bumped here
+                # so the next web_answer run can stop the loop at 2.
+                "web_answer_no_readable_content": True,
+                "web_answer_attempts": attempts,
             }
 
         prompt = build_web_search_prompt(question, readable_pages)
@@ -112,7 +124,15 @@ def web_answer_factory(
                 "the fetched web sources."
             )
 
-        return {"messages": [AIMessage(content=content)]}
+        return {
+            "messages": [AIMessage(content=content)],
+            # REFACTOR: Clear the fallback flag on the success branch so a
+            # later ``web_answer`` failure (e.g. a different question in the
+            # same session) starts from a clean state, and stamp the attempt
+            # counter for parity with the failure branch.
+            "web_answer_no_readable_content": False,
+            "web_answer_attempts": attempts,
+        }
 
     return web_answer
 
@@ -156,7 +176,7 @@ def _message_role(message: Any) -> str:
         return str(role)
     if isinstance(message, (tuple, list)) and message:
         return str(message[0])
-    return message.__class__.__name__.lower()
+    return str(message.__class__.__name__).lower()
 
 
 def _clean_urls(values: Sequence[Any]) -> list[str]:

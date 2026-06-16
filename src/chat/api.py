@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator, Iterable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
+from typing import Annotated, Any, TypeAlias
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import HumanMessage
 
@@ -53,9 +55,7 @@ from ..core.web_search import discover_urls_from_web
 from ..errors import RAGError, ResourceNotFoundError, RetrieverError
 from ..graph.builder import build_lightweight_graph
 from ..graph.executor import GraphExecutor
-from ..graph.metrics import MetricsCollector
-from ..utils.urls import parse_url_input
-from .graph import build_chat_graph
+from ..graph.metrics import MetricsCollector, MetricsSnapshot
 from ..sessions import (
     ChatSession,
     ChatSessionRegistry,
@@ -63,10 +63,16 @@ from ..sessions import (
     SQLiteStorage,
     _settings_for_session,
 )
-
+from ..utils.urls import parse_url_input
+from .graph import build_chat_graph
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+SettingsDep: TypeAlias = Annotated[Settings, Depends(get_config)]
+SessionRegistryDep: TypeAlias = Annotated[ChatSessionRegistry, Depends(get_session_registry)]
+GraphFactoryLockDep: TypeAlias = Annotated[asyncio.Lock, Depends(get_chat_graph_factory_lock)]
+MetricsDep: TypeAlias = Annotated[MetricsCollector, Depends(get_metrics)]
 
 
 # ---- helpers --------------------------------------------------------------
@@ -76,7 +82,7 @@ def _parse_urls(raw: str | list[str] | None) -> list[str] | None:
     return parse_url_input(raw)
 
 
-def _serialize_messages(messages) -> list[HistoryTurn]:
+def _serialize_messages(messages: Iterable[Any]) -> list[HistoryTurn]:
     """Convert LangChain message objects to the wire format."""
 
     turns: list[HistoryTurn] = []
@@ -97,7 +103,8 @@ def _serialize_messages(messages) -> list[HistoryTurn]:
             continue
         if role == "assistant" and not (content or "").strip():
             continue
-        turns.append(HistoryTurn(role=role, content=content if isinstance(content, str) else str(content)))
+        turn_content = content if isinstance(content, str) else str(content)
+        turns.append(HistoryTurn(role=role, content=turn_content))
     return turns
 
 
@@ -109,8 +116,8 @@ def _session_database_paths(settings: Settings) -> tuple[Path, Path]:
 def _build_chat_graph_for_session(
     settings: Settings,
     rebuild_vectorstore: bool,
-    checkpointer,
-):
+    checkpointer: Any,
+) -> Any:
     try:
         return build_chat_graph(
             settings,
@@ -123,8 +130,8 @@ def _build_chat_graph_for_session(
 
 def _build_lightweight_chat_graph_for_session(
     settings: Settings,
-    checkpointer,
-):
+    checkpointer: Any,
+) -> Any:
     """Build the direct web-search chat graph for discovered one-shot URLs."""
 
     return build_lightweight_graph(
@@ -138,7 +145,7 @@ def _restore_persisted_sessions(
     registry: ChatSessionRegistry,
     storage: SQLiteStorage,
     base_settings: Settings,
-    checkpointer,
+    checkpointer: Any,
 ) -> int:
     restored = 0
     for metadata in storage.list_metadata():
@@ -175,7 +182,7 @@ async def _refresh_session_sources_from_web(
     settings: Settings,
     sessions: ChatSessionRegistry,
     graph_factory_lock: asyncio.Lock,
-    checkpointer,
+    checkpointer: Any,
 ) -> ChatSession:
     """Refresh a chat session's retriever sources from web search for a turn."""
 
@@ -258,7 +265,7 @@ def create_app(
     config_file: str | Path | None = None,
 ) -> FastAPI:
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             logger.info("Loading settings for chat app...")
             settings = (
@@ -311,15 +318,15 @@ def create_app(
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    @app.get("/")
-    async def root():
+    @app.get("/", response_model=None)
+    async def root() -> FileResponse | dict[str, str]:
         index = static_dir / "index.html"
         if index.exists():
             return FileResponse(index, media_type="text/html")
         return {"message": "only Subcribers Chat API - POST /chat to start"}
 
     @app.get("/health")
-    async def health():
+    async def health() -> dict[str, object]:
         registry = getattr(app.state, "session_registry", None)
         return {
             "status": "ok",
@@ -328,7 +335,7 @@ def create_app(
         }
 
     @app.get("/ready")
-    async def ready(request: Request):
+    async def ready(request: Request) -> JSONResponse:
         """Readiness check endpoint with only local state checks."""
 
         return chat_readiness_response(request)
@@ -341,9 +348,9 @@ def create_app(
     )
     async def start_chat(
         request: StartChatRequest,
-        settings: Settings = Depends(get_config),
-        sessions: ChatSessionRegistry = Depends(get_session_registry),
-        graph_factory_lock: asyncio.Lock = Depends(get_chat_graph_factory_lock),
+        settings: SettingsDep,
+        sessions: SessionRegistryDep,
+        graph_factory_lock: GraphFactoryLockDep,
     ) -> StartChatResponse:
         urls = _parse_urls(request.urls)
         discovered_from_search = False
@@ -483,7 +490,7 @@ def create_app(
         thread_id: str,
         request: MessageRequest,
         fastapi_request: Request,
-        sessions: ChatSessionRegistry = Depends(get_session_registry),
+        sessions: SessionRegistryDep,
     ) -> MessageResponse:
         session = sessions.get(thread_id)
         if session is None:
@@ -509,7 +516,11 @@ def create_app(
         try:
             prev_snapshot = await asyncio.to_thread(session.graph.get_state, config)
             prev_values = getattr(prev_snapshot, "values", {}) or {}
-            prev_count = len(prev_values.get("messages", []) or []) if isinstance(prev_values, dict) else 0
+            prev_count = (
+                len(prev_values.get("messages", []) or [])
+                if isinstance(prev_values, dict)
+                else 0
+            )
         except Exception:
             prev_count = 0
 
@@ -517,7 +528,10 @@ def create_app(
             # Run the graph in a thread (LangGraph invocation is sync-bound).
             result = await asyncio.to_thread(session.graph.invoke, inputs, config)
         except Exception as exc:
-            logger.error(f"Chat invocation error in thread {thread_id}: {exc}", exc_info=True)
+            logger.error(
+                f"Chat invocation error in thread {thread_id}: {exc}",
+                exc_info=True,
+            )
             return MessageResponse(thread_id=thread_id, answer="", error=str(exc))
 
         messages = result.get("messages", []) if isinstance(result, dict) else []
@@ -557,8 +571,8 @@ def create_app(
         thread_id: str,
         request: MessageRequest,
         fastapi_request: Request,
-        sessions: ChatSessionRegistry = Depends(get_session_registry),
-        metrics: MetricsCollector = Depends(get_metrics),
+        sessions: SessionRegistryDep,
+        metrics: MetricsDep,
     ) -> StreamingResponse:
         session = sessions.get(thread_id)
         if session is None:
@@ -579,7 +593,7 @@ def create_app(
         config = {"configurable": {"thread_id": thread_id}}
         inputs = {"messages": [HumanMessage(content=request.message)]}
 
-        def event_iter():
+        def event_iter() -> Iterator[str]:
             executor = GraphExecutor(session.graph, metrics=metrics)
             for event in executor.stream(inputs, config=config):
                 yield format_sse(event)
@@ -589,7 +603,7 @@ def create_app(
     @app.get("/chat/{thread_id}/history", response_model=HistoryResponse)
     async def get_history(
         thread_id: str,
-        sessions: ChatSessionRegistry = Depends(get_session_registry),
+        sessions: SessionRegistryDep,
     ) -> HistoryResponse:
         session = sessions.get(thread_id)
         if session is None:
@@ -611,15 +625,15 @@ def create_app(
     @app.delete("/chat/{thread_id}", dependencies=[Depends(require_api_key)])
     async def delete_chat(
         thread_id: str,
-        sessions: ChatSessionRegistry = Depends(get_session_registry),
-    ):
+        sessions: SessionRegistryDep,
+    ) -> dict[str, str]:
         deleted = sessions.delete(thread_id)
         if not deleted:
             raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
         return {"status": "deleted", "thread_id": thread_id}
 
     @app.get("/metrics")
-    async def metrics(metrics: MetricsCollector = Depends(get_metrics)):
+    async def metrics(metrics: MetricsDep) -> MetricsSnapshot:
         """Return in-process graph metrics."""
 
         return metrics.snapshot()

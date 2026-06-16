@@ -196,8 +196,10 @@ def _settings_defaults() -> dict[str, Any]:
             continue
         if item.default is not MISSING:
             defaults[item.name] = item.default
-        elif item.default_factory is not MISSING:  # type: ignore[attr-defined]
-            defaults[item.name] = item.default_factory()  # type: ignore[misc]
+        elif item.default_factory is not MISSING:
+            default_factory = item.default_factory
+            if callable(default_factory):
+                defaults[item.name] = default_factory()
     return defaults
 
 

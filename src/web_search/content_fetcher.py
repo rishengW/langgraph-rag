@@ -168,7 +168,7 @@ def extract_text(html: str) -> str:
     candidates = [
         soup.find("article"),
         soup.find("main"),
-        soup.find(attrs={"role": "main"}),
+        soup.find(attrs={"role": "main"}),  # type: ignore[call-overload]
         soup.body,
         soup,
     ]
@@ -469,13 +469,13 @@ def _page_from_documents(
         )
 
     text = truncate_to_token_budget(extracted_text, max_tokens_per_page)
-    error = None if text else "Loaded document did not contain readable text."
+    readable_error = None if text else "Loaded document did not contain readable text."
     return FetchedPage(
         url=url,
         title=title,
         text=text,
         fetch_time_ms=elapsed_ms,
-        error=error,
+        error=readable_error,
         extracted_chars=extracted_chars,
         extracted_tokens=extracted_tokens,
         fetch_method=fetch_method,

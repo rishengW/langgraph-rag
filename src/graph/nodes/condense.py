@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Sequence
 from datetime import date
+from typing import Any
 
+from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import StrOutputParser
 
 from ...config import Settings
@@ -13,7 +16,7 @@ from .common import new_chat_model
 logger = logging.getLogger(__name__)
 
 
-def format_history(messages) -> str:
+def format_history(messages: Sequence[BaseMessage]) -> str:
     """Render prior human/assistant turns as a compact transcript."""
 
     lines: list[str] = []
@@ -31,7 +34,7 @@ def format_history(messages) -> str:
     return "\n".join(lines) if lines else "(no prior turns)"
 
 
-def latest_user_index(messages) -> int:
+def latest_user_index(messages: Sequence[BaseMessage]) -> int:
     """Return the index of the most recent human/user message."""
 
     for index in range(len(messages) - 1, -1, -1):
@@ -42,10 +45,10 @@ def latest_user_index(messages) -> int:
     return 0
 
 
-def condense_question_factory(settings: Settings):
+def condense_question_factory(settings: Settings) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Condense the latest chat turn into a standalone question."""
 
-    def condense_question(state):
+    def condense_question(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("CONDENSE QUESTION")
         messages = list(state["messages"])
         if not messages:

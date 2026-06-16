@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from ..config import Settings
 from ..chat.sessions import ChatSessionRegistry
+from ..config import Settings
 from ..graph.metrics import MetricsCollector
-
 
 _UNSET: Any = object()
 
@@ -97,7 +96,7 @@ def get_config(request: Request) -> Settings:
     settings = getattr(request.app.state, "config", None)
     if settings is None:
         raise HTTPException(status_code=503, detail="Application settings are not initialized.")
-    return settings
+    return cast(Settings, settings)
 
 
 def get_settings(request: Request) -> Settings:

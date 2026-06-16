@@ -8,7 +8,6 @@ and older tests.
 from __future__ import annotations
 
 from .._compat import warn_deprecated_import
-from .config import Settings
 from ..web_search import (
     BaiduVerificationError,
     BaiduWebSearch,
@@ -22,12 +21,20 @@ from ..web_search import (
 )
 from ..web_search.baidu import (
     candidate_baidu_hrefs as _candidate_baidu_hrefs,
+)
+from ..web_search.baidu import (
     is_baidu_result_redirect as _is_baidu_result_redirect,
+)
+from ..web_search.baidu import (
     is_baidu_url as _is_baidu_url,
 )
 from ..web_search.bing import (
     candidate_bing_hrefs as _candidate_bing_hrefs,
+)
+from ..web_search.bing import (
     normalize_bing_market as _normalize_bing_market,
+)
+from ..web_search.bing import (
     unwrap_bing_redirect as _unwrap_bing_redirect,
 )
 from ..web_search.common import (
@@ -36,21 +43,30 @@ from ..web_search.common import (
     DUCKDUCKGO_BASE_URL,
     NOISE_HOSTNAMES,
     SEARCH_USER_AGENT,
-    is_noise_url as _is_noise_url,
-    normalize_urls as _normalize_urls,
-    search_request as _search_request,
     select_top_urls,
     urlopen_context,
 )
+from ..web_search.common import (
+    is_noise_url as _is_noise_url,
+)
+from ..web_search.common import (
+    normalize_urls as _normalize_urls,
+)
+from ..web_search.common import (
+    search_request as _search_request,
+)
 from ..web_search.duckduckgo import (
     load_ddgs as _load_ddgs,
+)
+from ..web_search.duckduckgo import (
     unwrap_duckduckgo_redirect as _unwrap_duckduckgo_redirect,
 )
+from .config import Settings
 
 warn_deprecated_import("src.core.web_search", "src.web_search")
 
 
-def _urlopen_context(settings: Settings):
+def _urlopen_context(settings: Settings) -> object:
     return urlopen_context(settings.web_search_verify_ssl)
 
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from importlib import import_module
+from typing import Any, Literal, cast
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -12,8 +13,10 @@ from .edges import (
     AGENT_EDGE_MAP,
     GRADE_EDGE_MAP,
     LIGHTWEIGHT_TOOL_EDGE_MAP,
+    WEB_ANSWER_EDGE_MAP,
     route_after_agent,
     route_after_lightweight_tool,
+    route_after_web_answer,
 )
 from .nodes import (
     agent_factory,
@@ -37,7 +40,7 @@ GradeEdgeCallable = Callable[[dict[str, Any]], Literal["generate", "rewrite"]]
 # system prompt steers it away from tools), end the graph immediately so the
 # direct answer is preserved instead of being overridden by web_answer
 # re-prompting against irrelevant fetched pages.
-LIGHTWEIGHT_AGENT_EDGE_MAP = {
+LIGHTWEIGHT_AGENT_EDGE_MAP: dict[Hashable, str] = {
     "tools": "web_search",
     END: END,
 }
@@ -72,7 +75,7 @@ class GraphProviders:
     checkpointer: Any = _DEFAULT_CHECKPOINTER
 
 
-def build_memory_saver():
+def build_memory_saver() -> Any:
     """Create the default in-memory LangGraph checkpointer for chat mode."""
 
     try:
@@ -80,7 +83,7 @@ def build_memory_saver():
 
         return MemorySaver()
     except ImportError:  # pragma: no cover - compatibility with older LangGraph
-        from langgraph.checkpoint.memory import InMemorySaver  # type: ignore
+        from langgraph.checkpoint.memory import InMemorySaver
 
         return InMemorySaver()
 
@@ -92,7 +95,7 @@ def build_graph(
     providers: GraphProviders | None = None,
     rebuild_vectorstore: bool = False,
     checkpointer: Any = _DEFAULT_CHECKPOINTER,
-):
+) -> Any:
     """Compile the QA or chat LangGraph workflow.
 
     Defaults preserve the legacy Settings-based builders. ``providers`` is an
@@ -109,7 +112,7 @@ def build_graph(
     question_resolver = qa_question_resolver if mode == "qa" else chat_question_resolver
     state_type = AgentState if mode == "qa" else ChatState
 
-    workflow = StateGraph(state_type)
+    workflow = cast(Any, StateGraph(state_type))
 
     if mode == "chat":
         workflow.add_node(
@@ -176,7 +179,7 @@ def build_lightweight_graph(
     mode: GraphMode = "qa",
     providers: GraphProviders | None = None,
     checkpointer: Any = _DEFAULT_CHECKPOINTER,
-):
+) -> Any:
     """Compile the lightweight graph for one-shot web-search sources.
 
     This graph deliberately skips the Chroma/retriever/grade/rewrite path. It
@@ -193,7 +196,7 @@ def build_lightweight_graph(
     question_resolver = qa_question_resolver if mode == "qa" else chat_question_resolver
     state_type = AgentState if mode == "qa" else ChatState
 
-    workflow = StateGraph(state_type)
+    workflow = cast(Any, StateGraph(state_type))
     workflow.add_node(
         "agent",
         nodes.agent
@@ -227,7 +230,15 @@ def build_lightweight_graph(
         route_after_lightweight_tool,
         LIGHTWEIGHT_TOOL_EDGE_MAP,
     )
-    workflow.add_edge("web_answer", END)
+    # REFACTOR: Use a conditional edge after ``web_answer`` instead of a hard
+    # ``END`` so the graph can fall back to the agent for one retry when no
+    # fetched page yielded readable text. The retry is bounded by
+    # ``WEB_ANSWER_FALLBACK_MAX_ATTEMPTS`` (see src/graph/edges.py).
+    workflow.add_conditional_edges(
+        "web_answer",
+        route_after_web_answer,
+        WEB_ANSWER_EDGE_MAP,
+    )
 
     resolved_checkpointer = _resolve_checkpointer(mode, providers, checkpointer)
     if resolved_checkpointer is None:
@@ -246,27 +257,22 @@ def _resolve_tools(
     if settings is None:
         return []
 
-    from ..core.retriever import build_retriever_tool
-    from ..tools import (
-        build_currency_tool,
-        build_stock_tool,
-        build_weather_tool,
-        build_wikipedia_tool,
-    )
-    from ..web_search import build_web_search_tool
+    from ..core.retriever import build_retriever_tool as build_retriever_tool
+    from ..web_search import build_web_search_tool as build_web_search_tool
 
     # REFACTOR: Default settings-based graph tools now include live web search.
+    tool_module = cast(Any, import_module("..tools", package=__package__))
     tools = [build_retriever_tool(settings, rebuild=rebuild_vectorstore)]
     if settings.web_search_enabled:
         tools.append(build_web_search_tool(settings))
     if settings.weather_enabled:
-        tools.append(build_weather_tool(settings))
+        tools.append(tool_module.build_weather_tool(settings))
     if settings.stock_enabled:
-        tools.append(build_stock_tool(settings))
+        tools.append(tool_module.build_stock_tool(settings))
     if settings.currency_enabled:
-        tools.append(build_currency_tool(settings))
+        tools.append(tool_module.build_currency_tool(settings))
     if settings.wikipedia_enabled:
-        tools.append(build_wikipedia_tool(settings))
+        tools.append(tool_module.build_wikipedia_tool(settings))
     return tools
 
 
@@ -280,23 +286,18 @@ def _resolve_lightweight_tools(
     if settings is None:
         return []
 
-    from ..tools import (
-        build_currency_tool,
-        build_stock_tool,
-        build_weather_tool,
-        build_wikipedia_tool,
-    )
-    from ..web_search import build_web_search_tool
+    from ..web_search import build_web_search_tool as build_web_search_tool
 
+    tool_module = cast(Any, import_module("..tools", package=__package__))
     tools: list[Any] = [build_web_search_tool(settings)]
     if settings.weather_enabled:
-        tools.append(build_weather_tool(settings))
+        tools.append(tool_module.build_weather_tool(settings))
     if settings.stock_enabled:
-        tools.append(build_stock_tool(settings))
+        tools.append(tool_module.build_stock_tool(settings))
     if settings.currency_enabled:
-        tools.append(build_currency_tool(settings))
+        tools.append(tool_module.build_currency_tool(settings))
     if settings.wikipedia_enabled:
-        tools.append(build_wikipedia_tool(settings))
+        tools.append(tool_module.build_wikipedia_tool(settings))
     return tools
 
 

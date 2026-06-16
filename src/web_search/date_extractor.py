@@ -1,16 +1,19 @@
 # Purpose: extract publication dates from fetched HTML metadata.
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
-from email.utils import parsedate_to_datetime
 import json
 import re
+from datetime import UTC, date, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
+_BeautifulSoupImport: Any
 try:
-    from bs4 import BeautifulSoup
+    from bs4 import BeautifulSoup as _BeautifulSoupImport
 except ImportError:  # pragma: no cover - dependency is declared for the app.
-    BeautifulSoup = None  # type: ignore[assignment]
+    _BeautifulSoupImport = None
+
+BeautifulSoup: Any = _BeautifulSoupImport
 
 DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 META_DATE_SELECTORS = (
@@ -158,5 +161,5 @@ def _parse_rfc_datetime(text: str) -> datetime | None:
 
 def _datetime_to_date(value: datetime) -> date:
     if value.tzinfo is not None:
-        value = value.astimezone(timezone.utc)
+        value = value.astimezone(UTC)
     return value.date()

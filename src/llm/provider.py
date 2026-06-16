@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from langchain_community.chat_models.tongyi import ChatTongyi
 
@@ -19,7 +19,7 @@ class LLMProvider(Protocol):
 class DashScopeLLMProvider:
     """Default DashScope-backed LLM provider."""
 
-    def chat_model(self, settings: Settings) -> ChatTongyi:
+    def chat_model(self, settings: Settings) -> Any:
         """Create a DashScope chat model with project-level network settings."""
 
         model_kwargs: dict[str, Any] = {
@@ -28,8 +28,10 @@ class DashScopeLLMProvider:
         if settings.dashscope_http_base_url:
             model_kwargs["base_address"] = settings.dashscope_http_base_url
 
-        return ChatTongyi(
+        chat_tongyi = cast(Any, ChatTongyi)
+        return chat_tongyi(
             model=settings.qwen_model,
+            api_key=settings.dashscope_api_key,
             max_retries=settings.dashscope_max_retries,
             model_kwargs=model_kwargs,
         )
@@ -43,7 +45,8 @@ class DeepSeekLLMProvider:
 
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(
+        chat_openai = cast(Any, ChatOpenAI)
+        return chat_openai(
             model=settings.deepseek_model,
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,

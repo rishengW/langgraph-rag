@@ -11,8 +11,8 @@ from time import perf_counter
 from .events import (
     DoneEvent,
     ErrorEvent,
-    GraphEvent,
     GraderDecisionEvent,
+    GraphEvent,
     NodeEndEvent,
     NodeStartEvent,
     RetrieverResultEvent,

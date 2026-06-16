@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 
 class StartChatRequest(BaseModel):
-    urls: Optional[str | list[str]] = Field(
+    urls: str | list[str] | None = Field(
         None,
         description=(
             "Comma-separated URLs or a URL list to use as RAG sources. "
@@ -22,7 +20,7 @@ class StartChatRequest(BaseModel):
             "server settings and is always attempted when URLs are not explicit."
         ),
     )
-    seed_question: Optional[str] = Field(
+    seed_question: str | None = Field(
         None,
         description=(
             "Optional first question to use for web-search discovery. "
@@ -35,7 +33,7 @@ class StartChatResponse(BaseModel):
     thread_id: str
     source_urls: list[str]
     source_mode: str
-    source_note: Optional[str] = None
+    source_note: str | None = None
 
 
 class MessageRequest(BaseModel):
@@ -45,7 +43,7 @@ class MessageRequest(BaseModel):
 class MessageResponse(BaseModel):
     thread_id: str
     answer: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class HistoryTurn(BaseModel):

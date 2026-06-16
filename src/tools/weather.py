@@ -163,10 +163,16 @@ def _resolve_location(
 
 
 def _format_weather(label: str, payload: dict[str, Any]) -> str:
-    current = payload.get("current") if isinstance(payload.get("current"), dict) else {}
-    daily = payload.get("daily") if isinstance(payload.get("daily"), dict) else {}
-    units = payload.get("current_units") if isinstance(payload.get("current_units"), dict) else {}
-    daily_units = payload.get("daily_units") if isinstance(payload.get("daily_units"), dict) else {}
+    raw_current = payload.get("current")
+    raw_daily = payload.get("daily")
+    raw_units = payload.get("current_units")
+    raw_daily_units = payload.get("daily_units")
+    current: dict[str, Any] = raw_current if isinstance(raw_current, dict) else {}
+    daily: dict[str, Any] = raw_daily if isinstance(raw_daily, dict) else {}
+    units: dict[str, Any] = raw_units if isinstance(raw_units, dict) else {}
+    daily_units: dict[str, Any] = (
+        raw_daily_units if isinstance(raw_daily_units, dict) else {}
+    )
 
     temperature = current.get("temperature_2m")
     humidity = current.get("relative_humidity_2m")

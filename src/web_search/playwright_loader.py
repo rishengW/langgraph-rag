@@ -1,6 +1,8 @@
 # REFACTOR: Optional Playwright-backed loader adapter for JS-rendered pages.
 from __future__ import annotations
 
+from contextlib import suppress
+
 from langchain_core.documents import Document
 
 
@@ -32,10 +34,8 @@ class PlaywrightPageLoader:
                     wait_until="load",
                     timeout=self.timeout_ms,
                 )
-                try:
+                with suppress(TimeoutError):
                     page.wait_for_load_state("networkidle", timeout=3000)
-                except TimeoutError:
-                    pass
                 metadata = {
                     "source": self.url,
                     "url": self.url,

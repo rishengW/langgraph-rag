@@ -7,10 +7,6 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from src.core.web_search import discover_urls_from_web as core_discover_urls_from_web
-from src.web_search import baidu as baidu_module
-from src.web_search import bing as bing_module
-from src.web_search.common import is_noise_url, select_top_urls, url_quality_score
-from src.web_search import discovery as discovery_module
 from src.web_search import (
     BaiduWebSearch,
     BingWebSearch,
@@ -21,6 +17,10 @@ from src.web_search import (
     format_web_search_results,
     get_search_provider,
 )
+from src.web_search import baidu as baidu_module
+from src.web_search import bing as bing_module
+from src.web_search import discovery as discovery_module
+from src.web_search.common import is_noise_url, select_top_urls, url_quality_score
 
 
 class StaticSearchProvider:
@@ -218,7 +218,7 @@ def test_baidu_provider_reports_verification_page(monkeypatch):
             return "https://wappass.baidu.com/static/captcha/tuxing_v2.html"
 
         def read(self):
-            return "百度安全验证".encode("utf-8")
+            return "百度安全验证".encode()
 
     monkeypatch.setattr(baidu_module, "urlopen", lambda *args, **kwargs: FakeResponse())
 
@@ -261,7 +261,7 @@ def test_bing_provider_extracts_html_results_and_unwraps_redirect(monkeypatch):
                 </ol>
               </body>
             </html>
-            """.encode("utf-8")
+            """.encode()
 
     monkeypatch.setattr(bing_module, "urlopen", lambda *args, **kwargs: FakeResponse())
 
@@ -294,7 +294,7 @@ def test_bing_provider_reports_verification_page(monkeypatch):
             return "https://www.bing.com/search?q=test"
 
         def read(self):
-            return "<html><body>captcha challenge</body></html>".encode("utf-8")
+            return b"<html><body>captcha challenge</body></html>"
 
     monkeypatch.setattr(bing_module, "urlopen", lambda *args, **kwargs: FakeResponse())
 

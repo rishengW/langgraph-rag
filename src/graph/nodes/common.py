@@ -4,26 +4,29 @@ import logging
 import re
 from collections.abc import Callable
 from datetime import date
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel, Field
 
 from ...config import Settings
-from ...llm.provider import build_chat_model
 from ...llm.prompts import AGENT_SYSTEM_PROMPT, GRADE_PROMPT, RAG_PROMPT
+from ...llm.provider import build_chat_model
 from ...utils.networking import configure_ssl_from_env
 from ...utils.retry import invoke_with_retry
 
 logger = logging.getLogger(__name__)
 
 QuestionResolver = Callable[[dict[str, Any]], str]
+NodeCallable = Callable[[dict[str, Any]], dict[str, Any]]
+GradeCallable = Callable[[dict[str, Any]], Literal["generate", "rewrite"]]
+
 
 configure_ssl_from_env()
 
 
-def new_chat_model(settings: Settings):
+def new_chat_model(settings: Settings) -> Any:
     """Create a DashScope chat model with project-level network settings."""
 
     return build_chat_model(settings)
@@ -201,6 +204,7 @@ def _rank_chunks_by_hybrid_score(
         for lexical, embedding in zip(
             _normalize_scores(lexical_scores),
             _normalize_scores(embedding_scores),
+            strict=False,
         )
     ]
     return _rank_chunks_by_scores(scores, chunks)
@@ -233,7 +237,7 @@ def _build_rerank_embeddings(settings: Settings) -> Any:
 def _rank_chunks_by_scores(scores: list[float], chunks: list[str]) -> list[str]:
     scored = [
         (score, index, chunk)
-        for index, (score, chunk) in enumerate(zip(scores, chunks))
+        for index, (score, chunk) in enumerate(zip(scores, chunks, strict=False))
     ]
     return [
         chunk
@@ -256,13 +260,13 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float:
         return 0.0
     dot_product = sum(
         left_value * right_value
-        for left_value, right_value in zip(left, right)
+        for left_value, right_value in zip(left, right, strict=False)
     )
     left_norm = sum(value * value for value in left) ** 0.5
     right_norm = sum(value * value for value in right) ** 0.5
     if left_norm == 0.0 or right_norm == 0.0:
         return 0.0
-    return dot_product / (left_norm * right_norm)
+    return float(dot_product / (left_norm * right_norm))
 
 
 def _query_phrases(question: str) -> set[str]:
@@ -293,7 +297,7 @@ def _split_context_sentences(context: str) -> list[str]:
     if not normalized:
         return []
 
-    sentences = []
+    sentences: list[str] = []
     for part in re.split(r"(?<=[.!?])\s+", normalized):
         text = part.strip()
         if len(text) < 40:
@@ -354,15 +358,15 @@ def build_extractive_answer(question: str, context: str) -> str:
 def grade_documents_factory(
     settings: Settings,
     question_resolver: QuestionResolver = qa_question_resolver,
-):
+) -> GradeCallable:
     """Return a conditional edge function that grades retrieved context."""
 
-    def grade_documents(state) -> Literal["generate", "rewrite"]:
+    def grade_documents(state: dict[str, Any]) -> Literal["generate", "rewrite"]:
         logger.info("CHECK RELEVANCE")
 
         class Grade(BaseModel):
             binary_score: str = Field(description="Relevance score: 'yes' or 'no'")
-            explanation: Optional[str] = Field(None, description="Optional short explanation")
+            explanation: str | None = Field(None, description="Optional short explanation")
 
         llm_with_tool = new_chat_model(settings).with_structured_output(Grade)
         # Bind today's date so the grader is anchored in the present and does
@@ -393,7 +397,11 @@ def grade_documents_factory(
         score = scored_result.binary_score.strip().lower()
         explanation = getattr(scored_result, "explanation", "") or ""
 
-        question_tokens = set(w.lower() for w in re.findall(r"\w+", question) if len(w) > 2)
+        question_tokens = {
+            word.lower()
+            for word in re.findall(r"\w+", question)
+            if len(word) > 2
+        }
         retrieved_lower = (retrieved_docs_text or "").lower()
         keyword_matches = sum(1 for t in question_tokens if t in retrieved_lower) if question_tokens else 0
 
@@ -434,12 +442,12 @@ def grade_documents_factory(
 
 def agent_factory(
     settings: Settings,
-    tools,
+    tools: list[Any],
     question_resolver: QuestionResolver = qa_question_resolver,
-):
+) -> NodeCallable:
     """Return the agent node."""
 
-    def agent(state):
+    def agent(state: dict[str, Any]) -> dict[str, list[AIMessage]]:
         logger.info("CALL AGENT")
         messages = state["messages"]
         # Prepend a system prompt so the model knows when to use tools and
@@ -482,10 +490,10 @@ def rewrite_factory(
     question_resolver: QuestionResolver = qa_question_resolver,
     *,
     update_current_question: bool = False,
-):
+) -> NodeCallable:
     """Return the query-rewriting node."""
 
-    def rewrite(state):
+    def rewrite(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("TRANSFORM QUERY")
         question = question_resolver(state)
         rewrite_count = int(state.get("rewrite_count", 0) or 0)
@@ -516,7 +524,7 @@ def rewrite_factory(
             logger.error("Rewrite error: %s", exc)
             response = AIMessage(content=question)
 
-        output = {
+        output: dict[str, Any] = {
             "messages": [response],
             "rewrite_count": rewrite_count + 1,
         }
@@ -530,10 +538,10 @@ def rewrite_factory(
 def generate_factory(
     settings: Settings,
     question_resolver: QuestionResolver = qa_question_resolver,
-):
+) -> NodeCallable:
     """Return the final RAG answer generation node."""
 
-    def generate(state):
+    def generate(state: dict[str, Any]) -> dict[str, list[AIMessage]]:
         logger.info("GENERATE")
         question = question_resolver(state)
         retrieved_docs_text = rerank_retrieved_context(
@@ -562,10 +570,10 @@ def generate_factory(
     return generate
 
 
-def build_core_agent_factory(settings: Settings, tools):
+def build_core_agent_factory(settings: Settings, tools: list[Any]) -> NodeCallable:
     return agent_factory(settings, tools, qa_question_resolver)
 
 
-def build_chat_agent_factory(settings: Settings, tools):
+def build_chat_agent_factory(settings: Settings, tools: list[Any]) -> NodeCallable:
     return agent_factory(settings, tools, chat_question_resolver)
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import ssl
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ def configure_ssl_from_env() -> None:
     os.environ["REQUESTS_CA_BUNDLE"] = ""
     os.environ["CURL_CA_BUNDLE"] = ""
     try:
-        ssl._create_default_https_context = ssl._create_unverified_context
+        ssl._create_default_https_context = cast(Any, ssl._create_unverified_context)
     except Exception as exc:
         logger.warning("Could not disable SSL verification: %s", exc)
 

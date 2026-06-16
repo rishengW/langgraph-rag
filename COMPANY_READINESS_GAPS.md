@@ -1,6 +1,7 @@
 # Company Readiness Gaps — langgraph-rag
 
-**Last audit:** 2026-06-14 — Comprehensive score: **82/100**
+**Last audit:** 2026-06-15 — Quality-gate remediation complete after the
+2026-06-14 readiness audits.
 
 Generated from a full project audit evaluating eight weighted dimensions:
 Architecture & Code Structure (17/20), Code Quality & Engineering Practices (14/15),
@@ -34,10 +35,16 @@ Ordered by priority × effort. Completed items are kept for audit trail.
 - [x] `requirements-dev.txt` — pytest, pytest-cov, ruff, mypy, pre-commit, httpx
 
 **Minor housekeeping:**
-- [ ] `CONTRIBUTING.md` still says linters "are not yet configured" — stale, should be updated
-- [ ] `.env.example` contains unresolved merge-conflict markers (`<<<<<<< HEAD`, `=======`, `>>>>>>> 3cb771b`) — needs cleanup
+- [x] `CONTRIBUTING.md` reflects the configured Ruff, MyPy, pre-commit, and coverage checks
+- [x] `.env.example` merge-conflict markers removed
 
 **Why:** Enforces consistency. Catches type errors before they're bugs.
+
+**2026-06-15 remediation update:** Ruff and strict MyPy now pass across the
+full source tree, and the coverage gate passes at 70.77%. Verified with
+`.\.venv\Scripts\ruff.exe check .`, `.\.venv\Scripts\mypy.exe src/`,
+`.\.venv\Scripts\python.exe -m pytest -q`, and
+`.\.venv\Scripts\python.exe -m pytest --tb=short --cov=src --cov-report=term --cov-fail-under=70`.
 
 ---
 
@@ -128,6 +135,7 @@ Ordered by priority × effort. Completed items are kept for audit trail.
 - [x] CORS middleware driven by `cors_allow_origins`/`CORS_ALLOW_ORIGINS`
 - [x] Hardcoded secrets audit — zero found
 - [x] API-key auth on all mutation endpoints
+- [x] Security policy reflects implemented API-key auth and configurable CORS
 - [ ] **Dependency scanning** — Dependabot or `pip-audit` CI workflow to flag known CVEs in the LangChain/FastAPI/Chroma/DashScope chain
 - [ ] **Secrets scanning in CI** — `detect-secrets` or `trufflehog` to prevent accidental key commits
 - [ ] **Content Security Policy** — CSP headers on static UI endpoints
@@ -144,6 +152,7 @@ Ordered by priority × effort. Completed items are kept for audit trail.
 - [x] `CHANGELOG.md` — versioned change tracking
 - [x] `SECURITY.md` — vulnerability reporting and secret handling
 - [x] `COMPANY_READINESS_GAPS.md` — this file
+- [x] `.env.example`, `SECURITY.md`, and `CONTRIBUTING.md` cleaned up after the 2026-06-14 audit
 - [ ] **`CLAUDE.md`** — AI assistant onboarding (project conventions, architecture summary, verification commands)
 - [ ] **Docstring coverage audit** — many public functions have docstrings but coverage hasn't been systematically verified
 - [ ] **Inline `# REFACTOR:` cleanup** — ~dozen+ REFACTOR annotations throughout codebase should be triaged (convert to issues or resolve)
@@ -197,8 +206,8 @@ Ordered by priority × effort. Completed items are kept for audit trail.
 These were discovered during the scoring audit and were not in the original gaps document:
 
 - [ ] **No CLAUDE.md** — AI coding assistants have no project-level instructions. Should document conventions, architecture summary, and verification commands.
-- [ ] **`.env.example` has merge conflicts** — unresolved `<<<<<<< HEAD` markers from a prior merge; confusing for new contributors.
-- [ ] **`CONTRIBUTING.md` is stale** — says linters "are not yet configured" but Ruff/Mypy/pre-commit are fully set up.
+- [x] **`.env.example` has merge conflicts** — resolved on 2026-06-15.
+- [x] **`CONTRIBUTING.md` is stale** — updated on 2026-06-15 to document Ruff/Mypy/pre-commit/coverage checks.
 - [ ] **No online backup** — current procedure requires stopping servers to copy Chroma SQLite files safely.
 - [ ] **`src/core/` backward-compat layer** — all modules emit `DeprecationWarning`; should plan removal timeline and cut over remaining consumers.
 - [ ] **`httpx` in `requirements-dev.txt` is unused** — listed but no test imports it; either adopt it for async API testing or remove.
@@ -215,6 +224,7 @@ Completed items are shown with a checkmark for audit trail.
 | 1 | CI/CD (GitHub Actions) | Low | **High** | ✅ |
 | 2 | Linting + Type Checking | Low | **High** | ✅ |
 | 3 | Docker + Compose | Low | **High** | ✅ |
+| — | **Quality gates green under Ruff/MyPy/coverage** | Medium | **High** | ✅ |
 | — | **Structured JSON logging + correlation IDs** | Medium | **High** | ⬜ |
 | 4 | Auth (API key) | Low | Medium | ✅ |
 | — | **Rate limiting** | Low | Medium | ⬜ |
@@ -225,7 +235,7 @@ Completed items are shown with a checkmark for audit trail.
 | 8 | DB migrations beyond v1 + online backup | Medium | Medium | 🔶 |
 | 9 | Security (CORS + dep scanning + secrets CI) | Low | Medium | 🔶 |
 | 10 | Team docs + CLAUDE.md | Medium | Medium | 🔶 |
-| — | **CLAUDE.md + stale doc cleanup** | Low | Medium | ⬜ |
+| — | **CLAUDE.md + stale doc cleanup** | Low | Medium | 🔶 |
 | 11 | Deployment config | Medium | Medium | ⬜ |
 | 12 | Multi-env config hardening | Low | Low | 🔶 |
 | 13 | Production config hardening | Low | Low | ⬜ |
@@ -237,12 +247,13 @@ Completed items are shown with a checkmark for audit trail.
 
 ## Suggested Order of Attack for Next Sprint
 
-The score can go from **82 → 90** with these five items (2–3 days of focused work):
+After the 2026-06-15 quality-gate remediation, the next readiness lift should
+focus on production operations rather than CI cleanup:
 
 1. **Structured JSON logging + correlation IDs** (Medium effort, High impact) — Single biggest observability gap
 2. **Rate limiting** (Low effort, Medium impact) — Protect mutation endpoints from abuse
 3. **Dependency scanning in CI** (Low effort, Medium impact) — Block known CVEs at the PR gate
-4. **CLAUDE.md + stale doc fixes** (Low effort, Medium impact) — Fix `.env.example` merge conflicts, update `CONTRIBUTING.md`, add AI assistant onboarding
+4. **CLAUDE.md + remaining docs polish** (Low effort, Medium impact) — Add AI assistant onboarding and triage lingering `# REFACTOR:` annotations
 5. **Integration test smoke suite** (Medium effort, High impact) — Even 3–5 tests against recorded fixtures catch provider-seam regressions
 
 The jump from **90 → 95+** requires deployment config, API versioning, and production hardening — these are higher-effort and depend on where the project will actually run.
@@ -258,16 +269,21 @@ The jump from **90 → 95+** requires deployment config, API versioning, and pro
 
 This is a second, independent audit added below the original (Claude Code / DeepSeek v4 Pro) audit so the two evaluations can be compared side-by-side. The two scores (Claude Code: **82**, this audit: **78**) differ by 4 points; the largest delta comes from how each auditor weighed lint/type-check debt and CI green-state.
 
+**2026-06-15 update:** The CI green-state blockers identified in this historical
+audit have been remediated. `ruff check .`, `mypy src/`, `pytest -q`, and the
+70% coverage gate now pass locally. The stale `.env.example`, `SECURITY.md`,
+and `CONTRIBUTING.md` findings were also fixed.
+
 ## Overall: **78 / 100**
 
 Solid mid/senior-level engineering, production-capable for an internal beta. Not yet hardened for an external SaaS launch.
 
 The project's own `COMPANY_READINESS_GAPS.md` self-scores 82. After verifying the codebase end-to-end against an independent metric set, this audit lands 4 points lower because the self-score doesn't fully account for:
 
-- Strict-mypy debt (124 errors across 28 files) and ruff drift (97 errors)
+- Strict-mypy debt and Ruff drift as of 2026-06-14 (remediated on 2026-06-15)
 - Duplicated `core/qa/chat` vs `graph/api/sessions` layering — the migration is half-finished
-- The `.env.example` merge conflict still in tree
-- "CI exists" vs "CI is green" — both ruff and mypy CI gates would currently fail
+- The `.env.example` merge conflict found on 2026-06-14 (remediated on 2026-06-15)
+- "CI exists" vs "CI is green" — both Ruff and MyPy CI gates failed on 2026-06-14, but pass after the 2026-06-15 remediation
 
 ## Verification Snapshot (2026-06-14)
 
@@ -284,6 +300,17 @@ The project's own `COMPANY_READINESS_GAPS.md` self-scores 82. After verifying th
 | `TODO`/`FIXME`/`HACK` markers | 0 |
 | `# REFACTOR:` annotations | ~25 (change rationale, not active TODOs) |
 | Merge-conflict markers | 1 (`.env.example`) |
+
+## Verification Snapshot (2026-06-15)
+
+| Signal | Value |
+|---|---|
+| Ruff | `ruff check .` passes |
+| MyPy strict | `mypy src/` passes, 88 source files checked |
+| Tests | 171 passing |
+| Coverage | 70.77% (gate 70%, branch on) |
+| Merge-conflict markers | 0 in `.env.example`, `SECURITY.md`, `CONTRIBUTING.md`, `README.md` |
+| Whitespace | `git diff --check` passes |
 
 ## Score Breakdown (10 weighted dimensions)
 
@@ -324,17 +351,17 @@ The project's own `COMPANY_READINESS_GAPS.md` self-scores 82. After verifying th
 - Frozen dataclasses for `Settings` and `FetchPolicy`. Immutable by default.
 - Retry helpers cleanly separate connection-error retry from generic retry.
 
-**Costs**
-- **Ruff: 97 errors.** Top categories:
+**Historical costs from the 2026-06-14 audit, updated with remediation status**
+- **Ruff drift as of 2026-06-14: 97 errors.** Top categories:
   - 37 × `I001` unsorted imports (auto-fixable)
   - 16 × `B008` (FastAPI `Depends()` in defaults — debatable, but the rule catches it)
   - 13 × `UP045` (`Optional[X]` instead of `X | None`)
   - 5 × `E402` module-import-not-at-top
   - 5 × `UP035` deprecated-import
   - Smaller categories below
-  - 65 of 97 are auto-fixable. **CI would currently fail on lint.**
-- **Mypy strict: 124 errors across 28 files.** Mostly `graph/` (44), `chat/` (27), `web_search/` (23). Real issues like missing return types on FastAPI handlers, untyped function calls in typed contexts, `Missing named argument "messages" for "QueryResponse"`. **CI would also fail on types.**
-- `.env.example` has unresolved merge conflict markers (lines 7–11). Anyone running `cp .env.example .env` gets broken syntax.
+  - 65 of 97 were auto-fixable. This made the lint gate fail on 2026-06-14; remediated on 2026-06-15 and `ruff check .` now passes.
+- **Mypy strict drift as of 2026-06-14: 124 errors across 28 files.** Mostly `graph/` (44), `chat/` (27), `web_search/` (23). Real issues included missing return types on FastAPI handlers, untyped function calls in typed contexts, and `Missing named argument "messages" for "QueryResponse"`. Remediated on 2026-06-15 and `mypy src/` now passes.
+- `.env.example` had unresolved merge conflict markers (lines 7–11). Fixed on 2026-06-15; no conflict markers remain in the readiness docs/env files checked.
 - ~25 `# REFACTOR:` annotations across the source — change rationale, not active TODOs, but noise in a "finished" codebase.
 - Handful of `print()` calls in non-CLI modules; acceptable as user-facing CLI output but inconsistent with the structured-logging direction.
 
@@ -361,7 +388,7 @@ The project's own `COMPANY_READINESS_GAPS.md` self-scores 82. After verifying th
 - Tracked technical debt in two places (`COMPANY_READINESS_GAPS.md`, `PROBLEMS_DETECTED.md`) with status legends.
 
 **Costs**
-- `CONTRIBUTING.md` is stale: says "The current project does not yet configure Ruff, MyPy, pre-commit, or coverage thresholds" — but all four are configured.
+- `CONTRIBUTING.md` was stale in the 2026-06-14 audit. It was updated on 2026-06-15 to document the configured Ruff, MyPy, pre-commit, and coverage checks.
 - No API reference doc (relies on FastAPI's auto-generated `/docs`).
 - Mermaid in `ARCHITECTURE.md` is text-only — fine, but a rendered diagram would help non-technical stakeholders.
 - No runbook / on-call doc.
@@ -376,7 +403,7 @@ The project's own `COMPANY_READINESS_GAPS.md` self-scores 82. After verifying th
 - `.pre-commit-config.yaml` wired with the standard set.
 
 **Costs**
-- **CI is currently red.** The workflow correctly fails on the 97 ruff and 124 mypy errors. This is the "CI exists but isn't enforced" pattern.
+- **CI was red on 2026-06-14.** The workflow correctly failed on the 97 ruff and 124 mypy errors. This was the "CI exists but isn't enforced" pattern; the 2026-06-15 remediation restored green local gates.
 - No release workflow, no tagging, no version bumping automation.
 - No staging/prod deploy IaC.
 - Docker image not built/published anywhere.
@@ -397,7 +424,7 @@ The project's own `COMPANY_READINESS_GAPS.md` self-scores 82. After verifying th
 - No dependency scanning. Dependabot/pip-audit not configured.
 - No secrets scanning (detect-secrets / trufflehog) on commits.
 - Single global API key. No per-tenant or per-session credentialing.
-- `.env.example` merge conflict markers — anyone copying it gets a broken file.
+- `.env.example` had merge conflict markers in the 2026-06-14 audit. This was resolved on 2026-06-15.
 - `web_search_verify_ssl` and `SSL_FIX.md` document a "set false to bypass" knob — fine for local dev, but the existence of that path is a foot-gun if it leaks to production config.
 
 ### 7. Observability & operations — 5 / 10
@@ -456,7 +483,7 @@ The project's own `COMPANY_READINESS_GAPS.md` self-scores 82. After verifying th
 - `MEMORY.md` and `memory/` directory capture process state across sessions.
 
 **Costs**
-- Lint/type-check debt (see #2) means the bar for "is my change ready to merge" is unclear — does CI red mean reject, or has it always been red?
+- Before the 2026-06-15 remediation, lint/type-check debt (see #2) made the bar for "is my change ready to merge" unclear.
 - `advanced_phase1_workbench/` and `advanced_phase2_interfaces_workbench/` directories sit in tree (now empty stubs but still noise).
 - `install_log.txt` and `graph.png` are committed artifacts that probably shouldn't be.
 
@@ -464,7 +491,7 @@ The project's own `COMPANY_READINESS_GAPS.md` self-scores 82. After verifying th
 
 | Dimension | Claude Code self-score | This audit | Delta | Reason |
 |---|---|---|---|---|
-| Overall | 82 | 78 | **−4** | Lint/type-check debt + CI red-state weighed heavier here |
+| Overall | 82 | 78 | **−4** | Historical lint/type gate failure weighed heavier here |
 | Architecture | 17/20 | 12/15 (≈16/20) | −1 | Duplicate qa/chat API layering not yet collapsed |
 | Code quality | 14/15 | 10/15 | **−4** | 97 ruff errors + 124 mypy errors, env.example merge conflict |
 | Testing | 12/15 | 9/12 (≈11/15) | −1 | Same observation: integration test gap |
@@ -477,17 +504,17 @@ The project's own `COMPANY_READINESS_GAPS.md` self-scores 82. After verifying th
 | Performance | not separately scored | 6/7 | n/a | New dimension |
 | Dev experience | not separately scored | 4/5 | n/a | New dimension |
 
-The two audits agree on the broad shape: solid engineering, real DI seams, real testing infrastructure, real gaps in observability + production hardening. They disagree on how heavily to penalize **CI red-state**: the first audit credits items as "complete ✅" when configured (e.g., "Static Analysis & Code Quality Gates — ✅ COMPLETE"), this audit credits them only when **green**. With 124 mypy errors and 97 ruff errors blocking the configured gates, "complete" overstates the state.
+The two audits agree on the broad shape: solid engineering, real DI seams, real testing infrastructure, real gaps in observability + production hardening. They disagree on how heavily to penalize the 2026-06-14 CI failure state: the first audit credits items as "complete ✅" when configured (e.g., "Static Analysis & Code Quality Gates — ✅ COMPLETE"), this audit credits them only when **green**. On 2026-06-14, 124 mypy errors and 97 ruff errors blocked the configured gates, so "complete" overstated that day's state; the 2026-06-15 remediation corrected this.
 
-## Top 5 Items For The Next Sprint (78 → 88)
+## Historical Top 5 Items From 2026-06-14 (78 → 88)
 
-These are different from the first audit's top-5; they prioritize unblocking already-built infrastructure over building new infrastructure.
+These were different from the first audit's top-5 because they prioritized unblocking already-built infrastructure over building new infrastructure. Items marked completed were remediated on 2026-06-15.
 
-1. **Get CI green.** Run `ruff check . --fix` for the 65 auto-fixable items, hand-fix the remaining 32 (mostly `B008` and a few code-smells). Triage the 124 mypy errors — either fix or relax `strict = true` and ratchet back up. Without this, every existing quality gate is theater. **Effort: 1–2 days. Impact: highest.**
-2. **Resolve `.env.example` merge conflict.** Five-second fix. Outstanding for an unknown number of days.
+1. **CI green-state remediation — completed 2026-06-15.** Ruff and strict MyPy blockers were fixed; `ruff check .` and `mypy src/` now pass. Keep these gates enforced as the merge bar.
+2. **`.env.example` conflict cleanup — completed 2026-06-15.** Conflict markers were removed and the checked docs/env files are clean.
 3. **Structured JSON logging + request correlation IDs.** Single biggest production-readiness gap. **Effort: 1 day. Impact: high.**
 4. **Rate limiting on mutation endpoints.** `slowapi` middleware. **Effort: half a day. Impact: medium-high (cost protection + DoS protection).**
-5. **Update `CONTRIBUTING.md`** to match reality (linters/types/coverage are configured) so contributors know the bar.
+5. **Contributor docs refresh — completed 2026-06-15.** `CONTRIBUTING.md` now documents the Ruff/MyPy/pre-commit/coverage bar.
 
 ## Top Items For 88 → 95
 
@@ -501,9 +528,9 @@ These are different from the first audit's top-5; they prioritize unblocking alr
 
 ## What I Specifically Push Back On From The First Audit
 
-- **Self-score of 82 is generous given that CI is red on both lint and types right now.** The first audit's matrix shows ✅ COMPLETE for "Static Analysis & Code Quality Gates" — the *configuration* is complete, but the codebase doesn't pass that configuration. That's a real, today-blocking gap, not a future-state gap.
+- **Self-score of 82 was generous on 2026-06-14 because CI was red on both lint and types.** The first audit's matrix showed ✅ COMPLETE for "Static Analysis & Code Quality Gates" — the *configuration* was complete, but the codebase did not pass that configuration until the 2026-06-15 remediation.
 - **Several "Fixed ✅" items in `PROBLEMS_DETECTED.md` are actually opt-in.** URL caching is opt-in with default disabled, JS fallback is opt-in, semantic-quality fallback for search is still out of scope. The status legend is honest about this, which is good — but the headline summary undersells the residual risk.
-- **The "Suggested Order of Attack" jumping straight to JSON logging + rate limiting + dep scanning skips the cheapest, highest-impact item:** turning the existing CI gates green. Until that happens, none of the other quality investments can be enforced.
+- **The "Suggested Order of Attack" jumped straight to JSON logging + rate limiting + dep scanning before the CI gate cleanup.** That cleanup is now complete, so the next highest-impact work is production operations: structured logging, rate limiting, dependency scanning, integration smoke tests, and deployment hardening.
 
 ## Verdict
 
@@ -511,4 +538,4 @@ For an internal LangGraph RAG service backing a small team, this is shippable to
 
 For a product with paying external users, it needs the top-5 items above before going public. The infrastructure is mostly in place — the gap is enforcement and the last 20% of plumbing (correlation IDs, rate limits, integration tests).
 
-The codebase is genuinely well-architected. With one focused sprint to clear the CI red-state and add JSON logging + rate limiting, the score moves from 78 to ~88 without any large-effort items. That's a high return on a small investment, and it's the work I'd tackle first.
+The codebase is genuinely well-architected. With the quality gates cleared on 2026-06-15, the next focused sprint can move the score toward ~88 by adding JSON logging, request correlation IDs, rate limiting, dependency scanning, and integration smoke tests without any large-effort items.

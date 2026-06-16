@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import gc
+import logging
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, TypeAlias
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..api.auth import require_api_key
@@ -36,12 +37,17 @@ from ..core.web_search import discover_urls_from_web, settings_for_discovered_ur
 from ..errors import RAGError
 from ..graph.builder import build_lightweight_graph
 from ..graph.executor import GraphExecutor
-from ..graph.metrics import MetricsCollector
+from ..graph.metrics import MetricsCollector, MetricsSnapshot
 from ..utils.urls import parse_url_input
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+QaGraphDep: TypeAlias = Annotated[Any, Depends(get_qa_graph)]
+SettingsDep: TypeAlias = Annotated[Settings, Depends(get_config)]
+RebuildLockDep: TypeAlias = Annotated[asyncio.Lock, Depends(get_rebuild_lock)]
+MetricsDep: TypeAlias = Annotated[MetricsCollector, Depends(get_metrics)]
 
 
 def _parse_request_urls(raw_urls: str | list[str] | None) -> list[str] | None:
@@ -60,7 +66,7 @@ def create_app(
     api_host: str = "127.0.0.1",
     api_port: int = 8000,
     config_file: str | Path | None = None,
-):
+) -> FastAPI:
     """Create and configure the FastAPI application.
 
     Args:
@@ -73,7 +79,7 @@ def create_app(
     """
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             logger.info("Loading settings and building graph...")
             settings = (
@@ -116,8 +122,8 @@ def create_app(
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     # Root endpoint - serve index.html
-    @app.get("/")
-    async def root():
+    @app.get("/", response_model=None)
+    async def root() -> FileResponse | dict[str, str]:
         """Serve the main UI page."""
         index_file = static_dir / "index.html"
         if index_file.exists():
@@ -126,7 +132,7 @@ def create_app(
 
     # Health check
     @app.get("/health")
-    async def health_check():
+    async def health_check() -> dict[str, object]:
         """Health check endpoint."""
         return {
             "status": "ok",
@@ -134,7 +140,7 @@ def create_app(
         }
 
     @app.get("/ready")
-    async def ready_check(request: Request):
+    async def ready_check(request: Request) -> JSONResponse:
         """Readiness check endpoint with only local state checks."""
 
         return qa_readiness_response(request)
@@ -144,9 +150,9 @@ def create_app(
     async def query(
         request: QueryRequest,
         fastapi_request: Request,
-        graph: Any = Depends(get_qa_graph),
-        settings: Settings = Depends(get_config),
-        rebuild_lock: asyncio.Lock = Depends(get_rebuild_lock),
+        graph: QaGraphDep,
+        settings: SettingsDep,
+        rebuild_lock: RebuildLockDep,
     ) -> QueryResponse:
         """Execute a RAG query.
 
@@ -188,10 +194,7 @@ def create_app(
             else:
                 source_mode = "defaults"
                 if request.web_search and settings.web_search_enabled:
-                    if search_error:
-                        source_note = "web_search_failed"
-                    else:
-                        source_note = "web_search_no_results"
+                    source_note = "web_search_failed" if search_error else "web_search_no_results"
                 elif request.web_search and not settings.web_search_enabled:
                     source_note = "web_search_disabled"
 
@@ -296,13 +299,14 @@ def create_app(
                     answer=None,
                     error=result["error"],
                     success=False,
+                    messages=None,
                     source_urls=settings_to_use.source_urls,
                     source_mode=source_mode,
                     source_note=source_note,
                 )
 
             # Optionally include simplified intermediate messages for debugging
-            messages: Optional[list[str]] = None
+            messages: list[str] | None = None
             if request.debug:
                 raw_messages = result.get("messages", []) or []
                 messages = [getattr(m, "content", str(m)) for m in raw_messages]
@@ -333,9 +337,9 @@ def create_app(
     @app.post("/query/stream", dependencies=[Depends(require_api_key)])
     async def query_stream(
         request: QueryRequest,
-        graph: Any = Depends(get_qa_graph),
-        settings: Settings = Depends(get_config),
-        metrics: MetricsCollector = Depends(get_metrics),
+        graph: QaGraphDep,
+        settings: SettingsDep,
+        metrics: MetricsDep,
     ) -> StreamingResponse:
         """Stream typed graph events as Server-Sent Events."""
 
@@ -377,7 +381,7 @@ def create_app(
                 rebuild,
             )
 
-        def event_iter():
+        def event_iter() -> Iterator[str]:
             executor = GraphExecutor(graph_to_use, metrics=metrics)
             inputs = {"messages": [("user", request.question)]}
             for event in executor.stream(inputs):
@@ -386,7 +390,7 @@ def create_app(
         return StreamingResponse(event_iter(), media_type="text/event-stream")
 
     @app.get("/metrics")
-    async def metrics(metrics: MetricsCollector = Depends(get_metrics)):
+    async def metrics(metrics: MetricsDep) -> MetricsSnapshot:
         """Return in-process graph metrics."""
 
         return metrics.snapshot()

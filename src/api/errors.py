@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+from typing import cast
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -17,7 +18,6 @@ from ..errors import (
     RetrieverError,
     WebSearchError,
 )
-
 
 # REFACTOR: Centralize RAG error code to HTTP status mapping.
 RAG_ERROR_STATUS_CODES: dict[str, int] = {
@@ -51,10 +51,17 @@ async def rag_error_handler(request: Request, exc: RAGError) -> JSONResponse:
     )
 
 
+async def _registered_rag_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Adapt FastAPI's broad exception handler protocol to RAGError."""
+
+    return await rag_error_handler(request, cast(RAGError, exc))
+
+
 def register_error_handlers(app: FastAPI) -> None:
     """Register shared typed error handlers on a FastAPI app."""
 
-    app.add_exception_handler(RAGError, rag_error_handler)
+    app.add_exception_handler(RAGError, _registered_rag_error_handler)
+
 
 
 __all__ = [

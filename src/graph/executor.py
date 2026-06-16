@@ -8,8 +8,8 @@ from typing import Any, Protocol
 from .events import (
     DoneEvent,
     ErrorEvent,
-    GraphEvent,
     GraderDecisionEvent,
+    GraphEvent,
     NodeEndEvent,
     NodeStartEvent,
     RetrieverResultEvent,

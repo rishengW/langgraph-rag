@@ -13,7 +13,6 @@ from .factory import get_search_provider, normalize_provider_name
 from .protocol import WebSearchProvider
 from .query_prep import build_search_query
 
-
 if TYPE_CHECKING:
     from ..config import Settings
 

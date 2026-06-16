@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from urllib.request import urlopen
 
@@ -14,25 +15,24 @@ from .common import (
     urlopen_context,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
-def load_ddgs():
+def load_ddgs() -> Any:
     """Import the installed DuckDuckGo search client."""
 
     import_errors: list[str] = []
     try:
-        from ddgs import DDGS
+        from ddgs import DDGS as DdgsClient
 
-        return DDGS
+        return DdgsClient
     except ImportError as exc:
         import_errors.append(f"ddgs: {exc}")
 
     try:
-        from duckduckgo_search import DDGS
+        from duckduckgo_search import DDGS as DuckDuckGoSearchClient
 
-        return DDGS
+        return DuckDuckGoSearchClient
     except ImportError as exc:
         import_errors.append(f"duckduckgo_search: {exc}")
 
@@ -136,7 +136,7 @@ class DuckDuckGoWebSearch:
 
         urls: list[str] = []
         for anchor in BeautifulSoup(html, "html.parser").select("a.result__a"):
-            href = anchor.get("href", "")
+            href = cast(str, anchor.get("href", ""))
             if href:
                 urls.append(unwrap_duckduckgo_redirect(href))
             if len(normalize_urls(urls)) >= max_results:

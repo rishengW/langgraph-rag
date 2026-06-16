@@ -75,7 +75,7 @@ def run_rag_query(
                 pprint.pprint("\n---\n")
             
             # Collect all messages from the output
-            for key, value in output.items():
+            for _key, value in output.items():
                 if isinstance(value, dict) and "messages" in value:
                     all_messages.extend(value["messages"])
         
@@ -91,10 +91,7 @@ def run_rag_query(
         if final_messages:
             # Convert message object to string
             last_msg = final_messages[-1]
-            if hasattr(last_msg, "content"):
-                answer = last_msg.content
-            else:
-                answer = str(last_msg)
+            answer = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
         
         return {
             "answer": answer or "No answer generated",

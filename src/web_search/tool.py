@@ -31,7 +31,7 @@ class WebSearchInput(BaseModel):
 
 
 def build_web_search_tool(
-    settings: "Settings",
+    settings: Settings,
     *,
     provider: WebSearchProvider | None = None,
     discovery: WebSearchDiscovery = discover_urls_from_web,
@@ -80,7 +80,7 @@ def format_web_search_results(query: str, urls: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _settings_for_limit(settings: "Settings", max_results: int | None) -> "Settings":
+def _settings_for_limit(settings: Settings, max_results: int | None) -> Settings:
     if max_results is None:
         return settings
     return replace(settings, web_search_max_results=max_results)

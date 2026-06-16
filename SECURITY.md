@@ -43,9 +43,13 @@ appropriate for the indexed source material.
 
 ## Current Security Gaps
 
-The app currently has no API-key authentication layer and no configurable CORS
-restriction. Expose it only on trusted networks until those readiness items are
-implemented.
+API-key authentication is available for mutation endpoints when `API_KEY` is
+set. Local development remains open when it is unset, so configure `API_KEY`
+before exposing the QA or chat APIs outside a trusted workstation.
+
+CORS is configurable through `cors_allow_origins` in YAML or
+`CORS_ALLOW_ORIGINS` in the environment. Keep the allowed-origin list scoped to
+known clients in shared or production deployments.
 
 Dependency scanning is not configured yet. Before production use, add Dependabot
 or a `pip-audit` workflow and triage vulnerabilities in the LangChain, FastAPI,

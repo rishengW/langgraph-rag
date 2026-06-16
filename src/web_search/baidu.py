@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import urlopen
@@ -14,7 +15,6 @@ from .common import (
     search_request,
     urlopen_context,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,7 @@ def candidate_baidu_hrefs(soup: BeautifulSoup) -> list[str]:
 
     for selector in selectors:
         for anchor in soup.select(selector):
-            href = anchor.get("href", "")
+            href = cast(str, anchor.get("href", ""))
             if href and href not in seen:
                 seen.add(href)
                 hrefs.append(href)
@@ -151,7 +151,7 @@ def candidate_baidu_hrefs(soup: BeautifulSoup) -> list[str]:
         return hrefs
 
     for anchor in soup.select('a[href*="/link?"]'):
-        href = anchor.get("href", "")
+        href = cast(str, anchor.get("href", ""))
         if href and href not in seen:
             seen.add(href)
             hrefs.append(href)

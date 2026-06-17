@@ -8,7 +8,7 @@ A local LangGraph retrieval-augmented generation project with two FastAPI apps:
 The project supports two LangGraph workflows:
 
 - **Full graph**: agent → retrieve (Chroma) → grade → generate, with query rewrite on low-relevance grades.
-- **Lightweight graph**: agent → live web search → direct web answer. Skips Chroma, embeddings, grading, and rewriting entirely.
+- **Lightweight graph**: agent → decompose → web_search → merge → web_answer, with one-shot conditional expansion on retrieval failure and a training-data agent fallback. Skips Chroma, embeddings, grading, and rewriting entirely.
 
 The project started as a Python extraction of a Jupyter notebook; it is now organized as a reusable codebase with YAML configuration, typed graph events, SSE streaming, health/readiness/metrics endpoints, optional API-key auth, Docker support, CI quality gates, and company-readiness documentation.
 
@@ -25,13 +25,14 @@ langgraph-rag/
 |   |-- core/                 # Deprecated re-exports (redirect to src/graph, src/rag, etc.)
 |   |-- errors.py             # Typed RAG exceptions
 |   |-- graph/                # LangGraph builder, state, edges, executor, metrics
-|   |   |-- nodes/            # Node factories (agent, rewrite, grade, generate, condense, web_answer)
+|   |   |-- nodes/            # Node factories (agent, condense, decompose, expand, generate, grade, merge, rewrite, web_answer)
 |   |-- llm/                  # LLM provider seam (DashScope, DeepSeek) + prompt templates
 |   |-- qa/                   # Single-shot QA app (API, CLI, UI)
 |   |-- rag/                  # Chroma retriever, embeddings (DashScope, HuggingFace), document loader/quality
 |   |-- sessions/             # Chat session registry, SQLite metadata + checkpoint persistence
+|   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia) + shared HTTP helper
 |   |-- utils/                # Retry, networking, URL parsing helpers
-|   |-- web_search/           # Live web search providers (Bing, Baidu, DuckDuckGo), discovery, content fetching
+|   |-- web_search/           # Live web search providers (Bing, Baidu, DuckDuckGo), discovery, content fetching, JS fallback
 |-- tests/                    # Offline-focused pytest suite
 |-- ARCHITECTURE.md           # System architecture and operational notes
 |-- COMPANY_READINESS_GAPS.md # Completed and remaining company-readiness work
@@ -98,7 +99,15 @@ Key settings:
 | `EMBEDDING_MODEL` | `text-embedding-v4` | Embedding model |
 | `WEB_SEARCH_ENABLED` | `true` | Enable live web search |
 | `WEB_SEARCH_PROVIDER` | `bing` | `bing`, `baidu`, or `duckduckgo` |
-| `WEB_SEARCH_LIGHTWEIGHT` | — | Use lightweight graph for web search |
+| `WEB_SEARCH_LIGHTWEIGHT` | `true` | Use lightweight graph for web search |
+| `WEB_SEARCH_TOP_K` | `6` | Top-K URLs after merge ranking |
+| `WEB_SEARCH_MIN_URL_SCORE` | `45` | URL quality threshold (0-100) |
+| `WEB_SEARCH_JS_FALLBACK_ENABLED` | `false` | Opt-in Playwright Chromium retry for JS-rendered domains |
+| `WEATHER_ENABLED` | `false` | Open-Meteo weather/forecast tool |
+| `STOCK_ENABLED` | `false` | yfinance stock-quote tool |
+| `CURRENCY_ENABLED` | `false` | Frankfurter currency-conversion tool |
+| `WIKIPEDIA_ENABLED` | `false` | MediaWiki summary tool |
+| `WIKIPEDIA_USER_AGENT` | `langgraph-rag/1.0 (configure)` | Required when `WIKIPEDIA_ENABLED=true` |
 | `CHROMA_DIR` | `.chroma` | Vector store location |
 | `API_KEY` | — | API auth key (open when unset) |
 | `RERANK_STRATEGY` | `lexical` | `lexical`, `embedding`, or `hybrid` |
@@ -123,12 +132,29 @@ START → agent → retrieve → grade → generate → END
 ### Lightweight Graph (Web Search)
 
 ```
-START → agent → web_search → web_answer → END
-           ↓                     
-           └── END (when agent answers directly)
+START → agent ──(no tool)──► END                                    (direct answer)
+          │
+          └─(live_web_search)─► decompose → web_search → merge → web_answer ─► END   (grounded)
+                                                                       │
+                                                          (no readable, !expanded)
+                                                                       │
+                                                                       ▼
+                                                          expand → web_search → merge → web_answer ─► END   (grounded retry)
+                                                                                              │
+                                                                                  (no readable, expanded)
+                                                                                              │
+                                                                                              ▼
+                                                                                           agent ─► END   (training-data fallback)
 ```
 
-Skips Chroma, embeddings, grading, and rewriting. The agent either answers directly (system prompt steers it away from tools for simple questions) or calls the live web search tool. `web_answer` fetches and reads the discovered pages, then prompts the LLM to synthesize an answer grounded in the fetched content.
+Skips Chroma, embeddings, grading, and rewriting. The agent either answers directly (system prompt steers it away from tools for stable factual questions like founding dates and capitals) or calls the live web search tool, which kicks off a `decompose → web_search → merge → web_answer` chain:
+
+- **decompose** splits a compound question into 1-3 atomic sub-questions (passthrough for already-atomic Qs).
+- **web_search** fans out one keyword query per sub-question.
+- **merge** dedupes URLs by canonical form and ranks by `(hit_count, best_provider_rank)`, keeping `web_search_top_k`.
+- **web_answer** fetches the merged URLs, extracts readable text, and prompts the LLM to synthesize a grounded answer.
+
+When `web_answer` produces no readable content and expansion has not yet fired, the post-`web_answer` edge routes to **expand**, which produces k=3 keyword paraphrases per sub-question. The graph re-enters `web_search → merge → web_answer` with the broader query set; the merge stage combines the new URLs with the first attempt's URLs rather than discarding them. A second failure routes to the **agent** so the LLM can answer from training data with a "couldn't verify against the live web" caveat. Each fallback step is bounded by a one-shot flag (`expansion_attempted`) and an attempt counter (`web_answer_attempts`, capped at `WEB_ANSWER_FALLBACK_MAX_ATTEMPTS=3`) so the graph cannot loop indefinitely.
 
 ### Graph Nodes
 
@@ -140,7 +166,25 @@ Skips Chroma, embeddings, grading, and rewriting. The agent either answers direc
 | rewrite | `rewrite_factory` | inline prompt |
 | generate | `generate_factory` | `RAG_PROMPT` |
 | condense | `condense_question_factory` | `CONDENSE_PROMPT` |
+| decompose | `decompose_factory` | inline prompt (1-3 sub-questions, passthrough on atomic) |
+| expand | `expand_factory` | inline prompt (k=3 paraphrases per sub-question) |
+| merge | `merge_factory` | — (pure code: dedupe + rank URLs) |
 | web_answer | `web_answer_factory` | `build_web_search_prompt` |
+
+### Agent Tools
+
+The agent can be given any combination of these tools via per-tool config flags. All optional tools default to off; the retriever is always present in the full graph and `live_web_search` defaults to on.
+
+| Tool | Module | Config flag | Notes |
+|---|---|---|---|
+| `retrieve_source_documents` | `src/rag/chroma_retriever.py` | always on (full graph) | Chroma vectorstore retrieval |
+| `live_web_search` | `src/web_search/tool.py` | `WEB_SEARCH_ENABLED=true` (default) | Bing/Baidu/DuckDuckGo HTML scraping |
+| `get_weather` | `src/tools/weather.py` | `WEATHER_ENABLED=true` | Open-Meteo forecast (city or coordinates), no API key |
+| `get_stock_quote` | `src/tools/stock.py` | `STOCK_ENABLED=true` | yfinance / Yahoo Finance, no API key |
+| `convert_currency` | `src/tools/currency.py` | `CURRENCY_ENABLED=true` | Frankfurter API (201 currencies), no API key |
+| `search_wikipedia` | `src/tools/wikipedia_tool.py` | `WIKIPEDIA_ENABLED=true` | MediaWiki API summary + URL, set `WIKIPEDIA_USER_AGENT` |
+
+When the agent calls a non-web-search tool in the lightweight graph (weather, stock, currency, Wikipedia), the post-tool edge routes back to the agent so it can synthesize the structured tool output into a final answer — bypassing the `decompose → web_search → merge → web_answer` chain that's specific to `live_web_search`.
 
 ### LLM Provider Seam
 
@@ -230,19 +274,27 @@ Chat uses additional persisted state:
 - `.chroma/chat/sessions.sqlite3`: session metadata via `SQLiteStorage`
 - `.chroma/chat/checkpoints.sqlite3`: LangGraph checkpoints via `SQLiteMemorySaver`
 
-Chat sessions survive app restarts. Sessions with the global default source set share the global Chroma collection; sessions with explicit URLs or web-discovered sources get isolated per-thread stores.
+Chat sessions survive app restarts. Sessions with the global default source set share the global Chroma collection; sessions with explicit URLs or web-discovered sources get isolated per-thread stores. The `SQLiteMemorySaver` checkpointer is thread-safe under concurrent `/chat` requests for the same thread (uses a reentrant lock around the inherited `MemorySaver` mutations and the SQLite snapshot).
 
 ## Web Search
 
 Live web search is provided by three providers in `src/web_search/`:
 
-- **Bing** (`BingWebSearch`) — HTML scraping
+- **Bing** (`BingWebSearch`) — HTML scraping with optional `d`/`w`/`m` recency filter
 - **Baidu** (`BaiduWebSearch`) — HTML scraping with captcha detection
 - **DuckDuckGo** (`DuckDuckGoWebSearch`) — HTML scraping
 
-The default provider order is Bing → Baidu → DuckDuckGo, with automatic fallback on failure. Results are deduplicated and ranked.
+The default provider order is Bing → Baidu → DuckDuckGo, with automatic fallback on failure. Search queries are LLM-rewritten into keyword form before being sent to the provider (with mechanical filler-word stripping as a fallback when the LLM is unavailable).
 
-When `web_search_lightweight` is enabled, the lightweight graph bypasses Chroma entirely and feeds fetched page content directly to the LLM for answer synthesis.
+A multi-stage quality pipeline runs before the agent sees URLs:
+
+- **URL scoring** (`web_search_min_url_score`, default 45) drops low-quality result patterns (search/login/tag/file/feed pages) and rewards hostname/path matches against query keywords.
+- **Provider-result dedup** by canonical host/path.
+- **Pre-index document filtering** drops short/empty/boilerplate/low-signal pages, with optional embedding similarity gate against the question (`document_quality_relevance_query`) and configurable recency bias from extracted publication dates.
+- **Post-retrieval re-ranking** scores chunks by query/document overlap, frequency, and phrase matches; `RERANK_STRATEGY` switches between lexical (default), embedding, or hybrid.
+- **Optional JS-capable fallback** (`WEB_SEARCH_JS_FALLBACK_ENABLED`) retries known JS-only domains (`baike.baidu.com`, `zhuanlan.zhihu.com`, `apps.microsoft.com`, `deepseek.net` by default) through a lazy headless Chromium adapter when the HTTP loader returns empty/insufficient text. Off by default; requires installing `playwright` and a Chromium runtime.
+
+When `web_search_lightweight` is enabled (default), the lightweight graph routes the agent's tool call through `decompose → web_search → merge → web_answer` as described above, with one-shot conditional expansion and a training-data agent fallback as the final safety net.
 
 ## Auth, CORS, and Security
 
@@ -269,7 +321,7 @@ Starts QA on `http://127.0.0.1:8000` and Chat on `http://127.0.0.1:8001` with na
 ## Verification
 
 ```powershell
-python -m pytest -q                         # Run tests
+python -m pytest -q                         # Run tests (current baseline: 198 passed)
 ruff check .                                # Lint
 mypy src/                                   # Type check
 python -m pytest --tb=short --cov=src --cov-report=term --cov-fail-under=70
@@ -282,5 +334,7 @@ git diff --check                            # Whitespace check
 - The chat model is configurable via `LLM_PROVIDER` — DashScope (`qwen-plus`) or DeepSeek (`deepseek-v4-pro`). Embeddings always use DashScope/Tongyi unless `embedding_model` is set to a HuggingFace model.
 - Existing Chroma stores with incompatible embedding metadata are rebuilt automatically on startup.
 - Web search defaults to Bing with Baidu and DuckDuckGo fallback. If Baidu returns a captcha/verification page, it is temporarily skipped. Set `WEB_SEARCH_PROVIDER` to pin a single provider.
-- The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
+- The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
 - Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.
+- Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env`. None require an API key; only `WIKIPEDIA_USER_AGENT` should be customized for shared deployments.
+- The lightweight graph's conditional expansion fires only on web-search retrieval failure — single-keyword questions that get a readable page back take the fast path with one search and one LLM call. Compound questions that decompose into multiple sub-Qs still take the fast path; expansion only fires when no fetched page yields readable text.

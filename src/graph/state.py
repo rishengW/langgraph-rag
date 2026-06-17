@@ -27,6 +27,14 @@ class RAGState(TypedDict, total=False):
     # (the second failure terminates the graph with the grounded refusal).
     web_answer_attempts: int
     web_answer_no_readable_content: bool
+    # REFACTOR: Conditional-expansion one-shot switch. When the first
+    # single-query ``web_answer`` run produces no readable content and this
+    # flag is False, the post-``web_answer`` edge routes to ``expand`` (and
+    # through ``decompose`` -> ``web_search`` -> ``merge`` -> ``web_answer``)
+    # to retry with N x k search queries. Once expansion has been attempted
+    # the edge routes to the agent fallback so the lightweight graph does
+    # not loop between ``web_answer`` and ``expand`` forever.
+    expansion_attempted: bool
 
 
 AgentState = RAGState

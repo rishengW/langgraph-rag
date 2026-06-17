@@ -16,35 +16,48 @@ GRADE_EDGE_MAP: dict[Hashable, str] = {
     "rewrite": "rewrite",
 }
 
-# After the lightweight graph's tool node executes, route based on which tool
-# the agent actually called. Only ``live_web_search`` produces a list of URLs
-# meant to ground a final answer through ``web_answer``. Every other tool
-# (weather, stock quotes, currency conversion, Wikipedia, etc.) returns a
-# structured textual result that the agent should see and synthesize from --
-# routing those through ``web_answer`` would discard the tool output and
-# re-prompt the LLM against the session's curated source URLs.
+# REFACTOR: After the lightweight graph's tool node executes, route
+# based on which tool the agent actually called. ``live_web_search``
+# results feed into the merge -> web_answer chain (the merge node
+# deduplicates and ranks the search URLs before grounding the answer).
+# Every other tool (weather, stock quotes, currency conversion,
+# Wikipedia, etc.) returns a structured textual result that the agent
+# should see and synthesize from -- routing those through merge /
+# web_answer would discard the tool output and re-prompt the LLM
+# against the session's curated source URLs.
 LIGHTWEIGHT_TOOL_EDGE_MAP: dict[Hashable, str] = {
-    "web_answer": "web_answer",
+    "merge": "merge",
     "agent": "agent",
 }
 
 WEB_SEARCH_TOOL_NAME = "live_web_search"
 
 # REFACTOR: After ``web_answer`` runs, decide whether to terminate the
-# lightweight graph (the fetched pages grounded a real answer) or to fall
-# back to the agent for one retry when no readable page content was found.
-# This prevents the previous one-way-trip failure mode where the user saw a
-# hard "I couldn't retrieve readable content" refusal even for stable
-# historical questions whose answer the LLM already knew.
+# lightweight graph (the fetched pages grounded a real answer), retry via
+# conditional expansion (one-shot decompose -> N x k search -> merge ->
+# ``web_answer``), or fall back to the agent (synthesise from training data
+# with a "I couldn't verify" caveat) when no readable page content was
+# found AND expansion has already been attempted. The agent retry is
+# bounded by ``WEB_ANSWER_FALLBACK_MAX_ATTEMPTS`` so a second failure
+# terminates the graph with the grounded refusal rather than spinning
+# forever.
 WEB_ANSWER_EDGE_MAP: dict[Hashable, str] = {
     "agent": "agent",
+    "expand": "expand",
     END: END,
 }
 
 # REFACTOR: Cap the lightweight web-search fallback loop at this many
-# ``web_answer`` runs. A second failure terminates the graph with the
-# grounded refusal rather than spinning forever.
-WEB_ANSWER_FALLBACK_MAX_ATTEMPTS = 2
+# ``web_answer`` runs. A second failure routes to the agent fallback
+# (when expansion has already been attempted) which can either
+# synthesise from training data or call the tool once more; the third
+# ``web_answer`` run terminates the graph with the grounded refusal
+# rather than spinning forever. Bumped from 2 to 3 so the conditional
+# expansion's agent fallback (third outcome of route_after_web_answer)
+# is reachable after 2 web_answer failures -- with max=2 the check
+# ``attempts < max`` would be ``2 < 2 == False`` and the agent would
+# never get its one-shot synthesis opportunity.
+WEB_ANSWER_FALLBACK_MAX_ATTEMPTS = 3
 
 
 def route_after_agent(state: Any) -> str:
@@ -56,33 +69,43 @@ def route_after_agent(state: Any) -> str:
 def route_after_lightweight_tool(state: Any) -> str:
     """Route after the lightweight graph's tool node based on the called tool.
 
-    Returns ``"web_answer"`` when the most recent tool message came from
-    ``live_web_search`` (URLs to fetch and ground against), and ``"agent"``
-    for every other tool so the agent can synthesize a final answer from the
-    tool's structured output.
+    Returns ``"merge"`` when the most recent tool message came from
+    ``live_web_search`` (URLs to deduplicate, rank, and ground against
+    in the merge -> web_answer chain), and ``"agent"`` for every other
+    tool so the agent can synthesize a final answer from the tool's
+    structured output.
     """
 
     messages = _state_messages(state)
     last_tool_name = _last_tool_message_name(messages)
     if last_tool_name == WEB_SEARCH_TOOL_NAME:
-        return "web_answer"
+        return "merge"
     return "agent"
 
 
 def route_after_web_answer(state: Any) -> str:
-    """Route after ``web_answer``: retry the agent once, then terminate.
+    """Route after ``web_answer``: expansion, agent retry, then end.
 
-    When ``web_answer`` produced no readable page content, the LLM
-    unnecessarily called ``live_web_search`` (e.g. for a stable historical
-    fact it already knew). Looping back to the agent lets it synthesize a
-    final answer from its own knowledge with a "I couldn't verify against
-    the live web" caveat, instead of the user seeing the hard refusal.
-    The retry is bounded to ``WEB_ANSWER_FALLBACK_MAX_ATTEMPTS`` to prevent
-    an infinite loop when the second web_answer run also fails.
+    Three outcomes drive the post-``web_answer`` conditional edge:
+
+    - ``web_answer`` produced readable page content -> ``END`` (the
+      grounded answer is the final user-visible reply).
+    - ``web_answer`` produced no readable content AND
+      ``expansion_attempted`` is False -> ``"expand"``: the graph will
+      go through ``decompose -> web_search -> merge -> web_answer`` to
+      retry the grounded answer with N x k rewritten queries.
+    - ``web_answer`` produced no readable content AND
+      ``expansion_attempted`` is True -> ``"agent"`` (if the bounded
+      retry budget has not been exhausted) so the LLM can synthesise
+      a final answer from its own knowledge with a "couldn't verify
+      against the live web" caveat, or ``END`` once the bound is
+      reached.
     """
 
     if not _state_bool(state, "web_answer_no_readable_content"):
         return END
+    if not _state_bool(state, "expansion_attempted"):
+        return "expand"
     attempts = _state_int(state, "web_answer_attempts")
     if attempts < WEB_ANSWER_FALLBACK_MAX_ATTEMPTS:
         return "agent"

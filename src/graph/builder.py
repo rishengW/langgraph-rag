@@ -22,8 +22,11 @@ from .nodes import (
     agent_factory,
     chat_question_resolver,
     condense_question_factory,
+    decompose_factory,
+    expand_factory,
     generate_factory,
     grade_documents_factory,
+    merge_factory,
     qa_question_resolver,
     rewrite_factory,
     web_answer_factory,
@@ -34,14 +37,16 @@ GraphMode = Literal["qa", "chat"]
 NodeCallable = Callable[[dict[str, Any]], dict[str, Any]]
 GradeEdgeCallable = Callable[[dict[str, Any]], Literal["generate", "rewrite"]]
 
-# When the agent calls the live_web_search tool, hand off to the web_answer
-# node to ground the reply in the fetched pages. When the agent answers
-# directly (e.g. for arithmetic, common knowledge, or chitchat where the
-# system prompt steers it away from tools), end the graph immediately so the
-# direct answer is preserved instead of being overridden by web_answer
-# re-prompting against irrelevant fetched pages.
+# REFACTOR: Conditional-expansion routing. The agent's tool call now
+# routes to ``decompose`` instead of ``web_search`` so compound questions
+# can be split into sub-questions before the search fan-out. When the
+# agent answers directly (e.g. for arithmetic, common knowledge, or
+# chitchat where the system prompt steers it away from tools), the
+# graph terminates immediately so the direct answer is preserved
+# instead of being overridden by web_answer re-prompting against
+# irrelevant fetched pages.
 LIGHTWEIGHT_AGENT_EDGE_MAP: dict[Hashable, str] = {
-    "tools": "web_search",
+    "tools": "decompose",
     END: END,
 }
 
@@ -59,6 +64,12 @@ class GraphNodeOverrides:
     generate: NodeCallable | None = None
     condense: NodeCallable | None = None
     web_answer: NodeCallable | None = None
+    # REFACTOR: Conditional-expansion nodes. Overridable so tests can
+    # inject deterministic fakes for ``decompose``, ``expand`` and
+    # ``merge`` without running the real LLM-backed implementations.
+    decompose: NodeCallable | None = None
+    expand: NodeCallable | None = None
+    merge: NodeCallable | None = None
 
 
 @dataclass(frozen=True)
@@ -210,6 +221,38 @@ def build_lightweight_graph(
     if not tools:
         raise ValueError("providers.tools or settings are required for web_search")
     workflow.add_node("web_search", ToolNode(list(tools)))
+    # REFACTOR: Conditional-expansion nodes. The decompose -> web_search
+    # -> merge -> web_answer chain is the first-attempt path; the expand
+    # node re-enters web_search when the first web_answer run produced
+    # no readable content (post-web_answer edge -> "expand"). After
+    # expansion, web_search -> merge -> web_answer runs a second time
+    # with the combined first-attempt + expanded URLs. State field
+    # ``expansion_attempted`` is set to True by ``expand`` so the
+    # post-web_answer edge does not loop back to expand a second time.
+    workflow.add_node(
+        "decompose",
+        nodes.decompose
+        or decompose_factory(
+            _require_settings(settings, "decompose"),
+            question_resolver,
+        ),
+    )
+    workflow.add_node(
+        "expand",
+        nodes.expand
+        or expand_factory(
+            _require_settings(settings, "expand"),
+            question_resolver,
+        ),
+    )
+    workflow.add_node(
+        "merge",
+        nodes.merge
+        or merge_factory(
+            _require_settings(settings, "merge"),
+            question_resolver,
+        ),
+    )
     workflow.add_node(
         "web_answer",
         nodes.web_answer
@@ -225,15 +268,26 @@ def build_lightweight_graph(
         route_after_agent,
         LIGHTWEIGHT_AGENT_EDGE_MAP,
     )
+    # REFACTOR: Deterministic edges for the conditional-expansion path.
+    # ``decompose -> web_search`` lets the search ToolNode run with the
+    # current question's first query (which the agent just emitted).
+    # ``web_search -> merge -> web_answer`` collapses the first-attempt
+    # URLs into ``source_urls`` and grounds the answer. ``expand ->
+    # web_search`` re-enters the search fan-out after a first-attempt
+    # failure (the post-web_answer edge routes to "expand" when no
+    # readable content was found and expansion has not yet been
+    # attempted). The non-web-search tool case is still handled by the
+    # ``web_search`` conditional edge (route_after_lightweight_tool
+    # returns "agent" for non-live_web_search tools, preserving the
+    # existing regression test for weather/stock/currency/wikipedia).
+    workflow.add_edge("decompose", "web_search")
+    workflow.add_edge("expand", "web_search")
+    workflow.add_edge("merge", "web_answer")
     workflow.add_conditional_edges(
         "web_search",
         route_after_lightweight_tool,
         LIGHTWEIGHT_TOOL_EDGE_MAP,
     )
-    # REFACTOR: Use a conditional edge after ``web_answer`` instead of a hard
-    # ``END`` so the graph can fall back to the agent for one retry when no
-    # fetched page yielded readable text. The retry is bounded by
-    # ``WEB_ANSWER_FALLBACK_MAX_ATTEMPTS`` (see src/graph/edges.py).
     workflow.add_conditional_edges(
         "web_answer",
         route_after_web_answer,

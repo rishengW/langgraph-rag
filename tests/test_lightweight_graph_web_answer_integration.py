@@ -554,24 +554,43 @@ def test_web_answer_increments_attempts_from_existing_counter(
     assert result["web_answer_attempts"] == 4
 
 
-def test_route_after_web_answer_routes_to_agent_on_first_failure():
+def test_route_after_web_answer_routes_to_expand_on_first_failure():
     # Unit test for the post-web-answer conditional edge: when the previous
-    # ``web_answer`` run produced no readable content, the edge must route
-    # back to the agent (one retry) so the LLM can answer from training
-    # data instead of the user seeing a hard refusal.
+    # ``web_answer`` run produced no readable content AND expansion has
+    # not yet been attempted, the edge must route to ``"expand"`` (the
+    # conditional-expansion path) rather than falling straight back to
+    # the agent. This is the new third outcome in
+    # ``route_after_web_answer`` introduced by the 2026-06-17 expansion
+    # implementation.
     from src.graph.edges import route_after_web_answer
 
     state = {
         "web_answer_no_readable_content": True,
         "web_answer_attempts": 1,
+        "expansion_attempted": False,
+    }
+    assert route_after_web_answer(state) == "expand"
+
+
+def test_route_after_web_answer_routes_to_agent_after_expansion():
+    # Unit test: when the previous ``web_answer`` run produced no readable
+    # content AND expansion has already been attempted, the edge must
+    # route back to the agent (one retry) so the LLM can answer from
+    # training data instead of the user seeing a hard refusal.
+    from src.graph.edges import route_after_web_answer
+
+    state = {
+        "web_answer_no_readable_content": True,
+        "web_answer_attempts": 1,
+        "expansion_attempted": True,
     }
     assert route_after_web_answer(state) == "agent"
 
 
 def test_route_after_web_answer_terminates_after_max_attempts():
-    # Unit test: after the bounded retry budget is exhausted, the edge must
-    # terminate so the user sees the grounded refusal rather than the
-    # agent/web_answer loop spinning forever.
+    # Unit test: after the bounded retry budget is exhausted, the edge
+    # must terminate so the user sees the grounded refusal rather than
+    # the agent/web_answer loop spinning forever.
     from src.graph.edges import (
         WEB_ANSWER_FALLBACK_MAX_ATTEMPTS,
         route_after_web_answer,
@@ -580,6 +599,7 @@ def test_route_after_web_answer_terminates_after_max_attempts():
     state = {
         "web_answer_no_readable_content": True,
         "web_answer_attempts": WEB_ANSWER_FALLBACK_MAX_ATTEMPTS,
+        "expansion_attempted": True,
     }
     assert route_after_web_answer(state) == "__end__"
 
@@ -660,8 +680,9 @@ def test_build_lightweight_graph_falls_back_to_agent_when_no_readable_content(
                 ]
             }
         # Second turn (fallback): the LLM has decided to answer from its
-        # own knowledge. The graph must allow this -- the previous behavior
-        # would have left the user with the hard refusal.
+        # own knowledge after the conditional-expansion path also failed.
+        # The previous behavior would have left the user with the hard
+        # refusal; the new design routes to the agent exactly once.
         assert (
             "couldn't retrieve readable content" in state["messages"][-1].content
         )
@@ -676,11 +697,33 @@ def test_build_lightweight_graph_falls_back_to_agent_when_no_readable_content(
             ]
         }
 
+    # REFACTOR: Inject deterministic decompose/expand/merge nodes so the
+    # test does not need a live LLM for the conditional-expansion path.
+    # The expand node also sets ``expansion_attempted`` to True so the
+    # post-web-answer edge falls through to the agent fallback on the
+    # 2nd web_answer failure.
+    def fake_decompose(state):
+        return {"sub_questions": ["University of Melbourne founded"]}
+
+    def fake_expand(state):
+        return {
+            "expanded_queries": ["University of Melbourne founded"],
+            "expansion_attempted": True,
+        }
+
+    def fake_merge(state):
+        return {"source_urls": ["https://junk.test/page"]}
+
     graph = build_lightweight_graph(
         settings=settings,
         providers=GraphProviders(
             tools=[tool],
-            nodes=GraphNodeOverrides(agent=agent),
+            nodes=GraphNodeOverrides(
+                agent=agent,
+                decompose=fake_decompose,
+                expand=fake_expand,
+                merge=fake_merge,
+            ),
         ),
     )
 
@@ -756,7 +799,7 @@ def test_build_lightweight_graph_terminates_with_refusal_after_two_web_answer_fa
         call_count["web_answer"] += 1
         # Mirror the real node's behavior: no readable content, bump the
         # attempt counter, set the fallback flag. The graph loop bound
-        # must stop the iteration after this second call.
+        # must stop the iteration once the bound is reached.
         return {
             "messages": [
                 AIMessage(
@@ -770,21 +813,46 @@ def test_build_lightweight_graph_terminates_with_refusal_after_two_web_answer_fa
             "web_answer_attempts": call_count["web_answer"],
         }
 
+    # REFACTOR: Inject deterministic decompose/expand/merge nodes so the
+    # test does not need a live LLM for the conditional-expansion path.
+    # The expand node sets ``expansion_attempted`` to True so the
+    # post-web_answer edge falls through to the agent fallback on the
+    # 2nd web_answer failure (since attempts=2 < WEB_ANSWER_FALLBACK_MAX_ATTEMPTS=3).
+    def fake_decompose(state):
+        return {"sub_questions": ["Q"]}
+
+    def fake_expand(state):
+        return {
+            "expanded_queries": ["Q"],
+            "expansion_attempted": True,
+        }
+
+    def fake_merge(state):
+        return {"source_urls": ["https://junk.test/page"]}
+
     graph = build_lightweight_graph(
         settings=settings,
         providers=GraphProviders(
             tools=[tool],
-            nodes=GraphNodeOverrides(agent=agent, web_answer=web_answer),
+            nodes=GraphNodeOverrides(
+                agent=agent,
+                web_answer=web_answer,
+                decompose=fake_decompose,
+                expand=fake_expand,
+                merge=fake_merge,
+            ),
         ),
     )
 
     state = graph.invoke({"messages": [HumanMessage(content="Q?")]})
 
-    # Two web_answer calls (the bound) and the same number of agent
-    # invocations: search, then the loop-bounded retry, then END with the
-    # grounded refusal.
-    assert call_count["web_answer"] == 2
+    # REFACTOR: The conditional-expansion path adds a 3rd web_answer run
+    # because the agent fallback (which re-issues the tool call) is now
+    # reachable: 1st web_answer failure -> expand -> 2nd web_answer
+    # failure -> agent fallback -> 3rd web_answer failure -> END
+    # (attempts=3 == WEB_ANSWER_FALLBACK_MAX_ATTEMPTS).
+    assert call_count["web_answer"] == 3
     assert call_count["agent"] == 2
     final = state["messages"][-1].content
     assert "couldn't retrieve readable content" in final
-    assert "call #2" in final
+    assert "call #3" in final

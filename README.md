@@ -1,4 +1,4 @@
-# LangGraph RAG
+# Only Subscribers
 
 A local LangGraph retrieval-augmented generation project with two FastAPI apps:
 

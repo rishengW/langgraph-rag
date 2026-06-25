@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 
 from .common import (
     BAIDU_BASE_URL,
-    normalize_urls,
+    SearchResult,
     search_request,
     urlopen_context,
 )
@@ -58,6 +58,9 @@ class BaiduWebSearch:
         return "baidu"
 
     def search(self, query: str, max_results: int = 20) -> list[str]:
+        return [result.url for result in self.search_results(query, max_results)]
+
+    def search_results(self, query: str, max_results: int = 20) -> list[SearchResult]:
         params = urlencode({"wd": query, "rn": max(1, max_results)})
         search_url = f"{BAIDU_BASE_URL}/s?{params}"
 
@@ -77,8 +80,8 @@ class BaiduWebSearch:
             )
 
         soup = BeautifulSoup(html, "html.parser")
-        hrefs = candidate_baidu_hrefs(soup)
-        if not hrefs:
+        raw_results = candidate_baidu_results(soup)
+        if not raw_results:
             title = soup.title.string.strip() if soup.title and soup.title.string else ""
             logger.warning(
                 "Baidu returned no parseable result links "
@@ -88,17 +91,23 @@ class BaiduWebSearch:
                 len(html),
             )
 
-        urls: list[str] = []
-        for href in hrefs:
+        results: list[SearchResult] = []
+        seen: set[str] = set()
+        for href, title, snippet in raw_results:
             absolute_url = urljoin(BAIDU_BASE_URL, href)
             if is_baidu_result_redirect(absolute_url):
                 absolute_url = self.resolve_redirect(absolute_url)
-            urls.append(absolute_url)
+            if not absolute_url.startswith(("http://", "https://")):
+                continue
+            if absolute_url in seen:
+                continue
+            seen.add(absolute_url)
+            results.append(SearchResult(url=absolute_url, title=title, snippet=snippet))
 
-            if len(normalize_urls(urls)) >= max_results:
+            if len(results) >= max_results:
                 break
 
-        return normalize_urls(urls)[:max_results]
+        return results
 
     def resolve_redirect(self, url: str) -> str:
         """Resolve Baidu's result redirect URL to the target page when possible."""
@@ -131,29 +140,44 @@ def is_baidu_result_redirect(url: str) -> bool:
 
 
 def candidate_baidu_hrefs(soup: BeautifulSoup) -> list[str]:
-    selectors = [
-        "h3.t a[href]",
-        ".result h3 a[href]",
-        ".result-op h3 a[href]",
-        "div.c-container h3 a[href]",
-    ]
-    hrefs: list[str] = []
+    return [href for href, _title, _snippet in candidate_baidu_results(soup)]
+
+
+def candidate_baidu_results(soup: BeautifulSoup) -> list[tuple[str, str, str]]:
+    """Extract (href, title, snippet) tuples from Baidu result containers.
+
+    Baidu wraps each organic result in ``div.c-container`` (or ``.result`` /
+    ``.result-op``) with the link in an ``h3`` and the abstract in
+    ``.c-abstract``. Reading the abstract gives the ranker topical text.
+    """
+
+    results: list[tuple[str, str, str]] = []
     seen: set[str] = set()
 
-    for selector in selectors:
+    for container in soup.select("div.c-container, .result, .result-op"):
+        anchor = container.select_one("h3 a[href]")
+        if anchor is None:
+            continue
+        href = cast(str, anchor.get("href", ""))
+        if not href or href in seen:
+            continue
+        seen.add(href)
+        title = anchor.get_text(" ", strip=True)
+        snippet_node = container.select_one(
+            ".c-abstract, [class*='content-right'], .c-span-last"
+        )
+        snippet = snippet_node.get_text(" ", strip=True) if snippet_node else ""
+        results.append((href, title, snippet))
+
+    if results:
+        return results
+
+    # Fallback: bare result-link anchors without recognizable containers.
+    for selector in ("h3.t a[href]", "div.c-container h3 a[href]", 'a[href*="/link?"]'):
         for anchor in soup.select(selector):
             href = cast(str, anchor.get("href", ""))
             if href and href not in seen:
                 seen.add(href)
-                hrefs.append(href)
+                results.append((href, anchor.get_text(" ", strip=True), ""))
 
-    if hrefs:
-        return hrefs
-
-    for anchor in soup.select('a[href*="/link?"]'):
-        href = cast(str, anchor.get("href", ""))
-        if href and href not in seen:
-            seen.add(href)
-            hrefs.append(href)
-
-    return hrefs
+    return results

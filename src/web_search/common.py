@@ -4,8 +4,27 @@ import logging
 import re
 import ssl
 from collections.abc import Iterable
+from dataclasses import dataclass, replace
 from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request
+
+
+@dataclass(frozen=True)
+class SearchResult:
+    """A single search engine result with its topical text.
+
+    The ``title`` and ``snippet`` are the strongest signals a provider returns
+    for whether a URL is relevant to the query. Keeping them lets the ranker
+    score topical relevance instead of guessing from URL shape alone.
+    """
+
+    url: str
+    title: str = ""
+    snippet: str = ""
+
+    @property
+    def relevance_text(self) -> str:
+        return f"{self.title} {self.snippet}".strip()
 
 BAIDU_BASE_URL = "https://www.baidu.com"
 BING_BASE_URL = "https://cn.bing.com"
@@ -279,6 +298,67 @@ def _search_query_terms(query: str) -> list[str]:
     ]
 
 
+# REFACTOR: Title/snippet relevance is the strongest topical signal a provider
+# gives us. Weight it heavily so an off-topic but well-shaped URL cannot
+# out-rank a genuinely relevant page, and so a result whose snippet shares no
+# query terms is pushed below the usability gate.
+TEXT_RELEVANCE_MAX_BONUS = 45
+TEXT_RELEVANCE_MISS_PENALTY = 60
+
+
+def text_relevance_delta(text: str, query: str) -> int:
+    """Score how well result title/snippet text matches the query.
+
+    Returns a positive bonus proportional to the share of query terms found in
+    ``text``, or a negative penalty when the text is present but shares no
+    query terms (a strong off-topic signal). Returns ``0`` when either the
+    query or the text carries no usable terms, leaving URL-shape scoring intact.
+    """
+
+    query_terms = _search_query_terms(query)
+    if not query_terms:
+        return 0
+
+    normalized = text.lower()
+    if not normalized.strip():
+        return 0
+
+    matched = sum(1 for term in set(query_terms) if term in normalized)
+    if matched == 0:
+        return -TEXT_RELEVANCE_MISS_PENALTY
+
+    coverage = matched / len(set(query_terms))
+    return round(coverage * TEXT_RELEVANCE_MAX_BONUS)
+
+
+def result_quality_score(result: SearchResult, *, query: str = "") -> int:
+    """Score a search result using URL shape plus title/snippet relevance."""
+
+    score = url_quality_score(result.url, query=query)
+    if score <= 0:
+        return score
+    return score + text_relevance_delta(result.relevance_text, query)
+
+
+def normalize_results(results: Iterable[SearchResult]) -> list[SearchResult]:
+    """Deduplicate and validate search results, preserving title/snippet text."""
+
+    seen: set[str] = set()
+    normalized: list[SearchResult] = []
+
+    for result in results:
+        clean_url = (result.url or "").strip()
+        if not clean_url or clean_url in seen:
+            continue
+        if not clean_url.startswith(("http://", "https://")):
+            continue
+
+        seen.add(clean_url)
+        normalized.append(replace(result, url=clean_url))
+
+    return normalized
+
+
 def select_top_urls(
     urls: list[str],
     top_k: int | None,
@@ -288,10 +368,27 @@ def select_top_urls(
 ) -> list[str]:
     """Keep high-quality URLs after deterministic filtering and deduplication."""
 
-    filtered = ranked_usable_urls(urls, min_score=min_score, query=query)
+    return select_top_results(
+        [SearchResult(url=url) for url in urls],
+        top_k,
+        min_score=min_score,
+        query=query,
+    )
+
+
+def select_top_results(
+    results: list[SearchResult],
+    top_k: int | None,
+    min_score: int = DEFAULT_MIN_USABLE_URL_SCORE,
+    *,
+    query: str = "",
+) -> list[str]:
+    """Rank results by URL shape + title/snippet relevance, keep the top-k URLs."""
+
+    ranked = ranked_usable_results(results, min_score=min_score, query=query)
     if top_k and top_k > 0:
-        return filtered[:top_k]
-    return filtered
+        return ranked[:top_k]
+    return ranked
 
 
 def ranked_usable_urls(
@@ -300,19 +397,32 @@ def ranked_usable_urls(
     *,
     query: str = "",
 ) -> list[str]:
+    return ranked_usable_results(
+        [SearchResult(url=url) for url in urls],
+        min_score=min_score,
+        query=query,
+    )
+
+
+def ranked_usable_results(
+    results: Iterable[SearchResult],
+    min_score: int = DEFAULT_MIN_USABLE_URL_SCORE,
+    *,
+    query: str = "",
+) -> list[str]:
     best_by_key: dict[tuple[str, str], tuple[int, int, str]] = {}
 
-    for position, url in enumerate(normalize_urls(urls)):
-        score = url_quality_score(url, query=query)
+    for position, result in enumerate(normalize_results(results)):
+        score = result_quality_score(result, query=query)
         usable = score >= min_score
         logger.debug(
             "Scored web search URL candidate url=%s score=%s min_score=%s usable=%s",
-            url,
+            result.url,
             score,
             min_score,
             usable,
             extra={
-                "url": url,
+                "url": result.url,
                 "score": score,
                 "min_score": min_score,
                 "usable": usable,
@@ -321,10 +431,10 @@ def ranked_usable_urls(
         if score < min_score:
             continue
 
-        key = canonical_url_key(url)
+        key = canonical_url_key(result.url)
         current = best_by_key.get(key)
         if current is None or (score, -position) > (current[0], -current[1]):
-            best_by_key[key] = (score, position, url)
+            best_by_key[key] = (score, position, result.url)
 
     ranked = sorted(best_by_key.values(), key=lambda item: (-item[0], item[1], item[2]))
     return [url for _score, _position, url in ranked]

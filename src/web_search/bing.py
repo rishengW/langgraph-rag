@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 
 from .common import (
     BING_BASE_URL,
-    normalize_urls,
+    SearchResult,
     search_request,
     urlopen_context,
 )
@@ -98,6 +98,9 @@ class BingWebSearch:
         return "bing"
 
     def search(self, query: str, max_results: int = 20) -> list[str]:
+        return [result.url for result in self.search_results(query, max_results)]
+
+    def search_results(self, query: str, max_results: int = 20) -> list[SearchResult]:
         search_url = build_bing_search_url(
             query=query,
             max_results=max_results,
@@ -115,14 +118,14 @@ class BingWebSearch:
             html = response.read().decode(encoding, errors="replace")
 
         soup = BeautifulSoup(html, "html.parser")
-        hrefs = candidate_bing_hrefs(soup)
-        if not hrefs and is_bing_verification_page(html, final_url):
+        raw_results = candidate_bing_results(soup)
+        if not raw_results and is_bing_verification_page(html, final_url):
             raise BingVerificationError(
                 "Bing returned a verification/captcha or search shell page; "
                 "falling back to another search provider is required."
             )
 
-        if not hrefs:
+        if not raw_results:
             title = soup.title.string.strip() if soup.title and soup.title.string else ""
             logger.warning(
                 "Bing returned no parseable result links "
@@ -132,34 +135,59 @@ class BingWebSearch:
                 len(html),
             )
 
-        urls: list[str] = []
-        for href in hrefs:
+        results: list[SearchResult] = []
+        seen: set[str] = set()
+        for href, title, snippet in raw_results:
             url = unwrap_bing_redirect(href)
-            if url:
-                urls.append(url)
-            if len(normalize_urls(urls)) >= max_results:
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            results.append(SearchResult(url=url, title=title, snippet=snippet))
+            if len(results) >= max_results:
                 break
 
-        return normalize_urls(urls)[:max_results]
+        return results
 
 
 def candidate_bing_hrefs(soup: BeautifulSoup) -> list[str]:
-    selectors = [
-        "li.b_algo h2 a[href]",
-        "ol#b_results h2 a[href]",
-        "main h2 a[href]",
-    ]
-    hrefs: list[str] = []
+    return [href for href, _title, _snippet in candidate_bing_results(soup)]
+
+
+def candidate_bing_results(soup: BeautifulSoup) -> list[tuple[str, str, str]]:
+    """Extract (href, title, snippet) tuples from Bing result blocks.
+
+    Snippet text is read from the result container (``li.b_algo``) so the
+    ranker can judge topical relevance, not just URL shape.
+    """
+
+    results: list[tuple[str, str, str]] = []
     seen: set[str] = set()
 
-    for selector in selectors:
+    for item in soup.select("li.b_algo, ol#b_results > li"):
+        anchor = item.select_one("h2 a[href]")
+        if anchor is None:
+            continue
+        href = cast(str, anchor.get("href", ""))
+        if not href or href in seen:
+            continue
+        seen.add(href)
+        title = anchor.get_text(" ", strip=True)
+        snippet_node = item.select_one("div.b_caption p, p.b_lineclamp, .b_caption")
+        snippet = snippet_node.get_text(" ", strip=True) if snippet_node else ""
+        results.append((href, title, snippet))
+
+    if results:
+        return results
+
+    # Fallback: bare anchors without recognizable result containers.
+    for selector in ("li.b_algo h2 a[href]", "ol#b_results h2 a[href]", "main h2 a[href]"):
         for anchor in soup.select(selector):
             href = cast(str, anchor.get("href", ""))
             if href and href not in seen:
                 seen.add(href)
-                hrefs.append(href)
+                results.append((href, anchor.get_text(" ", strip=True), ""))
 
-    return hrefs
+    return results
 
 
 def is_bing_verification_page(html: str, final_url: str) -> bool:

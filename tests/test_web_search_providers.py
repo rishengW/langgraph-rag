@@ -670,3 +670,121 @@ def test_select_top_urls_passes_query_through(isolated_settings):
     selected = select_top_urls(urls, top_k=3, query="deepseek v4")
     # URLs matching the query should rank higher
     assert "deepseek.net" in selected[0]
+
+
+# ── snippet-aware relevance ranking ─────────────────────────────────────────
+
+
+class SnippetSearchProvider:
+    """Provider that returns SearchResult objects with title/snippet text."""
+
+    provider_name = "snippet"
+
+    def __init__(self, results):
+        self.results = results
+        self.calls: list[tuple[str, int]] = []
+
+    def search_results(self, query: str, max_results: int = 20):
+        self.calls.append((query, max_results))
+        return self.results
+
+    def search(self, query: str, max_results: int = 20):
+        return [result.url for result in self.results]
+
+
+def test_text_relevance_delta_rewards_matches_and_penalizes_misses():
+    from src.web_search.common import text_relevance_delta
+
+    full = text_relevance_delta("DeepSeek V4 model release", "deepseek v4 model")
+    partial = text_relevance_delta("DeepSeek announcement", "deepseek v4 model")
+    miss = text_relevance_delta("unrelated cooking recipe", "deepseek v4 model")
+    empty = text_relevance_delta("", "deepseek v4 model")
+
+    assert full > partial > 0
+    assert miss < 0
+    assert empty == 0
+
+
+def test_result_quality_score_uses_snippet_text():
+    from src.web_search.common import SearchResult, result_quality_score
+
+    on_topic = SearchResult(
+        url="https://news.example.com/2026/launch",
+        title="DeepSeek V4 launch",
+        snippet="DeepSeek released its V4 model in 2026.",
+    )
+    off_topic = SearchResult(
+        url="https://news.example.com/2026/launch",
+        title="Best pizza recipes",
+        snippet="A roundup of pizza recipes for dinner.",
+    )
+    query = "deepseek v4 model"
+
+    assert result_quality_score(on_topic, query=query) > result_quality_score(
+        off_topic, query=query
+    )
+
+
+def test_select_top_results_ranks_relevant_snippet_first():
+    from src.web_search.common import SearchResult, select_top_results
+
+    results = [
+        SearchResult(
+            url="https://example.com/blog/cooking",
+            title="Weeknight cooking",
+            snippet="Recipes and meal prep ideas.",
+        ),
+        SearchResult(
+            url="https://example.com/news/announcement",
+            title="DeepSeek V4 model released",
+            snippet="The new DeepSeek V4 model launched in 2026.",
+        ),
+    ]
+
+    selected = select_top_results(results, top_k=2, query="deepseek v4 model")
+
+    assert selected[0] == "https://example.com/news/announcement"
+
+
+def test_discover_urls_prefers_relevant_snippet(isolated_settings):
+    from src.web_search.common import SearchResult
+
+    settings = isolated_settings(web_search_max_results=5, web_search_top_k=1)
+    provider = SnippetSearchProvider(
+        [
+            SearchResult(
+                url="https://example.com/blog/random",
+                title="Unrelated gardening tips",
+                snippet="How to grow tomatoes at home.",
+            ),
+            SearchResult(
+                url="https://example.com/news/deepseek",
+                title="DeepSeek V4 model release",
+                snippet="DeepSeek announced the V4 model in 2026.",
+            ),
+        ]
+    )
+
+    urls = discover_urls_from_web("what is the latest deepseek model", settings, provider=provider)
+
+    assert urls == ["https://example.com/news/deepseek"]
+    assert provider.calls and provider.calls[0][0]
+
+
+def test_discover_urls_drops_off_topic_snippet_below_gate(isolated_settings):
+    from src.web_search.common import SearchResult
+
+    settings = isolated_settings(web_search_max_results=5, web_search_top_k=3)
+    provider = SnippetSearchProvider(
+        [
+            SearchResult(
+                url="https://example.com/blog/pizza",
+                title="Pizza recipes",
+                snippet="The best homemade pizza recipes for any night.",
+            ),
+        ]
+    )
+
+    urls = discover_urls_from_web("deepseek v4 model architecture", settings, provider=provider)
+
+    assert urls == []

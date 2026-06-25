@@ -3,6 +3,9 @@ from __future__ import annotations
 from .baidu import BaiduVerificationError, BaiduWebSearch
 from .bing import BingVerificationError, BingWebSearch
 
+# REFACTOR: Export the search result value object for snippet-aware ranking.
+from .common import SearchResult
+
 # REFACTOR: Export lightweight web-search fetch and prompt primitives.
 from .content_fetcher import FetchedPage, fetch_pages, is_readable_text
 from .discovery import discover_urls_from_web, settings_for_discovered_urls
@@ -26,6 +29,7 @@ __all__ = [
     "DuckDuckGoWebSearch",
     "FetchedPage",
     "FetchPolicy",
+    "SearchResult",
     "WebSearchProvider",
     "WebSearchInput",
     "build_web_search_prompt",

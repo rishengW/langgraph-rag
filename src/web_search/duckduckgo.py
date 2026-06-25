@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 
 from .common import (
     DUCKDUCKGO_BASE_URL,
-    normalize_urls,
+    SearchResult,
     search_request,
     urlopen_context,
 )
@@ -55,19 +55,22 @@ class DuckDuckGoWebSearch:
         return "duckduckgo"
 
     def search(self, query: str, max_results: int = 20) -> list[str]:
+        return [result.url for result in self.search_results(query, max_results)]
+
+    def search_results(self, query: str, max_results: int = 20) -> list[SearchResult]:
         ddgs_error: Exception | None = None
         try:
-            urls = normalize_urls(self.search_ddgs(query, max_results))
+            results = _dedupe_results(self.search_ddgs_results(query, max_results))
         except Exception as exc:
             ddgs_error = exc
             logger.warning("DDGS search failed; trying DuckDuckGo HTML fallback: %s", exc)
-            urls = []
+            results = []
 
-        if urls:
-            return urls[:max_results]
+        if results:
+            return results[:max_results]
 
         try:
-            return normalize_urls(self.search_html(query, max_results))[:max_results]
+            return _dedupe_results(self.search_html_results(query, max_results))[:max_results]
         except Exception as exc:
             if ddgs_error:
                 raise RuntimeError(
@@ -77,6 +80,9 @@ class DuckDuckGoWebSearch:
             raise
 
     def search_ddgs(self, query: str, max_results: int) -> list[str]:
+        return [result.url for result in self.search_ddgs_results(query, max_results)]
+
+    def search_ddgs_results(self, query: str, max_results: int) -> list[SearchResult]:
         DDGS = load_ddgs()
 
         search_kwargs = {
@@ -96,17 +102,28 @@ class DuckDuckGoWebSearch:
             results = list(ddgs.text(query, **search_kwargs))
 
         # DDGS clients have used several field names across versions
-        # ("href", "link", "url"). Read the first one that's present.
-        extracted: list[str] = []
+        # ("href", "link", "url") and ("title") / ("body") for snippet text.
+        extracted: list[SearchResult] = []
         for result in results:
+            if not isinstance(result, dict):
+                continue
+            url = ""
             for key in ("href", "link", "url"):
-                value = result.get(key) if isinstance(result, dict) else None
+                value = result.get(key)
                 if value:
-                    extracted.append(value)
+                    url = value
                     break
+            if not url:
+                continue
+            title = str(result.get("title") or "")
+            snippet = str(result.get("body") or result.get("snippet") or "")
+            extracted.append(SearchResult(url=url, title=title, snippet=snippet))
         return extracted
 
     def search_html(self, query: str, max_results: int) -> list[str]:
+        return [result.url for result in self.search_html_results(query, max_results)]
+
+    def search_html_results(self, query: str, max_results: int) -> list[SearchResult]:
         params = {
             "q": query,
             "kl": self.region,
@@ -134,15 +151,57 @@ class DuckDuckGoWebSearch:
         if not html:
             raise RuntimeError(f"DuckDuckGo HTML search failed: {last_error}")
 
-        urls: list[str] = []
-        for anchor in BeautifulSoup(html, "html.parser").select("a.result__a"):
+        results: list[SearchResult] = []
+        seen: set[str] = set()
+        for result_block in BeautifulSoup(html, "html.parser").select("div.result, div.web-result"):
+            anchor = result_block.select_one("a.result__a")
+            if anchor is None:
+                continue
             href = cast(str, anchor.get("href", ""))
-            if href:
-                urls.append(unwrap_duckduckgo_redirect(href))
-            if len(normalize_urls(urls)) >= max_results:
+            if not href:
+                continue
+            url = unwrap_duckduckgo_redirect(href)
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            title = anchor.get_text(" ", strip=True)
+            snippet_node = result_block.select_one("a.result__snippet, .result__snippet")
+            snippet = snippet_node.get_text(" ", strip=True) if snippet_node else ""
+            results.append(SearchResult(url=url, title=title, snippet=snippet))
+            if len(results) >= max_results:
                 break
 
-        return urls
+        if results:
+            return results
+
+        # Fallback: bare result anchors without recognizable containers.
+        for anchor in BeautifulSoup(html, "html.parser").select("a.result__a"):
+            href = cast(str, anchor.get("href", ""))
+            if not href:
+                continue
+            url = unwrap_duckduckgo_redirect(href)
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            results.append(SearchResult(url=url, title=anchor.get_text(" ", strip=True)))
+            if len(results) >= max_results:
+                break
+
+        return results
+
+
+def _dedupe_results(results: list[SearchResult]) -> list[SearchResult]:
+    seen: set[str] = set()
+    deduped: list[SearchResult] = []
+    for result in results:
+        url = (result.url or "").strip()
+        if not url or url in seen:
+            continue
+        if not url.startswith(("http://", "https://")):
+            continue
+        seen.add(url)
+        deduped.append(result)
+    return deduped
 
 
 def unwrap_duckduckgo_redirect(href: str) -> str:

@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING
 
 from .baidu import BaiduVerificationError
 from .bing import BingVerificationError
-from .common import DEFAULT_MIN_USABLE_URL_SCORE, normalize_urls, select_top_urls
+from .common import (
+    DEFAULT_MIN_USABLE_URL_SCORE,
+    SearchResult,
+    normalize_results,
+    select_top_results,
+)
 from .factory import get_search_provider, normalize_provider_name
 from .protocol import WebSearchProvider
 from .query_prep import build_search_query
@@ -93,7 +98,9 @@ def _discover_with_provider(
         search_query,
     )
     try:
-        urls = normalize_urls(search_provider.search(search_query, settings.web_search_max_results))
+        results = normalize_results(
+            _provider_search_results(search_provider, search_query, settings.web_search_max_results)
+        )
     except (BaiduVerificationError, BingVerificationError) as exc:
         cooldown_seconds = _verification_cooldown_seconds(search_provider.provider_name)
         _cool_down_provider(search_provider.provider_name, cooldown_seconds)
@@ -109,8 +116,8 @@ def _discover_with_provider(
         logger.warning("Web search provider %s failed: %s", search_provider.provider_name, exc)
         return []
 
-    selected = select_top_urls(
-        urls,
+    selected = select_top_results(
+        results,
         getattr(settings, "web_search_top_k", 0) or 0,
         min_score=getattr(
             settings,
@@ -121,18 +128,31 @@ def _discover_with_provider(
     )
     logger.info(
         "Discovered %s URL(s) from %s; keeping %s usable URL(s) after quality filtering",
-        len(urls),
+        len(results),
         search_provider.provider_name,
         len(selected),
     )
     # REFACTOR: Treat provider results that fail URL quality gates as a provider miss.
-    if not selected and urls:
+    if not selected and results:
         logger.info(
             "Web search provider %s returned no usable URLs after filtering; "
             "falling back when another provider is available",
             search_provider.provider_name,
         )
     return selected
+
+
+def _provider_search_results(
+    search_provider: WebSearchProvider,
+    search_query: str,
+    max_results: int,
+) -> list[SearchResult]:
+    """Prefer snippet-aware results; fall back to bare URLs for older providers."""
+
+    search_results = getattr(search_provider, "search_results", None)
+    if callable(search_results):
+        return list(search_results(search_query, max_results))
+    return [SearchResult(url=url) for url in search_provider.search(search_query, max_results)]
 
 
 def _verification_cooldown_seconds(provider_name: str) -> float:

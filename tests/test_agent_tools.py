@@ -51,8 +51,14 @@ def test_weather_tool_uses_city_geocoding_and_formats_forecast():
     result = tool.invoke({"city": "Shanghai", "forecast_days": 1})
 
     assert "Weather for Shanghai, Shanghai, China" in result
-    assert "Current temperature: 26.5C" in result
-    assert "Conditions: partly cloudy" in result
+    # Current conditions are rendered as a markdown table.
+    assert "| Detail | Value |" in result
+    assert "| --- | --- |" in result
+    assert "| Current temperature | 26.5C |" in result
+    assert "| Conditions | partly cloudy |" in result
+    # Forecast is rendered as its own markdown table.
+    assert "| Date | Range | Conditions |" in result
+    assert "| 2026-06-12 | 22.0C-30.0C | partly cloudy |" in result
     assert calls[1][1]["params"]["forecast_days"] == 1
 
 

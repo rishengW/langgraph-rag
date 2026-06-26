@@ -180,46 +180,69 @@ def _format_weather(label: str, payload: dict[str, Any]) -> str:
     weather_code = current.get("weather_code")
     description = _weather_description(weather_code)
 
-    lines = [f"Weather for {label}:"]
+    # Emit a GitHub-flavored markdown table so the rendered answer is reliably
+    # structured regardless of how the model decides to phrase it.
+    current_rows: list[tuple[str, str]] = []
     if temperature is not None:
         unit = units.get("temperature_2m", "C")
-        lines.append(f"Current temperature: {temperature}{unit}")
+        current_rows.append(("Current temperature", f"{temperature}{unit}"))
     if humidity is not None:
-        lines.append(f"Humidity: {humidity}{units.get('relative_humidity_2m', '%')}")
+        current_rows.append(
+            ("Humidity", f"{humidity}{units.get('relative_humidity_2m', '%')}")
+        )
     if wind is not None:
-        lines.append(f"Wind: {wind}{units.get('wind_speed_10m', ' km/h')}")
+        current_rows.append(("Wind", f"{wind}{units.get('wind_speed_10m', ' km/h')}"))
     if description:
-        lines.append(f"Conditions: {description}")
+        current_rows.append(("Conditions", description))
 
-    forecast_lines = _daily_forecast_lines(daily, daily_units)
-    if forecast_lines:
-        lines.append("Forecast:")
-        lines.extend(forecast_lines)
+    sections: list[str] = [f"Weather for {label}:"]
+    if current_rows:
+        sections.append(_markdown_table(["Detail", "Value"], current_rows))
+
+    forecast_table = _daily_forecast_table(daily, daily_units)
+    if forecast_table:
+        sections.append("Forecast:")
+        sections.append(forecast_table)
+    return "\n\n".join(sections)
+
+
+def _markdown_table(headers: list[str], rows: list[tuple[str, ...]]) -> str:
+    """Render a GitHub-flavored markdown table from headers and row tuples."""
+
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(str(cell) for cell in row) + " |")
     return "\n".join(lines)
 
 
-def _daily_forecast_lines(
+def _daily_forecast_table(
     daily: dict[str, Any],
     units: dict[str, Any],
-) -> list[str]:
+) -> str:
     dates = daily.get("time") or []
     max_temps = daily.get("temperature_2m_max") or []
     min_temps = daily.get("temperature_2m_min") or []
     codes = daily.get("weather_code") or []
     temp_unit = units.get("temperature_2m_max", "C")
 
-    lines: list[str] = []
+    rows: list[tuple[str, str, str]] = []
     for index, day in enumerate(dates[:5]):
         high = _list_get(max_temps, index)
         low = _list_get(min_temps, index)
         description = _weather_description(_list_get(codes, index))
-        parts = [str(day)]
-        if high is not None and low is not None:
-            parts.append(f"{low}{temp_unit}-{high}{temp_unit}")
-        if description:
-            parts.append(description)
-        lines.append("- " + ": ".join([parts[0], ", ".join(parts[1:])]))
-    return lines
+        temp_range = (
+            f"{low}{temp_unit}-{high}{temp_unit}"
+            if high is not None and low is not None
+            else ""
+        )
+        rows.append((str(day), temp_range, description))
+
+    if not rows:
+        return ""
+    return _markdown_table(["Date", "Range", "Conditions"], rows)
 
 
 def _weather_description(code: Any) -> str:

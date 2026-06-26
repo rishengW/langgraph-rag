@@ -48,7 +48,13 @@ AGENT_SYSTEM_PROMPT = (
     "The exception above is for facts that do not change over time.\n\n"
     "When you call a tool, formulate the query as search-engine keywords "
     "(not a natural-language question): extract core concepts and named entities, "
-    "drop filler words, and include the current year for time-sensitive queries."
+    "drop filler words, and include the current year for time-sensitive queries.\n\n"
+    "FORMATTING — When your answer presents structured data with several "
+    "labeled fields (for example weather conditions, a stock quote, a currency "
+    "conversion, or a side-by-side comparison), format that data as a "
+    "GitHub-flavored markdown table with a clear header row. Use plain text or "
+    "a short bullet list for single values, explanations, and prose. Keep any "
+    "table compact and follow it with at most one short sentence of context."
 )
 
 RAG_PROMPT = ChatPromptTemplate.from_template(

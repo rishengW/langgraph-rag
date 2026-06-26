@@ -72,6 +72,21 @@ function renderInlineMarkdown(text) {
     return value;
 }
 
+function renderTableRow(line) {
+    // Split on pipes, dropping the leading/trailing empty cells that result
+    // from the conventional surrounding pipes.
+    let cells = line.trim().split("|");
+    if (cells.length && cells[0].trim() === "") cells = cells.slice(1);
+    if (cells.length && cells[cells.length - 1].trim() === "") cells = cells.slice(0, -1);
+    return cells.map((cell) => cell.trim());
+}
+
+function isTableDivider(line) {
+    // A divider row looks like: | --- | :--: | ---: |
+    const cells = renderTableRow(line);
+    return cells.length > 0 && cells.every((cell) => /^:?-{1,}:?$/.test(cell));
+}
+
 function renderMarkdownBlocks(text) {
     const lines = String(text).replace(/\r\n/g, "\n").split("\n");
     const html = [];
@@ -90,11 +105,47 @@ function renderMarkdownBlocks(text) {
         listType = null;
     }
 
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i];
         const trimmed = line.trim();
         if (!trimmed) {
             closeParagraph();
             closeList();
+            continue;
+        }
+
+        // Markdown table: a header row followed by a divider row, then body
+        // rows. Detected on the header line by peeking at the next line.
+        if (
+            trimmed.includes("|") &&
+            i + 1 < lines.length &&
+            isTableDivider(lines[i + 1])
+        ) {
+            closeParagraph();
+            closeList();
+            const headers = renderTableRow(trimmed);
+            const bodyRows = [];
+            let j = i + 2;
+            for (; j < lines.length; j += 1) {
+                const bodyLine = lines[j].trim();
+                if (!bodyLine || !bodyLine.includes("|")) break;
+                bodyRows.push(renderTableRow(lines[j]));
+            }
+            const head = headers
+                .map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`)
+                .join("");
+            const body = bodyRows
+                .map(
+                    (row) =>
+                        `<tr>${row
+                            .map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`)
+                            .join("")}</tr>`,
+                )
+                .join("");
+            html.push(
+                `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`,
+            );
+            i = j - 1;
             continue;
         }
 

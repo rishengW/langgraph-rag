@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from ...config import Settings
 from ...llm.prompts import AGENT_SYSTEM_PROMPT, GRADE_PROMPT, RAG_PROMPT
-from ...llm.provider import build_chat_model
+from ...llm.provider import build_chat_model, build_structured_chat_model
 from ...utils.networking import configure_ssl_from_env
 from ...utils.retry import invoke_with_retry
 
@@ -30,6 +30,16 @@ def new_chat_model(settings: Settings) -> Any:
     """Create a DashScope chat model with project-level network settings."""
 
     return build_chat_model(settings)
+
+
+def new_structured_chat_model(settings: Settings, schema: Any) -> Any:
+    """Create a chat model bound to a structured-output schema.
+
+    Routes through the provider seam so DeepSeek uses ``function_calling``
+    instead of the unsupported ``json_schema`` response format.
+    """
+
+    return build_structured_chat_model(settings, schema)
 
 
 def message_text(message: Any) -> str:
@@ -368,7 +378,7 @@ def grade_documents_factory(
             binary_score: str = Field(description="Relevance score: 'yes' or 'no'")
             explanation: str | None = Field(None, description="Optional short explanation")
 
-        llm_with_tool = new_chat_model(settings).with_structured_output(Grade)
+        llm_with_tool = new_structured_chat_model(settings, Grade)
         # Bind today's date so the grader is anchored in the present and does
         # not flag post-cutoff information as "not relevant".
         dated_grade_prompt = GRADE_PROMPT.partial(current_date=date.today().isoformat())

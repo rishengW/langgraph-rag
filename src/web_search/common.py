@@ -301,21 +301,71 @@ def _search_query_terms(query: str) -> list[str]:
 # REFACTOR: Title/snippet relevance is the strongest topical signal a provider
 # gives us. Weight it heavily so an off-topic but well-shaped URL cannot
 # out-rank a genuinely relevant page, and so a result whose snippet shares no
-# query terms is pushed below the usability gate.
+# distinctive query terms is pushed below the usability gate.
 TEXT_RELEVANCE_MAX_BONUS = 45
 TEXT_RELEVANCE_MISS_PENALTY = 60
+
+# Very common words carry almost no topical signal: matching them should not
+# rescue an otherwise off-topic page. "model" is the canonical failure case —
+# it appears in dictionary entries and car news alike, so it must not, on its
+# own, mark a page as relevant to a query about a specific protocol/product.
+GENERIC_QUERY_TERMS = frozenset({
+    "ai",
+    "app",
+    "data",
+    "guide",
+    "info",
+    "information",
+    "model",
+    "models",
+    "news",
+    "online",
+    "page",
+    "service",
+    "services",
+    "site",
+    "software",
+    "system",
+    "tool",
+    "tools",
+    "version",
+    "web",
+    "website",
+})
+# A match only counts as "on topic" when the result shares a meaningful share
+# of the distinctive query terms. Matching a single generic word is not enough.
+TEXT_RELEVANCE_MIN_COVERAGE = 0.34
+
+
+def _term_weight(term: str) -> float:
+    """Weight a query term by how distinctive it is.
+
+    Generic, high-frequency words contribute little; distinctive named entities
+    and acronyms contribute the most. This keeps a lone "model" match from
+    rescuing an off-topic page while a "mcp"/"anthropic" match still counts.
+    """
+
+    if term in GENERIC_QUERY_TERMS:
+        return 0.2
+    # Short acronyms (mcp, llm, rag) are highly distinctive query signals.
+    if len(term) <= 4:
+        return 1.3
+    return 1.0
 
 
 def text_relevance_delta(text: str, query: str) -> int:
     """Score how well result title/snippet text matches the query.
 
-    Returns a positive bonus proportional to the share of query terms found in
-    ``text``, or a negative penalty when the text is present but shares no
-    query terms (a strong off-topic signal). Returns ``0`` when either the
-    query or the text carries no usable terms, leaving URL-shape scoring intact.
+    Returns a positive bonus proportional to the weighted share of query terms
+    found in ``text``, or a negative penalty when the text is present but
+    shares no meaningful query terms (a strong off-topic signal). Matching only
+    generic, high-frequency words (e.g. "model") counts for very little and
+    will not, on its own, clear the relevance bar. Returns ``0`` when either
+    the query or the text carries no usable terms, leaving URL-shape scoring
+    intact.
     """
 
-    query_terms = _search_query_terms(query)
+    query_terms = set(_search_query_terms(query))
     if not query_terms:
         return 0
 
@@ -323,11 +373,22 @@ def text_relevance_delta(text: str, query: str) -> int:
     if not normalized.strip():
         return 0
 
-    matched = sum(1 for term in set(query_terms) if term in normalized)
-    if matched == 0:
-        return -TEXT_RELEVANCE_MISS_PENALTY
+    total_weight = sum(_term_weight(term) for term in query_terms)
+    if total_weight <= 0:
+        return 0
 
-    coverage = matched / len(set(query_terms))
+    matched_weight = sum(
+        _term_weight(term) for term in query_terms if term in normalized
+    )
+    coverage = matched_weight / total_weight
+
+    if coverage < TEXT_RELEVANCE_MIN_COVERAGE:
+        # Below the bar: either nothing matched or only generic filler did.
+        # Penalize proportionally so a pure miss is punished hardest while a
+        # weak generic-only match is nudged down rather than rewarded.
+        penalty_fraction = 1.0 - (coverage / TEXT_RELEVANCE_MIN_COVERAGE)
+        return -round(TEXT_RELEVANCE_MISS_PENALTY * penalty_fraction)
+
     return round(coverage * TEXT_RELEVANCE_MAX_BONUS)
 
 

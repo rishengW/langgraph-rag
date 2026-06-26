@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from ...config import Settings
 from ...utils.retry import invoke_with_retry
-from .common import new_chat_model, qa_question_resolver
+from .common import new_structured_chat_model, qa_question_resolver
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ def decompose_factory(
         )
 
         try:
-            chain = new_chat_model(settings).with_structured_output(_DecomposeResult)
+            chain = new_structured_chat_model(settings, _DecomposeResult)
             result = invoke_with_retry(
                 chain,
                 [HumanMessage(content=prompt)],

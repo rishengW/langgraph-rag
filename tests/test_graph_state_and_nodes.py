@@ -191,15 +191,15 @@ def test_grade_documents_uses_reranked_context_and_binary_score(
     settings = isolated_settings()
     captured_payload = {}
 
-    class FakeModel:
-        def with_structured_output(self, _schema):
-            return RunnableLambda(lambda _payload: None)
-
     def fake_invoke_with_retry(_chain, payload, max_retries):
         captured_payload.update(payload)
         return SimpleNamespace(binary_score="yes", explanation="matched")
 
-    monkeypatch.setattr(common_nodes, "new_chat_model", lambda _settings: FakeModel())
+    monkeypatch.setattr(
+        common_nodes,
+        "new_structured_chat_model",
+        lambda _settings, _schema: RunnableLambda(lambda _payload: None),
+    )
     monkeypatch.setattr(common_nodes, "invoke_with_retry", fake_invoke_with_retry)
 
     route = grade_documents_factory(settings)(
@@ -235,16 +235,16 @@ def test_low_relevance_generate_requires_at_least_one_keyword_match(
         max_rewrites=2,
     )
 
-    class FakeModel:
-        def with_structured_output(self, _schema):
-            return RunnableLambda(
-                lambda _payload: SimpleNamespace(
-                    binary_score="no",
-                    explanation="irrelevant",
-                )
+    monkeypatch.setattr(
+        common_nodes,
+        "new_structured_chat_model",
+        lambda _settings, _schema: RunnableLambda(
+            lambda _payload: SimpleNamespace(
+                binary_score="no",
+                explanation="irrelevant",
             )
-
-    monkeypatch.setattr(common_nodes, "new_chat_model", lambda _settings: FakeModel())
+        ),
+    )
 
     route = grade_documents_factory(settings)(
         {

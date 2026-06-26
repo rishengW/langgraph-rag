@@ -788,3 +788,82 @@ def test_discover_urls_drops_off_topic_snippet_below_gate(isolated_settings):
     urls = discover_urls_from_web("deepseek v4 model architecture", settings, provider=provider)
 
     assert urls == []
+
+
+# ── generic-term hardening (MCP vs "model" regression) ───────────────────────
+
+
+def test_text_relevance_delta_ignores_lone_generic_term_match():
+    """A page that only shares the generic word 'model' is not on-topic."""
+    from src.web_search.common import text_relevance_delta
+
+    query = "model context protocol mcp anthropic"
+    # Cambridge "model" definition / Tesla "Model S" news share only "model".
+    generic_only = text_relevance_delta("model definition meaning", query)
+    on_topic = text_relevance_delta(
+        "Model Context Protocol (MCP) by Anthropic explained", query
+    )
+
+    assert generic_only < 0
+    assert on_topic > 0
+
+
+def test_result_quality_score_drops_generic_only_off_topic_page():
+    """The exact failure from the MCP run: 'model' pages must fall below gate."""
+    from src.web_search.common import (
+        DEFAULT_MIN_USABLE_URL_SCORE,
+        SearchResult,
+        result_quality_score,
+    )
+
+    query = "model context protocol mcp anthropic"
+    dictionary = SearchResult(
+        url="https://dictionary.cambridge.org/dictionary/english/model",
+        title="MODEL | English meaning",
+        snippet="model definition: 1. a representation of something; 2. a person who...",
+    )
+    tesla_news = SearchResult(
+        url="https://news.qq.com/rain/a/20260511A07GD300",
+        title="Tesla Model S and Model X discontinued",
+        snippet="Tesla announced it will stop producing the Model S and Model X.",
+    )
+    on_topic = SearchResult(
+        url="https://mcpcn.com/docs/intro",
+        title="Model Context Protocol (MCP) Introduction",
+        snippet="MCP is an open protocol from Anthropic standardizing tool access.",
+    )
+
+    assert result_quality_score(dictionary, query=query) < DEFAULT_MIN_USABLE_URL_SCORE
+    assert result_quality_score(tesla_news, query=query) < DEFAULT_MIN_USABLE_URL_SCORE
+    assert result_quality_score(on_topic, query=query) >= DEFAULT_MIN_USABLE_URL_SCORE
+
+
+def test_discover_urls_drops_generic_only_matches_end_to_end(isolated_settings):
+    from src.web_search.common import SearchResult
+
+    settings = isolated_settings(web_search_max_results=10, web_search_top_k=3)
+    provider = SnippetSearchProvider(
+        [
+            SearchResult(
+                url="https://dictionary.cambridge.org/dictionary/english/model",
+                title="MODEL | English meaning",
+                snippet="model definition: a representation of something.",
+            ),
+            SearchResult(
+                url="https://news.qq.com/rain/a/20260511A07GD300",
+                title="Tesla Model S and Model X discontinued",
+                snippet="Tesla will stop producing the Model S and Model X.",
+            ),
+            SearchResult(
+                url="https://mcpcn.com/docs/intro",
+                title="Model Context Protocol MCP Introduction",
+                snippet="MCP is an open protocol from Anthropic for tool access.",
+            ),
+        ]
+    )
+
+    urls = discover_urls_from_web(
+        "what is the model context protocol mcp by anthropic", settings, provider=provider
+    )
+
+    assert urls == ["https://mcpcn.com/docs/intro"]

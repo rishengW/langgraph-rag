@@ -169,6 +169,24 @@ def _restore_persisted_sessions(
     return restored
 
 
+def _graph_inputs_for_turn(session: ChatSession, message: str) -> dict[str, Any]:
+    """Build graph inputs for one chat turn.
+
+    The session's current ``source_urls`` are seeded into graph state so a
+    freshly web-search-refreshed URL set overwrites any stale ``source_urls``
+    left in the per-thread checkpoint by a previous turn. Without this, the
+    ``merge`` node re-ranks the previous turn's URLs ahead of the current
+    turn's freshly discovered URLs (equal hit counts, but better provider
+    rank), so every later question keeps fetching the first turn's pages.
+    """
+
+    inputs: dict[str, Any] = {"messages": [HumanMessage(content=message)]}
+    if session.source_urls:
+        inputs["source_urls"] = list(session.source_urls)
+        inputs["source_mode"] = session.source_mode
+    return inputs
+
+
 def _source_refresh_allowed(session: ChatSession, settings: Settings) -> bool:
     """Return whether chat should refresh this session from web search."""
 
@@ -509,7 +527,7 @@ def create_app(
         )
 
         config = {"configurable": {"thread_id": thread_id}}
-        inputs = {"messages": [HumanMessage(content=request.message)]}
+        inputs = _graph_inputs_for_turn(session, request.message)
 
         # Snapshot how many messages exist before this turn so we can isolate
         # the messages produced *during* this turn when extracting the answer.
@@ -591,7 +609,7 @@ def create_app(
         )
 
         config = {"configurable": {"thread_id": thread_id}}
-        inputs = {"messages": [HumanMessage(content=request.message)]}
+        inputs = _graph_inputs_for_turn(session, request.message)
 
         def event_iter() -> Iterator[str]:
             executor = GraphExecutor(session.graph, metrics=metrics)

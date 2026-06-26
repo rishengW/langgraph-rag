@@ -12,12 +12,12 @@ from src.graph.nodes import merge as merge_module
 
 
 def _structured_chat_model(result_factory):
-    """Return a fake chat model that builds a structured-output chain.
+    """Return a fake structured chat model that yields ``result_factory()``.
 
     ``result_factory`` is a no-arg callable that returns the object the
-    test expects ``invoke_with_retry`` to receive. The fake model
-    implements the minimum surface area the nodes touch
-    (``with_structured_output``).
+    test expects ``invoke_with_retry`` to receive. The nodes obtain their
+    structured chain via ``new_structured_chat_model(settings, schema)``,
+    so this fake stands in for the already-bound structured-output chain.
     """
 
     class _FakeStructured:
@@ -25,12 +25,17 @@ def _structured_chat_model(result_factory):
         def invoke(_payload, **_kwargs):
             return result_factory()
 
-    class _FakeChatModel:
-        @staticmethod
-        def with_structured_output(_schema):
-            return _FakeStructured
+    return _FakeStructured
 
-    return _FakeChatModel
+
+def _patch_structured_model(monkeypatch, module, result_factory):
+    """Patch a node module's structured-model seam with a fake chain."""
+
+    monkeypatch.setattr(
+        module,
+        "new_structured_chat_model",
+        lambda _settings, _schema: _structured_chat_model(result_factory),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +51,7 @@ def test_decompose_passthrough_for_unresolvable_question(isolated_settings, monk
         "invoke_with_retry",
         lambda *a, **k: pytest_forbidden("LLM must not run when no question is present"),
     )
-    monkeypatch.setattr(decompose_module, "new_chat_model", lambda _s: _structured_chat_model(lambda: None))
+    _patch_structured_model(monkeypatch, decompose_module, lambda: None)
 
     node = decompose_module.decompose_factory(settings)
     result = node({})
@@ -60,7 +65,7 @@ def test_decompose_uses_atomic_passthrough_when_llm_fails(isolated_settings, mon
         "invoke_with_retry",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
     )
-    monkeypatch.setattr(decompose_module, "new_chat_model", lambda _s: _structured_chat_model(lambda: None))
+    _patch_structured_model(monkeypatch, decompose_module, lambda: None)
 
     node = decompose_module.decompose_factory(settings)
     result = node({"messages": [HumanMessage(content="What year was X founded?")]})
@@ -72,11 +77,7 @@ def test_decompose_clamps_llm_output_to_max_subquestions(isolated_settings, monk
     settings = isolated_settings()
     fake_result = type("R", (), {"sub_questions": ["A", "B", "C", "D", "E"]})()
     monkeypatch.setattr(decompose_module, "invoke_with_retry", lambda *a, **k: fake_result)
-    monkeypatch.setattr(
-        decompose_module,
-        "new_chat_model",
-        lambda _s: _structured_chat_model(lambda: fake_result),
-    )
+    _patch_structured_model(monkeypatch, decompose_module, lambda: fake_result)
 
     node = decompose_module.decompose_factory(settings)
     result = node({"messages": [HumanMessage(content="Compound question.")]})
@@ -89,11 +90,7 @@ def test_decompose_returns_llm_subquestions_as_is(isolated_settings, monkeypatch
     settings = isolated_settings()
     fake_result = type("R", (), {"sub_questions": ["Reframed one", "Reframed two"]})()
     monkeypatch.setattr(decompose_module, "invoke_with_retry", lambda *a, **k: fake_result)
-    monkeypatch.setattr(
-        decompose_module,
-        "new_chat_model",
-        lambda _s: _structured_chat_model(lambda: fake_result),
-    )
+    _patch_structured_model(monkeypatch, decompose_module, lambda: fake_result)
 
     node = decompose_module.decompose_factory(settings)
     result = node({"messages": [HumanMessage(content="Compound question.")]})
@@ -107,11 +104,7 @@ def test_decompose_dedupes_repeated_subquestions(isolated_settings, monkeypatch)
     settings = isolated_settings()
     fake_result = type("R", (), {"sub_questions": ["A", "B", "A", "C", "B"]})()
     monkeypatch.setattr(decompose_module, "invoke_with_retry", lambda *a, **k: fake_result)
-    monkeypatch.setattr(
-        decompose_module,
-        "new_chat_model",
-        lambda _s: _structured_chat_model(lambda: fake_result),
-    )
+    _patch_structured_model(monkeypatch, decompose_module, lambda: fake_result)
 
     node = decompose_module.decompose_factory(settings)
     result = node({"messages": [HumanMessage(content="Compound question.")]})
@@ -131,7 +124,7 @@ def test_expand_passthrough_when_no_sub_questions(isolated_settings, monkeypatch
         "invoke_with_retry",
         lambda *a, **k: pytest_forbidden("LLM must not run when no sub-questions are present"),
     )
-    monkeypatch.setattr(expand_module, "new_chat_model", lambda _s: _structured_chat_model(lambda: None))
+    _patch_structured_model(monkeypatch, expand_module, lambda: None)
 
     node = expand_module.expand_factory(settings)
     result = node({"messages": []})
@@ -143,7 +136,7 @@ def test_expand_returns_k1_passthrough_when_llm_fails(isolated_settings, monkeyp
     monkeypatch.setattr(
         expand_module, "invoke_with_retry", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
     )
-    monkeypatch.setattr(expand_module, "new_chat_model", lambda _s: _structured_chat_model(lambda: None))
+    _patch_structured_model(monkeypatch, expand_module, lambda: None)
 
     node = expand_module.expand_factory(settings)
     result = node({"sub_questions": ["What year was X founded?"]})
@@ -160,11 +153,7 @@ def test_expand_clamps_paraphrases_to_max(isolated_settings, monkeypatch):
         "Paraphrase four",
     ]})()
     monkeypatch.setattr(expand_module, "invoke_with_retry", lambda *a, **k: fake_result)
-    monkeypatch.setattr(
-        expand_module,
-        "new_chat_model",
-        lambda _s: _structured_chat_model(lambda: fake_result),
-    )
+    _patch_structured_model(monkeypatch, expand_module, lambda: fake_result)
 
     node = expand_module.expand_factory(settings)
     result = node({"sub_questions": ["Original question"]})
@@ -187,11 +176,7 @@ def test_expand_flattens_multiple_sub_questions(isolated_settings, monkeypatch):
         return type("R", (), {"paraphrases": per_call_paraphrases[idx]})()
 
     monkeypatch.setattr(expand_module, "invoke_with_retry", lambda *a, **k: make_result())
-    monkeypatch.setattr(
-        expand_module,
-        "new_chat_model",
-        lambda _s: _structured_chat_model(make_result),
-    )
+    _patch_structured_model(monkeypatch, expand_module, make_result)
 
     node = expand_module.expand_factory(settings)
     result = node({"sub_questions": ["Sub one", "Sub two"]})
@@ -212,11 +197,7 @@ def test_expand_dedupes_across_sub_questions(isolated_settings, monkeypatch):
         return type("R", (), {"paraphrases": per_call_paraphrases[idx]})()
 
     monkeypatch.setattr(expand_module, "invoke_with_retry", lambda *a, **k: make_result())
-    monkeypatch.setattr(
-        expand_module,
-        "new_chat_model",
-        lambda _s: _structured_chat_model(make_result),
-    )
+    _patch_structured_model(monkeypatch, expand_module, make_result)
 
     node = expand_module.expand_factory(settings)
     result = node({"sub_questions": ["X", "Y"]})

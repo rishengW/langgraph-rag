@@ -58,6 +58,39 @@ class DeepSeekLLMProvider:
 DEFAULT_LLM_PROVIDER = DashScopeLLMProvider()
 
 
+def structured_output_method(settings: Settings) -> str | None:
+    """Return the ``with_structured_output`` method for the active provider.
+
+    DeepSeek's OpenAI-compatible API rejects the ``json_schema`` response
+    format that ``langchain-openai`` uses by default (HTTP 400 "This
+    response_format type is unavailable now"). It does support OpenAI-style
+    tool calling, so we pin the ``function_calling`` method for DeepSeek and
+    leave other providers on their library default (``None``).
+    """
+
+    if settings.llm_provider.strip().lower() == "deepseek":
+        return "function_calling"
+    return None
+
+
+def build_structured_chat_model(
+    settings: Settings,
+    schema: Any,
+    provider: LLMProvider | None = None,
+) -> Any:
+    """Build a chat model bound to a structured-output schema.
+
+    Selects a provider-appropriate structured-output method so DeepSeek does
+    not hit the unsupported ``json_schema`` response format.
+    """
+
+    model = build_chat_model(settings, provider)
+    method = structured_output_method(settings)
+    if method is not None:
+        return model.with_structured_output(schema, method=method)
+    return model.with_structured_output(schema)
+
+
 def build_chat_model(
     settings: Settings,
     provider: LLMProvider | None = None,
@@ -79,4 +112,6 @@ __all__ = [
     "DeepSeekLLMProvider",
     "LLMProvider",
     "build_chat_model",
+    "build_structured_chat_model",
+    "structured_output_method",
 ]

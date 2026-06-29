@@ -309,6 +309,10 @@ TEXT_RELEVANCE_MISS_PENALTY = 60
 # rescue an otherwise off-topic page. "model" is the canonical failure case —
 # it appears in dictionary entries and car news alike, so it must not, on its
 # own, mark a page as relevant to a query about a specific protocol/product.
+# The second block is low-signal context/result filler (esp. sports queries):
+# "Jordan Argentina World Cup result" must rank on the *entities* (jordan,
+# argentina), not on the common context words (world, cup, result), otherwise
+# Air-Jordan shoe pages and country encyclopedias clear the usability gate.
 GENERIC_QUERY_TERMS = frozenset({
     "ai",
     "app",
@@ -331,24 +335,73 @@ GENERIC_QUERY_TERMS = frozenset({
     "version",
     "web",
     "website",
+    # Low-signal context / result / sports filler.
+    "cup",
+    "draw",
+    "final",
+    "finals",
+    "fixture",
+    "fixtures",
+    "game",
+    "games",
+    "highlights",
+    "loss",
+    "match",
+    "matches",
+    "result",
+    "results",
+    "round",
+    "schedule",
+    "score",
+    "scores",
+    "season",
+    "stage",
+    "standings",
+    "versus",
+    "win",
+    "wins",
+    "world",
 })
 # A match only counts as "on topic" when the result shares a meaningful share
 # of the distinctive query terms. Matching a single generic word is not enough.
 TEXT_RELEVANCE_MIN_COVERAGE = 0.34
+# REFACTOR: When a query names two or more distinctive entities (e.g. two teams
+# in "Argentina vs Jordan"), a usable page must mention at least this many of
+# them. Matching only one named entity (e.g. a page about the country Jordan,
+# or the Air Jordan shoe brand) is treated as off-topic for a multi-entity
+# factual query.
+MULTI_ENTITY_MIN_MATCHES = 2
 
 
-def _term_weight(term: str) -> float:
+def _acronym_terms(query: str) -> set[str]:
+    """Return lowercased tokens that appear as genuine acronyms in ``query``.
+
+    An acronym is an all-uppercase token of length 2-5 in the *original* query
+    casing (e.g. "MCP", "LLM", "RAG"). This is the real distinctiveness signal
+    -- unlike a blanket "short token" rule, which wrongly boosts ordinary short
+    words like "cup", "vs", or "win".
+    """
+
+    acronyms: set[str] = set()
+    for raw in re.findall(r"[A-Za-z][A-Za-z0-9]*", query or ""):
+        if 2 <= len(raw) <= 5 and raw.isupper():
+            acronyms.add(raw.lower())
+    return acronyms
+
+
+def _term_weight(term: str, acronyms: frozenset[str] | set[str] = frozenset()) -> float:
     """Weight a query term by how distinctive it is.
 
     Generic, high-frequency words contribute little; distinctive named entities
-    and acronyms contribute the most. This keeps a lone "model" match from
-    rescuing an off-topic page while a "mcp"/"anthropic" match still counts.
+    and genuine acronyms contribute the most. This keeps a lone "model" match
+    from rescuing an off-topic page while a "mcp"/"anthropic" match still
+    counts. Only real uppercase acronyms (passed in ``acronyms``) get the
+    acronym boost -- ordinary short words like "cup" stay at the base weight.
     """
 
     if term in GENERIC_QUERY_TERMS:
         return 0.2
-    # Short acronyms (mcp, llm, rag) are highly distinctive query signals.
-    if len(term) <= 4:
+    if term in acronyms:
         return 1.3
     return 1.0
 
@@ -363,8 +416,16 @@ def text_relevance_delta(text: str, query: str) -> int:
     will not, on its own, clear the relevance bar. Returns ``0`` when either
     the query or the text carries no usable terms, leaving URL-shape scoring
     intact.
+
+    Multi-entity guard: when the query names two or more distinctive
+    (non-generic) entities, a page that mentions fewer than
+    ``MULTI_ENTITY_MIN_MATCHES`` of them is treated as a strong off-topic miss.
+    This is what stops an Air-Jordan shoe page (matches only "jordan") or a
+    country encyclopedia (matches only "argentina") from clearing the gate for
+    a query about the match *between* the two.
     """
 
+    acronyms = _acronym_terms(query)
     query_terms = set(_search_query_terms(query))
     if not query_terms:
         return 0
@@ -373,12 +434,24 @@ def text_relevance_delta(text: str, query: str) -> int:
     if not normalized.strip():
         return 0
 
-    total_weight = sum(_term_weight(term) for term in query_terms)
+    total_weight = sum(_term_weight(term, acronyms) for term in query_terms)
     if total_weight <= 0:
         return 0
 
+    # Multi-entity conjunction: a page must cover at least two distinct named
+    # entities when the query asks about a relationship between them.
+    distinctive_terms = {
+        term for term in query_terms if _term_weight(term, acronyms) >= 1.0
+    }
+    if len(distinctive_terms) >= MULTI_ENTITY_MIN_MATCHES:
+        matched_distinctive = sum(
+            1 for term in distinctive_terms if term in normalized
+        )
+        if matched_distinctive < MULTI_ENTITY_MIN_MATCHES:
+            return -TEXT_RELEVANCE_MISS_PENALTY
+
     matched_weight = sum(
-        _term_weight(term) for term in query_terms if term in normalized
+        _term_weight(term, acronyms) for term in query_terms if term in normalized
     )
     coverage = matched_weight / total_weight
 

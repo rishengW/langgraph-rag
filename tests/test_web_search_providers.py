@@ -838,6 +838,82 @@ def test_result_quality_score_drops_generic_only_off_topic_page():
     assert result_quality_score(on_topic, query=query) >= DEFAULT_MIN_USABLE_URL_SCORE
 
 
+# ── multi-entity / brand-collision hardening (Jordan vs Argentina) ───────────
+
+
+def test_term_weight_does_not_boost_ordinary_short_words():
+    """Short common words ('cup') must not get the acronym distinctiveness boost."""
+    from src.web_search.common import _acronym_terms, _term_weight
+
+    query = "Jordan Argentina World Cup result"
+    acronyms = _acronym_terms(query)
+    # No genuine uppercase acronyms in this query.
+    assert acronyms == set()
+    # "cup" is short but ordinary filler -> generic weight, never the 1.3
+    # acronym boost that previously let brand pages clear the gate.
+    assert _term_weight("cup", acronyms) == 0.2
+    # A distinctive named entity keeps full weight.
+    assert _term_weight("argentina", acronyms) == 1.0
+
+
+def test_acronym_terms_detects_genuine_uppercase_acronyms():
+    from src.web_search.common import _acronym_terms
+
+    assert "mcp" in _acronym_terms("What is MCP by Anthropic")
+    # Lowercase short words are not acronyms.
+    assert "cup" not in _acronym_terms("world cup result")
+
+
+def test_text_relevance_delta_requires_both_entities_for_match_query():
+    """A page mentioning only one of two named entities is off-topic."""
+    from src.web_search.common import text_relevance_delta
+
+    query = "Jordan Argentina World Cup result"
+    only_jordan = text_relevance_delta(
+        "Air Jordan sneakers official store - Nike", query
+    )
+    only_argentina = text_relevance_delta(
+        "Argentina | History, Geography, and Culture - Britannica", query
+    )
+    both = text_relevance_delta(
+        "Argentina vs Jordan World Cup 2026 match result and score", query
+    )
+
+    assert only_jordan < 0
+    assert only_argentina < 0
+    assert both > 0
+
+
+def test_result_quality_score_drops_brand_pages_below_gate():
+    """The Jordan/Argentina run: brand + country pages must fall below gate."""
+    from src.web_search.common import (
+        DEFAULT_MIN_USABLE_URL_SCORE,
+        SearchResult,
+        result_quality_score,
+    )
+
+    query = "Jordan Argentina World Cup result"
+    shoe_store = SearchResult(
+        url="https://www.nike.com/w/jordan-37eef/",
+        title="Jordan. Nike.com",
+        snippet="Shop the latest Air Jordan shoes and apparel at Nike.com.",
+    )
+    country_page = SearchResult(
+        url="https://www.britannica.com/place/Jordan",
+        title="Jordan | History, Map, Flag, Population - Britannica",
+        snippet="Jordan, Arab country of Southwest Asia, in the rocky desert...",
+    )
+    on_topic = SearchResult(
+        url="https://www.espn.com/soccer/report/argentina-jordan-2026",
+        title="Argentina vs Jordan - World Cup 2026 Result",
+        snippet="Full time score and report from the Argentina vs Jordan match.",
+    )
+
+    assert result_quality_score(shoe_store, query=query) < DEFAULT_MIN_USABLE_URL_SCORE
+    assert result_quality_score(country_page, query=query) < DEFAULT_MIN_USABLE_URL_SCORE
+    assert result_quality_score(on_topic, query=query) >= DEFAULT_MIN_USABLE_URL_SCORE
+
+
 def test_discover_urls_drops_generic_only_matches_end_to_end(isolated_settings):
     from src.web_search.common import SearchResult
 

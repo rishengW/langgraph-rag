@@ -48,7 +48,16 @@ def merge_factory(
     def merge(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("MERGE SEARCH RESULTS")
         explicit = _clean_urls(state.get("source_urls") or [])
-        tool_urls = _clean_urls(_urls_from_tool_messages(state.get("messages") or []))
+        # REFACTOR: Scope tool-message URL harvesting to the CURRENT turn only.
+        # ``state["messages"]`` is the full per-thread checkpoint transcript
+        # (the ``add_messages`` reducer appends and never resets between turns),
+        # so scanning all of it pulls prior turns' ``live_web_search`` URLs into
+        # this turn's candidate pool. Those stale URLs have valid hit_count /
+        # provider_rank / first_seen values, so ranking never removes them and
+        # the top-K clamp keeps them. Restricting the scan to messages after the
+        # last HumanMessage ensures only this turn's search results are eligible.
+        current_turn_messages = _current_turn_messages(state.get("messages") or [])
+        tool_urls = _clean_urls(_urls_from_tool_messages(current_turn_messages))
         combined = _combine_and_rank(
             first_attempt=explicit,
             expanded=tool_urls,
@@ -67,11 +76,13 @@ def _combine_and_rank(
     Ranking is ``(hit_count desc, best_provider_rank asc, first_seen
     asc)``:
     - ``hit_count`` rewards URLs returned by multiple queries
-      (overlap = stronger evidence).
-    - ``best_provider_rank`` anchors the first-attempt URLs that
-      were already quality-filtered by the provider.
-    - ``first_seen`` preserves the original ordering as a final
-      tie-breaker.
+      (overlap across the pre-graph refresh AND the in-graph search =
+      stronger evidence) and is the dominant signal.
+    - ``best_provider_rank`` is each URL's own position within whichever
+      search returned it. The two sets are NOT offset against each other,
+      so position 0 of the in-graph contextualized search ties with
+      position 0 of the pre-graph refresh rather than always losing to it.
+    - ``first_seen`` preserves insertion order as a final tie-breaker.
     """
 
     canonical_to_records: dict[str, dict[str, Any]] = {}
@@ -94,13 +105,19 @@ def _combine_and_rank(
         if provider_rank < entry["best_provider_rank"]:
             entry["best_provider_rank"] = provider_rank
 
+    # REFACTOR: Rank both sets by their OWN provider position (no offset).
+    # Previously the expanded/in-graph URLs were offset by
+    # ``len(first_attempt)``, which guaranteed every pre-graph refresh URL
+    # out-ranked every in-graph search URL on ``best_provider_rank`` whenever
+    # hit counts tied. That anchored the pre-graph refresh -- which for a vague
+    # follow-up is the WEAKER, less-contextualized search -- above the
+    # contextualized in-graph results. Scoring both by their own position lets
+    # the better-ranked URL win regardless of which search produced it, while
+    # overlap (hit_count) still promotes URLs returned by both.
     for index, url in enumerate(first_attempt):
         record(url, provider_rank=index)
-    # REFACTOR: The expanded URLs are offset by the first-attempt rank
-    # so an expanded URL that was also in the first attempt wins on
-    # ``best_provider_rank`` and stays anchored in the result set.
     for index, url in enumerate(expanded):
-        record(url, provider_rank=len(first_attempt) + index)
+        record(url, provider_rank=index)
 
     ranked = sorted(
         canonical_to_records.values(),
@@ -124,6 +141,28 @@ def _urls_from_tool_messages(messages: Any) -> list[str]:
         content = getattr(message, "content", None) or ""
         urls.extend(_URL_RE.findall(str(content)))
     return urls
+
+
+def _current_turn_messages(messages: Any) -> list[Any]:
+    """Return only the messages belonging to the current chat turn.
+
+    The current turn is everything from the most recent human/user message
+    onward. In chat mode ``messages`` is the full per-thread checkpoint
+    transcript, so this slice excludes prior turns' tool messages (whose
+    ``live_web_search`` URLs would otherwise contaminate this turn's source
+    pool). When no human message is present (e.g. single-shot QA state), the
+    full list is returned unchanged.
+    """
+
+    if not isinstance(messages, list):
+        return []
+    last_human = -1
+    for index, message in enumerate(messages):
+        if _message_role(message).startswith("human") or _message_role(message) == "user":
+            last_human = index
+    if last_human < 0:
+        return list(messages)
+    return list(messages[last_human:])
 
 
 def _message_role(message: Any) -> str:

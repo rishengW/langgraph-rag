@@ -56,6 +56,7 @@ from ..errors import RAGError, ResourceNotFoundError, RetrieverError
 from ..graph.builder import build_lightweight_graph
 from ..graph.executor import GraphExecutor
 from ..graph.metrics import MetricsCollector, MetricsSnapshot
+from ..graph.nodes.condense import condense_followup_question
 from ..sessions import (
     ChatSession,
     ChatSessionRegistry,
@@ -193,6 +194,64 @@ def _source_refresh_allowed(session: ChatSession, settings: Settings) -> bool:
     return session.source_mode != "explicit" and settings.web_search_enabled
 
 
+async def _condense_query_for_refresh(
+    *,
+    session: ChatSession,
+    message: str,
+    settings: Settings,
+) -> str:
+    """Contextualize a follow-up message against the session transcript.
+
+    The web-search chat path runs the lightweight graph, which has no
+    ``condense`` node, so a vague follow-up ("Argentina and Jordan", "group
+    stage not knockout") would otherwise drive the source search with no
+    conversation context and surface off-topic pages. We read the prior turns
+    from the per-thread checkpoint and rewrite the message into a standalone
+    question before searching. Falls back to the raw message on any error.
+    """
+
+    try:
+        config = {"configurable": {"thread_id": session.thread_id}}
+        snapshot = await asyncio.to_thread(session.graph.get_state, config)
+        values = getattr(snapshot, "values", {}) or {}
+        prior_messages = (
+            values.get("messages", []) or [] if isinstance(values, dict) else []
+        )
+    except Exception as exc:
+        logger.debug(
+            "Could not read prior messages for condense on thread %s: %s",
+            session.thread_id,
+            exc,
+        )
+        return message
+
+    if not prior_messages:
+        return message
+
+    try:
+        standalone = await asyncio.to_thread(
+            condense_followup_question,
+            prior_messages,
+            message,
+            settings,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Follow-up condense failed for thread %s; using raw message: %s",
+            session.thread_id,
+            exc,
+        )
+        return message
+
+    if standalone and standalone.strip() and standalone.strip() != message.strip():
+        logger.info(
+            "Condensed chat follow-up for search: original=%r → standalone=%r",
+            message,
+            standalone,
+        )
+    return standalone or message
+
+
 async def _refresh_session_sources_from_web(
     *,
     session: ChatSession,
@@ -207,8 +266,14 @@ async def _refresh_session_sources_from_web(
     if not _source_refresh_allowed(session, settings):
         return session
 
+    search_query = await _condense_query_for_refresh(
+        session=session,
+        message=query,
+        settings=settings,
+    )
+
     try:
-        urls = discover_urls_from_web(query, settings)
+        urls = discover_urls_from_web(search_query, settings)
     except Exception as exc:
         logger.warning(
             "Web search failed during chat turn for thread %s: %s",
@@ -591,6 +656,7 @@ def create_app(
         fastapi_request: Request,
         sessions: SessionRegistryDep,
         metrics: MetricsDep,
+        tokens: bool = True,
     ) -> StreamingResponse:
         session = sessions.get(thread_id)
         if session is None:
@@ -613,7 +679,12 @@ def create_app(
 
         def event_iter() -> Iterator[str]:
             executor = GraphExecutor(session.graph, metrics=metrics)
-            for event in executor.stream(inputs, config=config):
+            # REFACTOR: ``tokens`` (default True) enables per-token ``TokenEvent``
+            # deltas from the answer nodes in addition to node lifecycle events.
+            # Pass ``?tokens=false`` to fall back to node-update-only streaming.
+            for event in executor.stream(
+                inputs, config=config, stream_tokens=tokens
+            ):
                 yield format_sse(event)
 
         return StreamingResponse(event_iter(), media_type="text/event-stream")

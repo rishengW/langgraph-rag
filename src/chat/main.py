@@ -21,6 +21,8 @@ from ..core.web_search import (
     discover_urls_from_web,
     settings_for_discovered_urls,
 )
+from ..graph.events import DoneEvent, ErrorEvent, TokenEvent
+from ..graph.executor import GraphExecutor
 
 
 def _print_urls(label: str, urls: Iterable[str]) -> None:
@@ -173,21 +175,38 @@ def _repl(args: argparse.Namespace) -> None:
                 )
 
         try:
-            result = graph.invoke({"messages": [HumanMessage(content=prompt)]}, config)
+            executor = GraphExecutor(graph)
+            answer = ""
+            streamed_any = False
+            printed_prefix = False
+            for event in executor.stream(
+                {"messages": [HumanMessage(content=prompt)]},
+                config,
+                stream_tokens=True,
+            ):
+                if isinstance(event, TokenEvent):
+                    if not printed_prefix:
+                        print("Assistant: ", end="", flush=True)
+                        printed_prefix = True
+                    print(event.token, end="", flush=True)
+                    answer += event.token
+                    streamed_any = True
+                elif isinstance(event, DoneEvent):
+                    # Fall back to the final answer if no tokens were streamed
+                    # (e.g. the model/provider did not emit token chunks).
+                    if not answer and event.answer:
+                        answer = event.answer
+                elif isinstance(event, ErrorEvent):
+                    print(f"\n⚠️  Error: {event.message}")
         except Exception as exc:
             print(f"⚠️  Error: {exc}")
             continue
 
-        messages = result.get("messages", []) if isinstance(result, dict) else []
-        answer = ""
-        for msg in reversed(messages):
-            kind = getattr(msg, "type", None) or msg.__class__.__name__.lower()
-            content = getattr(msg, "content", "")
-            if (kind.startswith("ai") or kind == "assistant") and (content or "").strip():
-                answer = content if isinstance(content, str) else str(content)
-                break
-
-        print(f"Assistant: {answer or '(no reply produced)'}\n")
+        if streamed_any:
+            # Terminate the streamed line.
+            print("\n")
+        else:
+            print(f"Assistant: {answer or '(no reply produced)'}\n")
 
     print("Bye.")
 

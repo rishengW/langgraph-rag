@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 from src.graph.events import (
     DoneEvent,
@@ -52,6 +52,46 @@ def test_graph_executor_stream_wraps_outputs_as_events():
     assert isinstance(events[4], DoneEvent)
     assert events[4].output == {"generate": {"messages": ["final output"]}}
     assert events[4].answer == "final output"
+
+
+class TokenStreamGraph:
+    """Fake graph supporting combined ``["updates", "messages"]`` streaming.
+
+    Mimics LangGraph 0.6: in combined mode, ``stream`` yields
+    ``(mode, chunk)`` tuples -- ``("updates", {node: output})`` for node
+    lifecycle and ``("messages", (message_chunk, metadata))`` for LLM tokens.
+    """
+
+    def invoke(self, inputs, config=None):
+        return {"messages": ["final output"]}
+
+    def stream(self, inputs, config=None, *, stream_mode=None):
+        # Tokens from an answer node (kept) interleaved with a non-answer
+        # node's tokens (filtered out). The final aggregated AIMessage replay
+        # must be dropped so the answer is not double-counted.
+        yield ("messages", (AIMessageChunk(content="Hel"), {"langgraph_node": "web_answer"}))
+        yield ("messages", (AIMessageChunk(content="lo"), {"langgraph_node": "web_answer"}))
+        yield ("messages", (AIMessageChunk(content="IGNORED"), {"langgraph_node": "decompose"}))
+        # Aggregated final message (plain AIMessage) — must be skipped.
+        yield ("messages", (AIMessage(content="Hello"), {"langgraph_node": "web_answer"}))
+        yield ("updates", {"web_answer": {"messages": [AIMessage(content="Hello")]}})
+
+
+def test_graph_executor_streams_tokens_from_answer_nodes_only():
+    from src.graph.events import TokenEvent
+
+    executor = GraphExecutor(TokenStreamGraph())
+
+    events = list(executor.stream({"question": "hi"}, stream_tokens=True))
+
+    tokens = [event for event in events if isinstance(event, TokenEvent)]
+    assert [token.token for token in tokens] == ["Hel", "lo"]
+    # The decompose-node token must be filtered out of the answer stream.
+    assert all(token.node == "web_answer" for token in tokens)
+    # Node lifecycle + a terminal DoneEvent are still emitted.
+    assert any(isinstance(event, NodeStartEvent) for event in events)
+    assert isinstance(events[-1], DoneEvent)
+    assert events[-1].answer == "Hello"
 
 
 class SummaryGraph:

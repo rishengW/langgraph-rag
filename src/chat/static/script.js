@@ -355,15 +355,7 @@ async function sendMessage(text) {
     const thinking = appendTurn("assistant", "Thinking...", { thinking: true });
 
     try {
-        const data = await apiPost(`/chat/${threadId}/message`, { message: trimmed });
-        thinking.remove();
-        if (data.error) {
-            showError(data.error);
-            appendTurn("assistant", "(no reply produced)");
-        } else {
-            clearError();
-            appendTurn("assistant", data.answer);
-        }
+        await streamMessage(trimmed, thinking);
     } catch (err) {
         thinking.remove();
         showError(err.message);
@@ -372,6 +364,92 @@ async function sendMessage(text) {
         pending = false;
         sendBtn.disabled = false;
         messageInput.focus();
+    }
+}
+
+// Consume the SSE token stream from POST /chat/{tid}/message/stream.
+// Renders assistant tokens incrementally; falls back to the final ``done``
+// answer if no token deltas were received (e.g. token streaming disabled).
+async function streamMessage(message, thinking) {
+    const res = await fetch(`${API}/chat/${threadId}/message/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+    });
+    if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+    }
+
+    let bubble = null;
+    let answer = "";
+    let streamError = "";
+
+    const ensureBubble = () => {
+        if (bubble) return bubble;
+        thinking.remove();
+        clearError();
+        const turn = appendTurn("assistant", "");
+        bubble = turn.querySelector(".bubble");
+        return bubble;
+    };
+
+    const handleEvent = (eventType, dataStr) => {
+        let payload = {};
+        try {
+            payload = dataStr ? JSON.parse(dataStr) : {};
+        } catch (_) {
+            return;
+        }
+        if (eventType === "token" && typeof payload.token === "string") {
+            answer += payload.token;
+            const el = ensureBubble();
+            el.innerHTML = renderMarkdownPreview(answer);
+            transcript.scrollTop = transcript.scrollHeight;
+        } else if (eventType === "error") {
+            streamError = payload.message || "stream error";
+        } else if (eventType === "done") {
+            // Prefer accumulated tokens; otherwise use the final answer.
+            if (!answer && typeof payload.answer === "string") {
+                answer = payload.answer;
+            }
+        }
+    };
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE frames are separated by a blank line.
+        let sep;
+        while ((sep = buffer.indexOf("\n\n")) !== -1) {
+            const frame = buffer.slice(0, sep);
+            buffer = buffer.slice(sep + 2);
+            let eventType = "message";
+            let dataStr = "";
+            for (const line of frame.split("\n")) {
+                if (line.startsWith("event:")) eventType = line.slice(6).trim();
+                else if (line.startsWith("data:")) dataStr += line.slice(5).trim();
+            }
+            handleEvent(eventType, dataStr);
+        }
+    }
+
+    thinking.remove();
+    if (streamError && !answer) {
+        showError(streamError);
+        appendTurn("assistant", "(no reply produced)");
+        return;
+    }
+    if (!bubble) {
+        // No tokens streamed; render the final answer in one shot.
+        clearError();
+        appendTurn("assistant", answer || "(no reply produced)");
+    } else {
+        bubble.innerHTML = renderMarkdownPreview(answer);
     }
 }
 

@@ -60,7 +60,12 @@ def expand_factory(
         logger.info("EXPAND QUERIES")
         sub_questions = _resolve_sub_questions(state, question_resolver)
         if not sub_questions:
-            return {"expanded_queries": []}
+            # REFACTOR: Mark expansion as attempted even on the empty-input
+            # short circuit so the post-web_answer edge cannot route back to
+            # ``expand`` again. Without this the graph loops
+            # web_answer -> expand -> web_search -> merge -> web_answer
+            # forever until the recursion limit.
+            return {"expanded_queries": [], "expansion_attempted": True}
 
         expanded: list[str] = []
         for sub_question in sub_questions:
@@ -68,7 +73,12 @@ def expand_factory(
                 if query not in expanded:
                     expanded.append(query)
 
-        return {"expanded_queries": expanded}
+        # REFACTOR: One-shot switch. ``route_after_web_answer`` routes to
+        # ``expand`` only while ``expansion_attempted`` is False; setting it
+        # here bounds the conditional-expansion retry to a single pass so a
+        # persistently unreadable source set falls through to the agent
+        # fallback / grounded refusal instead of looping forever.
+        return {"expanded_queries": expanded, "expansion_attempted": True}
 
     return expand
 

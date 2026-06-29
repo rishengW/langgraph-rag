@@ -88,6 +88,40 @@ def test_condense_first_turn_does_not_call_llm(mock_settings):
     }
 
 
+def test_condense_followup_question_passthrough_without_history(mock_settings):
+    from src.graph.nodes.condense import condense_followup_question
+
+    # No prior turns -> the raw message is returned unchanged and no LLM is hit.
+    assert (
+        condense_followup_question([], "Argentina and Jordan", mock_settings)
+        == "Argentina and Jordan"
+    )
+
+
+def test_condense_followup_question_uses_history(monkeypatch, mock_settings):
+    from src.graph.nodes import condense as condense_module
+
+    # Stub the chat model with a RunnableLambda so the prompt|model|parser
+    # chain composes and yields our standalone question without a network call.
+    fake_model = RunnableLambda(
+        lambda _prompt: AIMessage(
+            content="Argentina vs Jordan World Cup 2026 match result"
+        )
+    )
+    monkeypatch.setattr(condense_module, "new_chat_model", lambda _s: fake_model)
+
+    history = [
+        HumanMessage(content="What was the Canada vs South Africa World Cup result?"),
+        AIMessage(content="Canada beat South Africa 2-1 in the group stage."),
+    ]
+    standalone = condense_module.condense_followup_question(
+        history, "Argentina and Jordan", mock_settings
+    )
+
+    assert "Argentina" in standalone and "Jordan" in standalone
+    assert "World Cup" in standalone
+
+
 def test_rerank_retrieved_context_prefers_lexically_relevant_chunks():
     message = ToolMessage(
         content="generic cloud setup notes\n\nPAI reinforcement learning reward model guide",

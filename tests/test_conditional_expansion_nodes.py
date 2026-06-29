@@ -128,7 +128,7 @@ def test_expand_passthrough_when_no_sub_questions(isolated_settings, monkeypatch
 
     node = expand_module.expand_factory(settings)
     result = node({"messages": []})
-    assert result == {"expanded_queries": []}
+    assert result == {"expanded_queries": [], "expansion_attempted": True}
 
 
 def test_expand_returns_k1_passthrough_when_llm_fails(isolated_settings, monkeypatch):
@@ -140,7 +140,10 @@ def test_expand_returns_k1_passthrough_when_llm_fails(isolated_settings, monkeyp
 
     node = expand_module.expand_factory(settings)
     result = node({"sub_questions": ["What year was X founded?"]})
-    assert result == {"expanded_queries": ["What year was X founded?"]}
+    assert result == {
+        "expanded_queries": ["What year was X founded?"],
+        "expansion_attempted": True,
+    }
 
 
 def test_expand_clamps_paraphrases_to_max(isolated_settings, monkeypatch):
@@ -203,6 +206,25 @@ def test_expand_dedupes_across_sub_questions(isolated_settings, monkeypatch):
     result = node({"sub_questions": ["X", "Y"]})
 
     assert result["expanded_queries"] == ["X", "Y"]
+
+
+def test_expand_always_marks_expansion_attempted(isolated_settings, monkeypatch):
+    """Regression: expand must set expansion_attempted so the post-web_answer
+    edge cannot loop web_answer -> expand -> ... -> web_answer forever."""
+
+    settings = isolated_settings()
+    monkeypatch.setattr(
+        expand_module,
+        "invoke_with_retry",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    _patch_structured_model(monkeypatch, expand_module, lambda: None)
+
+    node = expand_module.expand_factory(settings)
+
+    # Both the populated and empty-input branches must mark the flag.
+    assert node({"sub_questions": ["Q"]})["expansion_attempted"] is True
+    assert node({"messages": []})["expansion_attempted"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +347,82 @@ def test_merge_handles_empty_inputs(isolated_settings):
     node = merge_module.merge_factory(settings)
     result = node({"source_urls": [], "messages": []})
     assert result == {"source_urls": []}
+
+
+def test_merge_ignores_prior_turn_tool_urls(isolated_settings):
+    """Tool URLs from a previous turn must not leak into the current turn.
+
+    The chat checkpoint accumulates messages across turns, so a prior turn's
+    ``live_web_search`` ToolMessage stays in ``state["messages"]``. Merge must
+    only harvest tool URLs from the current turn (after the last HumanMessage).
+    """
+
+    settings = replace(isolated_settings(), web_search_top_k=0)
+    node = merge_module.merge_factory(settings)
+
+    state = {
+        # Current turn's freshly discovered source URLs.
+        "source_urls": ["https://example.com/doubao"],
+        "messages": [
+            # --- previous turn (soccer) ---
+            HumanMessage(content="south africa vs canada score"),
+            _tool_message_with_urls(
+                [
+                    "https://example.com/soccer1",
+                    "https://example.com/soccer2",
+                ]
+            ),
+            # --- current turn (doubao) ---
+            HumanMessage(content="What models are in Doubao Coding Plan Lite"),
+            _tool_message_with_urls(["https://example.com/doubao-search"]),
+        ],
+    }
+    result = node(state)
+
+    assert "https://example.com/soccer1" not in result["source_urls"]
+    assert "https://example.com/soccer2" not in result["source_urls"]
+    assert "https://example.com/doubao" in result["source_urls"]
+    assert "https://example.com/doubao-search" in result["source_urls"]
+
+
+def test_merge_does_not_anchor_pregraph_urls_above_ingraph(isolated_settings):
+    """In-graph (tool) URLs must compete fairly, not sit below pre-graph URLs.
+
+    Regression for the anchoring bug: the pre-graph refresh URLs were offset so
+    they always out-ranked the in-graph contextualized search on ties. With no
+    overlap and equal own-position, the top in-graph result should interleave
+    with the pre-graph results rather than being pushed to the bottom.
+    """
+
+    settings = replace(isolated_settings(), web_search_top_k=0)
+    node = merge_module.merge_factory(settings)
+
+    state = {
+        # Pre-graph refresh URLs (weaker, less-contextualized for a follow-up).
+        "source_urls": [
+            "https://example.com/pre1",
+            "https://example.com/pre2",
+            "https://example.com/pre3",
+        ],
+        "messages": [
+            HumanMessage(content="Argentina vs Jordan world cup result"),
+            _tool_message_with_urls(
+                [
+                    "https://example.com/ingraph-top",
+                    "https://example.com/ingraph2",
+                ]
+            ),
+        ],
+    }
+    result = node(state)
+
+    # The top in-graph URL shares provider_rank 0 with the top pre-graph URL
+    # and, with no offset penalty, must land among the leaders rather than
+    # after every pre-graph URL.
+    assert "https://example.com/ingraph-top" in result["source_urls"][:2]
+    pre3_idx = result["source_urls"].index("https://example.com/pre3")
+    ingraph_top_idx = result["source_urls"].index("https://example.com/ingraph-top")
+    assert ingraph_top_idx < pre3_idx
 
 
 def _tool_message_with_urls(urls):

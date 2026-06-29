@@ -45,6 +45,47 @@ def latest_user_index(messages: Sequence[BaseMessage]) -> int:
     return 0
 
 
+def condense_followup_question(
+    messages: Sequence[BaseMessage],
+    latest_text: str,
+    settings: Settings,
+) -> str:
+    """Rewrite a follow-up turn into a standalone question using prior turns.
+
+    Shared by the in-graph ``condense`` node and the chat web-search refresh
+    step so both contextualize a vague follow-up (e.g. "Argentina and Jordan",
+    "group stage not knockout") against the conversation history before it
+    drives a search. Returns ``latest_text`` unchanged when there is no prior
+    history or the LLM call fails (passthrough fallback).
+    """
+
+    history_messages = [
+        msg
+        for msg in messages
+        if (getattr(msg, "content", None) or "").strip()
+        and (getattr(msg, "type", "") or "").lower() not in ("tool", "function")
+    ]
+    if not history_messages:
+        return latest_text
+
+    history_text = format_history(history_messages)
+    if history_text == "(no prior turns)":
+        return latest_text
+
+    dated_prompt = CONDENSE_PROMPT.partial(current_date=date.today().isoformat())
+    chain = dated_prompt | new_chat_model(settings) | StrOutputParser()
+    try:
+        standalone = invoke_with_retry(
+            chain,
+            {"history": history_text, "question": latest_text},
+            max_retries=settings.dashscope_max_retries,
+        )
+        return (standalone or "").strip() or latest_text
+    except Exception as exc:
+        logger.error("Follow-up condense error; using raw question: %s", exc)
+        return latest_text
+
+
 def condense_question_factory(settings: Settings) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Condense the latest chat turn into a standalone question."""
 
@@ -66,23 +107,7 @@ def condense_question_factory(settings: Settings) -> Callable[[dict[str, Any]], 
                 "rewrite_count": 0,
             }
 
-        history_text = format_history(history)
-        # Bind today's date so the condenser doesn't rewrite "the latest" into
-        # "the latest as of 2024" or otherwise inject a stale temporal anchor.
-        dated_prompt = CONDENSE_PROMPT.partial(current_date=date.today().isoformat())
-        chain = dated_prompt | new_chat_model(settings) | StrOutputParser()
-
-        try:
-            standalone = invoke_with_retry(
-                chain,
-                {"history": history_text, "question": latest_text},
-                max_retries=settings.dashscope_max_retries,
-            )
-            standalone = (standalone or "").strip() or latest_text
-        except Exception as exc:
-            logger.error("Condense error; using raw question: %s", exc)
-            standalone = latest_text
-
+        standalone = condense_followup_question(history, latest_text, settings)
         logger.info("Condensed question: %r", standalone)
         return {
             "current_question": standalone,

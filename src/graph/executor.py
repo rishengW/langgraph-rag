@@ -13,8 +13,16 @@ from .events import (
     NodeEndEvent,
     NodeStartEvent,
     RetrieverResultEvent,
+    TokenEvent,
 )
 from .metrics import MetricsCollector
+
+# REFACTOR: Nodes whose LLM output is the user-facing answer. Token deltas are
+# streamed only from these so internal structured-output calls (decompose,
+# expand, grade_documents, condense, rewrite) do not leak into the visible
+# answer stream. ``agent`` is included because in the lightweight chat graph
+# the agent can answer directly without a tool call.
+ANSWER_NODES = frozenset({"generate", "web_answer", "agent"})
 
 
 class RunnableGraph(Protocol):
@@ -25,7 +33,8 @@ class RunnableGraph(Protocol):
         self,
         inputs: Mapping[str, Any],
         config: Mapping[str, Any] | None = None,
-    ) -> Iterator[dict[str, Any]]:
+        **kwargs: Any,
+    ) -> Iterator[Any]:
         ...
 
 
@@ -53,8 +62,18 @@ class GraphExecutor:
         self,
         inputs: Mapping[str, Any],
         config: Mapping[str, Any] | None = None,
+        *,
+        stream_tokens: bool = False,
+        token_nodes: frozenset[str] = ANSWER_NODES,
     ) -> Iterator[GraphEvent]:
         # REFACTOR: Emit typed lifecycle events while preserving chunk streaming.
+        # When ``stream_tokens`` is True, also emit per-token ``TokenEvent``s
+        # from the answer-producing nodes via LangGraph's combined stream modes
+        # (``updates`` for node lifecycle + ``messages`` for LLM token chunks).
+        if stream_tokens:
+            yield from self._stream_with_tokens(inputs, config, token_nodes)
+            return
+
         final_output: Mapping[str, Any] | None = None
         try:
             graph_stream = (
@@ -80,12 +99,96 @@ class GraphExecutor:
             DoneEvent(output=dict(final_output or {}), answer=_extract_answer(final_output))
         )
 
+    def _stream_with_tokens(
+        self,
+        inputs: Mapping[str, Any],
+        config: Mapping[str, Any] | None,
+        token_nodes: frozenset[str],
+    ) -> Iterator[GraphEvent]:
+        """Stream node lifecycle events plus per-token deltas.
+
+        Uses ``stream_mode=["updates", "messages"]`` so the same pass yields
+        node-update chunks (for the existing typed lifecycle/summary events and
+        the final answer) and LLM message chunks (for token deltas). Token
+        deltas are emitted only for nodes in ``token_nodes`` so internal
+        structured-output calls (decompose, expand, grading) do not leak into
+        the user-visible answer stream.
+        """
+
+        final_output: Mapping[str, Any] | None = None
+        try:
+            stream_kwargs: dict[str, Any] = {"stream_mode": ["updates", "messages"]}
+            if config is not None:
+                stream_kwargs["config"] = config
+            for mode, chunk in self.graph.stream(inputs, **stream_kwargs):
+                if mode == "messages":
+                    yield from self._token_events_from_messages(chunk, token_nodes)
+                    continue
+                if not isinstance(chunk, Mapping):
+                    yield from self._emit(
+                        ErrorEvent(
+                            message="Graph stream yielded a non-mapping chunk",
+                            recoverable=False,
+                        )
+                    )
+                    continue
+                final_output = chunk
+                yield from self._events_from_chunk(chunk)
+        except Exception as exc:
+            yield from self._emit(ErrorEvent(message=str(exc), recoverable=False))
+
+        yield from self._emit(
+            DoneEvent(output=dict(final_output or {}), answer=_extract_answer(final_output))
+        )
+
+    def _token_events_from_messages(
+        self,
+        chunk: Any,
+        token_nodes: frozenset[str],
+    ) -> Iterator[GraphEvent]:
+        """Convert a ``messages``-mode chunk into ``TokenEvent``s.
+
+        LangGraph yields ``(message_chunk, metadata)`` tuples in messages mode.
+        Only non-empty text deltas from a node in ``token_nodes`` are emitted.
+
+        Genuine streaming deltas arrive as ``AIMessageChunk`` objects. A node
+        whose return value is an ``AIMessage`` (e.g. the ``generate`` chain's
+        final aggregated output, or a node that returns a whole message without
+        streaming) is ALSO surfaced in messages mode as a plain ``AIMessage``
+        carrying the full text. Emitting both double-prints the answer, so we
+        only stream ``AIMessageChunk`` deltas and drop the aggregated final
+        ``AIMessage`` replay.
+        """
+
+        if not isinstance(chunk, tuple) or len(chunk) != 2:
+            return
+        message_chunk, metadata = chunk
+        if not _is_streaming_chunk(message_chunk):
+            return
+        node = ""
+        if isinstance(metadata, Mapping):
+            node = str(metadata.get("langgraph_node", "") or "")
+        if token_nodes and node and node not in token_nodes:
+            return
+        text = _message_text(message_chunk)
+        if not text:
+            return
+        yield from self._emit(TokenEvent(token=text, node=node or None))
+
     async def astream(
         self,
         inputs: Mapping[str, Any],
         config: Mapping[str, Any] | None = None,
+        *,
+        stream_tokens: bool = False,
+        token_nodes: frozenset[str] = ANSWER_NODES,
     ) -> AsyncIterator[GraphEvent]:
-        for event in self.stream(inputs, config=config):
+        for event in self.stream(
+            inputs,
+            config=config,
+            stream_tokens=stream_tokens,
+            token_nodes=token_nodes,
+        ):
             yield event
 
     def _events_from_chunk(self, output: Mapping[str, Any]) -> Iterator[GraphEvent]:
@@ -107,6 +210,25 @@ class GraphExecutor:
         if self.metrics is not None:
             self.metrics.record_event(event)
         yield event
+
+
+def _is_streaming_chunk(message: Any) -> bool:
+    """Return True only for genuine streaming delta chunks.
+
+    LangChain emits incremental tokens as ``AIMessageChunk`` instances. The
+    aggregated final message a node returns is a plain ``AIMessage`` (or other
+    non-chunk message), which in messages mode replays the full text. We treat
+    only ``*Chunk`` message classes as streamable so the final replay does not
+    double the answer. The check is name-based to avoid a hard import and to
+    cover ``AIMessageChunk`` / ``BaseMessageChunk`` subclasses uniformly.
+    """
+
+    if message is None:
+        return False
+    for klass in type(message).__mro__:
+        if klass.__name__.endswith("Chunk"):
+            return True
+    return False
 
 
 def _as_output_dict(node_output: Any) -> dict[str, Any] | None:
@@ -273,4 +395,4 @@ def _first_str(values: Mapping[str, Any], keys: tuple[str, ...]) -> str:
     return ""
 
 
-__all__ = ["GraphExecutor", "RunnableGraph"]
+__all__ = ["ANSWER_NODES", "GraphExecutor", "RunnableGraph"]

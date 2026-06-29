@@ -260,7 +260,7 @@ API endpoints:
 | `GET` | `/metrics` | In-process graph metrics |
 | `POST` | `/chat` | Create a thread |
 | `POST` | `/chat/{id}/message` | Send a turn |
-| `POST` | `/chat/{id}/message/stream` | SSE graph event stream |
+| `POST` | `/chat/{id}/message/stream` | SSE stream: node events + per-token answer deltas (`?tokens=false` for node events only) |
 | `GET` | `/chat/{id}/history` | Read transcript |
 | `DELETE` | `/chat/{id}` | Delete a thread |
 
@@ -296,6 +296,17 @@ A multi-stage quality pipeline runs before the agent sees URLs:
 
 When `web_search_lightweight` is enabled (default), the lightweight graph routes the agent's tool call through `decompose → web_search → merge → web_answer` as described above, with one-shot conditional expansion and a training-data agent fallback as the final safety net.
 
+## Streaming
+
+Both apps expose SSE streaming endpoints, but they stream at different granularities:
+
+- **QA `/query/stream`**: node lifecycle events (`node_start`, `node_end`, retriever/grader summaries) plus a final `done` event carrying the full answer.
+- **Chat `/chat/{id}/message/stream`**: the same node lifecycle events, and — by default — per-token `token` events streamed from the answer-producing nodes (`generate`, `web_answer`, `agent`) as the LLM generates them, followed by a final `done` event. Pass `?tokens=false` to fall back to node-events-only streaming.
+
+Token streaming uses LangGraph's combined `stream_mode=["updates", "messages"]`. Only genuine streaming chunks (`AIMessageChunk`) are forwarded; the aggregated final message a node returns is dropped so the answer is not duplicated. Tokens from internal structured-output calls (decompose, expand, grade, condense, rewrite) are filtered out so they never leak into the user-visible answer.
+
+The browser chat UI consumes the token stream and renders the answer incrementally. The terminal REPL (`python -m src.chat.main chat`) also streams tokens to stdout as they arrive. Both fall back to the final `done` answer when a provider does not emit token chunks.
+
 ## Auth, CORS, and Security
 
 Local development is open when `API_KEY` is unset. When set, mutation endpoints require:
@@ -321,7 +332,7 @@ Starts QA on `http://127.0.0.1:8000` and Chat on `http://127.0.0.1:8001` with na
 ## Verification
 
 ```powershell
-python -m pytest -q                         # Run tests (current baseline: 198 passed)
+python -m pytest -q                         # Run tests (current baseline: 220 passed)
 ruff check .                                # Lint
 mypy src/                                   # Type check
 python -m pytest --tb=short --cov=src --cov-report=term --cov-fail-under=70

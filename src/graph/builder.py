@@ -327,6 +327,27 @@ def _resolve_tools(
         tools.append(tool_module.build_currency_tool(settings))
     if settings.wikipedia_enabled:
         tools.append(tool_module.build_wikipedia_tool(settings))
+    if settings.directions_enabled:
+        tools.append(tool_module.build_directions_tool(settings))
+    if settings.map_enabled:
+        tools.append(tool_module.build_map_tool(settings))
+    if settings.math_enabled:
+        tools.append(tool_module.build_math_tool(settings))
+    if settings.statistics_enabled:
+        tools.append(tool_module.build_statistics_tool(settings))
+    if settings.linalg_enabled:
+        tools.append(tool_module.build_linalg_tool(settings))
+    if settings.number_theory_enabled:
+        tools.append(tool_module.build_number_theory_tool(settings))
+    if settings.datetime_enabled:
+        tools.append(tool_module.build_datetime_tool(settings))
+    if settings.summarize_url_enabled:
+        tools.append(tool_module.build_summarize_url_tool(settings))
+    if settings.file_read_enabled:
+        tools.append(tool_module.build_text_file_tool(settings))
+        tools.append(tool_module.build_word_tool(settings))
+        tools.append(tool_module.build_excel_tool(settings))
+        tools.append(tool_module.build_pdf_tool(settings))
     return tools
 
 
@@ -352,6 +373,27 @@ def _resolve_lightweight_tools(
         tools.append(tool_module.build_currency_tool(settings))
     if settings.wikipedia_enabled:
         tools.append(tool_module.build_wikipedia_tool(settings))
+    if settings.directions_enabled:
+        tools.append(tool_module.build_directions_tool(settings))
+    if settings.map_enabled:
+        tools.append(tool_module.build_map_tool(settings))
+    if settings.math_enabled:
+        tools.append(tool_module.build_math_tool(settings))
+    if settings.statistics_enabled:
+        tools.append(tool_module.build_statistics_tool(settings))
+    if settings.linalg_enabled:
+        tools.append(tool_module.build_linalg_tool(settings))
+    if settings.number_theory_enabled:
+        tools.append(tool_module.build_number_theory_tool(settings))
+    if settings.datetime_enabled:
+        tools.append(tool_module.build_datetime_tool(settings))
+    if settings.summarize_url_enabled:
+        tools.append(tool_module.build_summarize_url_tool(settings))
+    if settings.file_read_enabled:
+        tools.append(tool_module.build_text_file_tool(settings))
+        tools.append(tool_module.build_word_tool(settings))
+        tools.append(tool_module.build_excel_tool(settings))
+        tools.append(tool_module.build_pdf_tool(settings))
     return tools
 
 

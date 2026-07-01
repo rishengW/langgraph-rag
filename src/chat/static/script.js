@@ -28,6 +28,9 @@ const sendBtn = document.getElementById("sendBtn");
 const sessionInfo = document.getElementById("sessionInfo");
 const errorBanner = document.getElementById("errorBanner");
 const newChatBtn = document.getElementById("newChatBtn");
+const fileInput = document.getElementById("fileInput");
+const attachBtn = document.getElementById("attachBtn");
+const attachments = document.getElementById("attachments");
 
 let threadId = null;
 let pending = false;
@@ -461,6 +464,71 @@ messageInput.addEventListener("keydown", (e) => {
     }
 });
 
+// ---- file uploads ------------------------------------------------------
+
+function renderAttachmentChips(files, errors) {
+    attachments.innerHTML = "";
+    for (const f of files || []) {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        const kb = Math.max(1, Math.round(f.size_bytes / 1024));
+        chip.textContent = `${f.filename} (${kb} KB)`;
+        attachments.appendChild(chip);
+    }
+    for (const err of errors || []) {
+        const chip = document.createElement("span");
+        chip.className = "chip error";
+        chip.textContent = err;
+        attachments.appendChild(chip);
+    }
+    attachments.classList.toggle("hidden", attachments.childElementCount === 0);
+}
+
+async function uploadFiles(fileList) {
+    if (!threadId || !fileList || !fileList.length) return;
+
+    const form = new FormData();
+    for (const file of fileList) {
+        form.append("files", file, file.name);
+    }
+
+    attachBtn.disabled = true;
+    try {
+        const res = await fetch(`${API}/chat/${threadId}/upload`, {
+            method: "POST",
+            body: form,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+        }
+        renderAttachmentChips(data.files, data.errors);
+        clearError();
+
+        const names = (data.files || []).map((f) => f.filename);
+        if (names.length) {
+            // Let the user know the files are ready and how to use them.
+            const list = names.join(", ");
+            appendTurn(
+                "assistant",
+                `Uploaded: ${list}. Ask me to read or summarize ` +
+                    `${names.length === 1 ? "it" : "them"} by name.`,
+            );
+        }
+        if ((data.errors || []).length && !names.length) {
+            showError(`Upload failed: ${data.errors.join("; ")}`);
+        }
+    } catch (err) {
+        showError(`Upload failed: ${err.message}`);
+    } finally {
+        attachBtn.disabled = false;
+        fileInput.value = "";
+    }
+}
+
+attachBtn.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => uploadFiles(fileInput.files));
+
 function autoresize() {
     messageInput.style.height = "auto";
     messageInput.style.height = Math.min(messageInput.scrollHeight, 160) + "px";
@@ -481,6 +549,10 @@ newChatBtn.addEventListener("click", async () => {
     threadId = null;
     clearTranscript();
     clearError();
+    if (attachments) {
+        attachments.innerHTML = "";
+        attachments.classList.add("hidden");
+    }
     seedField.value = "";
     showStart();
 });

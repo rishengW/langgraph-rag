@@ -232,6 +232,27 @@
         }
         .session-info a { color: #4f46e5; }
 
+        .attachments {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 0 24px 8px;
+        }
+        .chip {
+            background: #eef2ff;
+            border: 1px solid #c7d2fe;
+            border-radius: 12px;
+            color: #3730a3;
+            font-size: 11px;
+            padding: 3px 10px;
+        }
+        .chip.error {
+            background: #fef2f2;
+            border-color: #fecaca;
+            color: #991b1b;
+        }
+        #attachBtn { font-size: 16px; line-height: 1; }
+
         .error-banner {
             background: #fef2f2;
             border: 1px solid #fecaca;
@@ -273,7 +294,12 @@
         <section id="chatScreen" class="transcript-screen hidden">
             <div id="transcript" class="transcript"></div>
             <div id="errorBanner" class="error-banner hidden"></div>
+            <div id="attachments" class="attachments hidden"></div>
             <div class="composer">
+                <input id="fileInput" type="file" class="hidden"
+                    accept=".txt,.md,.log,.csv,.docx,.xlsx,.pdf" multiple>
+                <button id="attachBtn" class="btn-ghost" type="button"
+                    title="Attach .txt, .md, .csv, .docx, .xlsx, or .pdf files">📎</button>
                 <textarea id="messageInput" placeholder="Ask a follow-up..." rows="1"></textarea>
                 <button id="sendBtn" class="btn-primary" type="button">Send</button>
             </div>
@@ -281,6 +307,6 @@
         </section>
     </div>
 
-    <script src="/static/script.js?v=2"></script>
+    <script src="/static/script.js?v=3"></script>
 </body>
 </html>

@@ -7,6 +7,8 @@ from .chat_models import (
     MessageResponse,
     StartChatRequest,
     StartChatResponse,
+    UploadedFile,
+    UploadResponse,
 )
 from .qa_models import QueryRequest, QueryResponse
 
@@ -19,5 +21,7 @@ __all__ = [
     "QueryResponse",
     "StartChatRequest",
     "StartChatResponse",
+    "UploadResponse",
+    "UploadedFile",
 ]
 

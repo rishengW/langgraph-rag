@@ -70,6 +70,17 @@ class Settings:
     stock_enabled: bool = False
     currency_enabled: bool = False
     wikipedia_enabled: bool = False
+    directions_enabled: bool = False
+    map_enabled: bool = False
+    math_enabled: bool = False
+    statistics_enabled: bool = False
+    linalg_enabled: bool = False
+    number_theory_enabled: bool = False
+    datetime_enabled: bool = False
+    summarize_url_enabled: bool = False
+    file_read_enabled: bool = False
+    file_read_root: str = "."
+    file_read_max_bytes: int = 5_000_000
     wikipedia_max_summary_chars: int = 1500
     wikipedia_user_agent: str = (
         "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"

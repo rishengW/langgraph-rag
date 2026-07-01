@@ -58,6 +58,18 @@ class HistoryResponse(BaseModel):
     source_mode: str
 
 
+class UploadedFile(BaseModel):
+    filename: str
+    relative_path: str
+    size_bytes: int
+
+
+class UploadResponse(BaseModel):
+    thread_id: str
+    files: list[UploadedFile]
+    errors: list[str] = Field(default_factory=list)
+
+
 __all__ = [
     "HistoryResponse",
     "HistoryTurn",
@@ -65,4 +77,6 @@ __all__ = [
     "MessageResponse",
     "StartChatRequest",
     "StartChatResponse",
+    "UploadResponse",
+    "UploadedFile",
 ]

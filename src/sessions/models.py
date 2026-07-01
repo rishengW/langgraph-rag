@@ -19,6 +19,9 @@ class ChatSession:
     created_at: float = field(default_factory=time.time)
     last_accessed_at: float | None = None
     isolated_chroma: bool = False
+    # Tool-ready relative paths already injected into the conversation as an
+    # upload-context note, so later turns do not re-announce the same files.
+    announced_uploads: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         if self.last_accessed_at is None:

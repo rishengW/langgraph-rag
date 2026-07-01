@@ -19,16 +19,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from collections.abc import AsyncIterator, Iterable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Annotated, Any, TypeAlias
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, File, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..api.auth import require_api_key
 from ..api.dependencies import (
@@ -48,6 +49,8 @@ from ..api.models import (
     MessageResponse,
     StartChatRequest,
     StartChatResponse,
+    UploadedFile,
+    UploadResponse,
 )
 from ..api.streaming import format_sse
 from ..config import Settings, load_cors_allow_origins, load_settings
@@ -66,6 +69,13 @@ from ..sessions import (
 )
 from ..utils.urls import parse_url_input
 from .graph import build_chat_graph
+from .uploads import (
+    UploadError,
+    build_upload_context_note,
+    list_session_uploads,
+    save_upload,
+    session_upload_dir,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -96,11 +106,15 @@ def _serialize_messages(messages: Iterable[Any]) -> list[HistoryTurn]:
             role = "assistant"
         elif kind in ("tool", "function"):
             role = "tool"
+        elif kind.startswith("system"):
+            role = "system"
         else:
             role = kind
         # Tool messages and empty AI messages (tool-call carriers) are
         # uninteresting to the UI; skip them so the transcript stays clean.
-        if role == "tool":
+        # System messages (e.g. injected upload-context notes) are internal
+        # guidance for the model and must not appear in the user transcript.
+        if role in ("tool", "system"):
             continue
         if role == "assistant" and not (content or "").strip():
             continue
@@ -170,7 +184,11 @@ def _restore_persisted_sessions(
     return restored
 
 
-def _graph_inputs_for_turn(session: ChatSession, message: str) -> dict[str, Any]:
+def _graph_inputs_for_turn(
+    session: ChatSession,
+    message: str,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
     """Build graph inputs for one chat turn.
 
     The session's current ``source_urls`` are seeded into graph state so a
@@ -179,13 +197,49 @@ def _graph_inputs_for_turn(session: ChatSession, message: str) -> dict[str, Any]
     ``merge`` node re-ranks the previous turn's URLs ahead of the current
     turn's freshly discovered URLs (equal hit counts, but better provider
     rank), so every later question keeps fetching the first turn's pages.
+
+    When the session has newly uploaded files (present on disk but not yet
+    announced to the model), a ``SystemMessage`` listing their tool-ready
+    paths is prepended so the LLM knows the exact path to pass to the file
+    tools. Already-announced files are tracked on the session so the note is
+    not repeated every turn.
     """
 
-    inputs: dict[str, Any] = {"messages": [HumanMessage(content=message)]}
+    turn_messages: list[Any] = []
+    if settings is not None:
+        note = _new_upload_context(session, settings)
+        if note is not None:
+            turn_messages.append(SystemMessage(content=note))
+    turn_messages.append(HumanMessage(content=message))
+
+    inputs: dict[str, Any] = {"messages": turn_messages}
     if session.source_urls:
         inputs["source_urls"] = list(session.source_urls)
         inputs["source_mode"] = session.source_mode
     return inputs
+
+
+def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
+    """Return an upload-context note for files not yet announced, else None."""
+
+    if not settings.file_read_enabled:
+        return None
+    try:
+        available = list_session_uploads(settings, session.thread_id)
+    except Exception as exc:
+        logger.warning(
+            "Could not list uploads for thread %s: %s", session.thread_id, exc
+        )
+        return None
+
+    new_paths = [p for p in available if p not in session.announced_uploads]
+    if not new_paths:
+        return None
+
+    session.announced_uploads.update(new_paths)
+    # Announce the full current set so the model always has every path, even
+    # if an earlier note scrolled out of its effective context window.
+    return build_upload_context_note(available)
 
 
 def _source_refresh_allowed(session: ChatSession, settings: Settings) -> bool:
@@ -592,7 +646,7 @@ def create_app(
         )
 
         config = {"configurable": {"thread_id": thread_id}}
-        inputs = _graph_inputs_for_turn(session, request.message)
+        inputs = _graph_inputs_for_turn(session, request.message, settings)
 
         # Snapshot how many messages exist before this turn so we can isolate
         # the messages produced *during* this turn when extracting the answer.
@@ -675,7 +729,7 @@ def create_app(
         )
 
         config = {"configurable": {"thread_id": thread_id}}
-        inputs = _graph_inputs_for_turn(session, request.message)
+        inputs = _graph_inputs_for_turn(session, request.message, settings)
 
         def event_iter() -> Iterator[str]:
             executor = GraphExecutor(session.graph, metrics=metrics)
@@ -711,14 +765,82 @@ def create_app(
             source_mode=session.source_mode,
         )
 
+    @app.post(
+        "/chat/{thread_id}/upload",
+        response_model=UploadResponse,
+        dependencies=[Depends(require_api_key)],
+    )
+    async def upload_files(
+        thread_id: str,
+        fastapi_request: Request,
+        sessions: SessionRegistryDep,
+        files: list[UploadFile] = File(...),  # noqa: B008 - FastAPI dependency default
+    ) -> UploadResponse:
+        session = sessions.get(thread_id)
+        if session is None:
+            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+
+        settings = get_config(fastapi_request)
+        saved: list[UploadedFile] = []
+        errors: list[str] = []
+
+        for upload in files:
+            name = upload.filename or "upload"
+            try:
+                content = await upload.read()
+                result = await asyncio.to_thread(
+                    save_upload,
+                    settings=settings,
+                    thread_id=thread_id,
+                    filename=name,
+                    content=content,
+                )
+            except UploadError as exc:
+                errors.append(f"{name}: {exc}")
+                continue
+            except Exception as exc:
+                logger.warning(
+                    "Upload failed for %s on thread %s: %s", name, thread_id, exc
+                )
+                errors.append(f"{name}: could not process the file.")
+                continue
+            finally:
+                await upload.close()
+
+            saved.append(
+                UploadedFile(
+                    filename=result.filename,
+                    relative_path=result.relative_path,
+                    size_bytes=result.size_bytes,
+                )
+            )
+            logger.info(
+                "Stored upload %r (%d bytes) for thread %s at %s",
+                result.filename,
+                result.size_bytes,
+                thread_id,
+                result.relative_path,
+            )
+
+        return UploadResponse(thread_id=thread_id, files=saved, errors=errors)
+
     @app.delete("/chat/{thread_id}", dependencies=[Depends(require_api_key)])
     async def delete_chat(
         thread_id: str,
+        fastapi_request: Request,
         sessions: SessionRegistryDep,
     ) -> dict[str, str]:
         deleted = sessions.delete(thread_id)
         if not deleted:
             raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+        # Remove any files uploaded for this thread so they are not orphaned.
+        try:
+            settings = get_config(fastapi_request)
+            upload_dir = session_upload_dir(settings, thread_id)
+            if upload_dir.exists():
+                await asyncio.to_thread(shutil.rmtree, upload_dir, True)
+        except Exception as exc:
+            logger.warning("Failed to remove uploads for thread %s: %s", thread_id, exc)
         return {"status": "deleted", "thread_id": thread_id}
 
     @app.get("/metrics")

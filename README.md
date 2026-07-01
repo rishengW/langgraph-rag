@@ -30,7 +30,7 @@ langgraph-rag/
 |   |-- qa/                   # Single-shot QA app (API, CLI, UI)
 |   |-- rag/                  # Chroma retriever, embeddings (DashScope, HuggingFace), document loader/quality
 |   |-- sessions/             # Chat session registry, SQLite metadata + checkpoint persistence
-|   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia) + shared HTTP helper
+|   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, file readers) + shared HTTP helper
 |   |-- utils/                # Retry, networking, URL parsing helpers
 |   |-- web_search/           # Live web search providers (Bing, Baidu, DuckDuckGo), discovery, content fetching, JS fallback
 |-- tests/                    # Offline-focused pytest suite
@@ -108,6 +108,17 @@ Key settings:
 | `CURRENCY_ENABLED` | `false` | Frankfurter currency-conversion tool |
 | `WIKIPEDIA_ENABLED` | `false` | MediaWiki summary tool |
 | `WIKIPEDIA_USER_AGENT` | `langgraph-rag/1.0 (configure)` | Required when `WIKIPEDIA_ENABLED=true` |
+| `DIRECTIONS_ENABLED` | `false` | OSRM route/distance/time tool |
+| `MAP_ENABLED` | `false` | Open-Meteo + OpenStreetMap place locator tool |
+| `MATH_ENABLED` | `false` | SymPy symbolic math tool (calculus, algebra, limits, series) |
+| `STATISTICS_ENABLED` | `false` | Descriptive statistics tool (stdlib) |
+| `LINALG_ENABLED` | `false` | Linear algebra / matrix tool (SymPy) |
+| `NUMBER_THEORY_ENABLED` | `false` | Number theory tool: factors, primes, GCD/LCM, bases (SymPy) |
+| `DATETIME_ENABLED` | `false` | Date math / timezone tool (stdlib) |
+| `SUMMARIZE_URL_ENABLED` | `false` | Single-URL fetch + summarize tool |
+| `FILE_READ_ENABLED` | `false` | Local file-reading tools (.txt/.md/.log/.csv, .docx, .xlsx, .pdf) + chat uploads |
+| `FILE_READ_ROOT` | `.` | Root directory the file tools and uploads are confined to |
+| `FILE_READ_MAX_BYTES` | `5000000` | Maximum readable/uploadable file size in bytes |
 | `CHROMA_DIR` | `.chroma` | Vector store location |
 | `API_KEY` | — | API auth key (open when unset) |
 | `RERANK_STRATEGY` | `lexical` | `lexical`, `embedding`, or `hybrid` |
@@ -183,8 +194,20 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `get_stock_quote` | `src/tools/stock.py` | `STOCK_ENABLED=true` | yfinance / Yahoo Finance, no API key |
 | `convert_currency` | `src/tools/currency.py` | `CURRENCY_ENABLED=true` | Frankfurter API (201 currencies), no API key |
 | `search_wikipedia` | `src/tools/wikipedia_tool.py` | `WIKIPEDIA_ENABLED=true` | MediaWiki API summary + URL, set `WIKIPEDIA_USER_AGENT` |
+| `get_directions` | `src/tools/directions.py` | `DIRECTIONS_ENABLED=true` | OSRM route/distance/time between two places, no API key |
+| `find_on_map` | `src/tools/map_tool.py` | `MAP_ENABLED=true` | Open-Meteo geocoding + OpenStreetMap link, no API key |
+| `solve_math` | `src/tools/math_tool.py` | `MATH_ENABLED=true` | SymPy derivatives/integrals/solve/simplify/limits/series, no API key |
+| `compute_statistics` | `src/tools/statistics_tool.py` | `STATISTICS_ENABLED=true` | Mean/median/mode/variance/stdev/quartiles (stdlib), no API key |
+| `linear_algebra` | `src/tools/linalg_tool.py` | `LINALG_ENABLED=true` | Matrix det/inverse/transpose/multiply/eigenvalues, solve Ax=b (SymPy) |
+| `number_theory` | `src/tools/number_theory_tool.py` | `NUMBER_THEORY_ENABLED=true` | Factorization, primality, GCD/LCM, base conversion (SymPy) |
+| `calculate_datetime` | `src/tools/datetime_tool.py` | `DATETIME_ENABLED=true` | Date math, timezone conversion, weekdays (stdlib), no API key |
+| `summarize_url` | `src/tools/summarize_tool.py` | `SUMMARIZE_URL_ENABLED=true` | Fetch one URL and summarize it (reuses web-search fetcher + LLM) |
+| `read_text_file` | `src/tools/text_file.py` | `FILE_READ_ENABLED=true` | Read .txt/.md/.log/.csv from `FILE_READ_ROOT` |
+| `read_word_document` | `src/tools/word_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .docx in `FILE_READ_ROOT` |
+| `read_excel_spreadsheet` | `src/tools/excel_file.py` | `FILE_READ_ENABLED=true` | Read .xlsx rows from `FILE_READ_ROOT` (needs `openpyxl`) |
+| `read_pdf` | `src/tools/pdf_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .pdf in `FILE_READ_ROOT` (needs `pypdf`) |
 
-When the agent calls a non-web-search tool in the lightweight graph (weather, stock, currency, Wikipedia), the post-tool edge routes back to the agent so it can synthesize the structured tool output into a final answer — bypassing the `decompose → web_search → merge → web_answer` chain that's specific to `live_web_search`.
+When the agent calls a non-web-search tool in the lightweight graph (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, or a file reader), the post-tool edge routes back to the agent so it can synthesize the structured tool output into a final answer — bypassing the `decompose → web_search → merge → web_answer` chain that's specific to `live_web_search`.
 
 ### LLM Provider Seam
 
@@ -261,8 +284,9 @@ API endpoints:
 | `POST` | `/chat` | Create a thread |
 | `POST` | `/chat/{id}/message` | Send a turn |
 | `POST` | `/chat/{id}/message/stream` | SSE stream: node events + per-token answer deltas (`?tokens=false` for node events only) |
+| `POST` | `/chat/{id}/upload` | Upload files (.txt/.md/.log/.csv, .docx, .xlsx, .pdf) for the thread's file tools |
 | `GET` | `/chat/{id}/history` | Read transcript |
-| `DELETE` | `/chat/{id}` | Delete a thread |
+| `DELETE` | `/chat/{id}` | Delete a thread (also removes the thread's uploaded files) |
 
 ## Persistence
 
@@ -275,6 +299,47 @@ Chat uses additional persisted state:
 - `.chroma/chat/checkpoints.sqlite3`: LangGraph checkpoints via `SQLiteMemorySaver`
 
 Chat sessions survive app restarts. Sessions with the global default source set share the global Chroma collection; sessions with explicit URLs or web-discovered sources get isolated per-thread stores. The `SQLiteMemorySaver` checkpointer is thread-safe under concurrent `/chat` requests for the same thread (uses a reentrant lock around the inherited `MemorySaver` mutations and the SQLite snapshot).
+
+## File Uploads and Reading
+
+Chat mode can read local files through four agent tools (`read_text_file`, `read_word_document`, `read_excel_spreadsheet`, `read_pdf`), and the chat UI can upload files for those tools to read. The whole feature is gated by `FILE_READ_ENABLED` (default `false`).
+
+### Enabling
+
+```text
+FILE_READ_ENABLED=true
+FILE_READ_ROOT=./uploads        # directory the tools and uploads are confined to
+FILE_READ_MAX_BYTES=5000000     # per-file size cap
+```
+
+Set `FILE_READ_ROOT` to a dedicated directory rather than the project root so the tools and uploads are sandboxed away from source and config files. The Excel tool also requires `openpyxl` (already pinned in `requirements.txt`).
+
+### Supported types
+
+| Tool | Extensions |
+|---|---|
+| `read_text_file` | `.txt`, `.md`, `.log`, `.csv` |
+| `read_word_document` | `.docx` (legacy binary `.doc` is not supported) |
+| `read_excel_spreadsheet` | `.xlsx` (legacy `.xls` is not supported) |
+| `read_pdf` | `.pdf` (scanned/image-only PDFs without a text layer cannot be read) |
+
+### Upload → read flow
+
+1. In the chat UI, click the 📎 button and pick one or more files. The browser POSTs them to `POST /chat/{id}/upload` as `multipart/form-data`.
+2. Each file is saved under `<FILE_READ_ROOT>/chat_uploads/<thread_id>/<name>`. The response lists saved files (with tool-ready relative paths) and per-file errors. Accepted files show a chip; rejected files show a red error chip (and the error banner when the whole upload fails).
+3. On the next message turn, the server injects a `SystemMessage` listing the uploaded files' exact paths so the LLM knows what to pass to the file tools. The note is announced once per new file (tracked on the session) and is filtered out of the user-visible transcript.
+4. Ask the assistant to read or summarize a file by name; the model calls the matching file tool with the full path from the injected note.
+
+### Security model
+
+- Uploads and reads require `FILE_READ_ENABLED=true`; otherwise both are refused.
+- All paths resolve under `FILE_READ_ROOT`; `../` traversal outside the root is denied.
+- Sensitive files (`.env`, private keys, `credentials`, etc.) are always refused even inside the root.
+- File type is allowlisted and size is capped (`FILE_READ_MAX_BYTES`) at both the upload endpoint and the tools.
+- Uploads land in per-thread directories, so threads cannot read each other's files. Deleting a thread (`DELETE /chat/{id}`) also removes its upload directory.
+- The upload endpoint respects `API_KEY` auth like other mutation endpoints.
+
+The filesystem is the source of truth for uploads, so a server restart preserves uploaded files; the next turn re-announces the full current set to the model.
 
 ## Web Search
 
@@ -347,5 +412,5 @@ git diff --check                            # Whitespace check
 - Web search defaults to Bing with Baidu and DuckDuckGo fallback. If Baidu returns a captcha/verification page, it is temporarily skipped. Set `WEB_SEARCH_PROVIDER` to pin a single provider.
 - The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
 - Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.
-- Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env`. None require an API key; only `WIKIPEDIA_USER_AGENT` should be customized for shared deployments.
+- Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (the four file readers share `FILE_READ_ENABLED`). None require an API key; only `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.
 - The lightweight graph's conditional expansion fires only on web-search retrieval failure — single-keyword questions that get a readable page back take the fast path with one search and one LLM call. Compound questions that decompose into multiple sub-Qs still take the fast path; expansion only fires when no fetched page yields readable text.

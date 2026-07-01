@@ -59,6 +59,17 @@ SETTING_ENV_NAMES = {
     "stock_enabled": "STOCK_ENABLED",
     "currency_enabled": "CURRENCY_ENABLED",
     "wikipedia_enabled": "WIKIPEDIA_ENABLED",
+    "directions_enabled": "DIRECTIONS_ENABLED",
+    "map_enabled": "MAP_ENABLED",
+    "math_enabled": "MATH_ENABLED",
+    "statistics_enabled": "STATISTICS_ENABLED",
+    "linalg_enabled": "LINALG_ENABLED",
+    "number_theory_enabled": "NUMBER_THEORY_ENABLED",
+    "datetime_enabled": "DATETIME_ENABLED",
+    "summarize_url_enabled": "SUMMARIZE_URL_ENABLED",
+    "file_read_enabled": "FILE_READ_ENABLED",
+    "file_read_root": "FILE_READ_ROOT",
+    "file_read_max_bytes": "FILE_READ_MAX_BYTES",
     "wikipedia_max_summary_chars": "WIKIPEDIA_MAX_SUMMARY_CHARS",
     "wikipedia_user_agent": "WIKIPEDIA_USER_AGENT",
     "page_load_timeout": "PAGE_LOAD_TIMEOUT",
@@ -247,6 +258,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "wikipedia_max_summary_chars",
         "dashscope_request_timeout",
         "dashscope_max_retries",
+        "file_read_max_bytes",
     ):
         if name == "embedding_dimension":
             return parse_optional_int(None if value is None else str(value), default)
@@ -269,6 +281,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
             "page_load_timeout",
             "page_load_max_concurrency",
             "dashscope_max_retries",
+            "file_read_max_bytes",
         ):
             return max(1, parsed)
         if name == "page_load_cache_ttl_seconds":
@@ -286,6 +299,15 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "stock_enabled",
         "currency_enabled",
         "wikipedia_enabled",
+        "directions_enabled",
+        "map_enabled",
+        "math_enabled",
+        "statistics_enabled",
+        "linalg_enabled",
+        "number_theory_enabled",
+        "datetime_enabled",
+        "summarize_url_enabled",
+        "file_read_enabled",
         "document_quality_filter_enabled",
     ):
         return parse_bool(value, bool(default))

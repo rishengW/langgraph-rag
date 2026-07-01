@@ -3,6 +3,13 @@ from __future__ import annotations
 from src.config import Settings
 from src.tools import (
     build_currency_tool,
+    build_datetime_tool,
+    build_directions_tool,
+    build_linalg_tool,
+    build_map_tool,
+    build_math_tool,
+    build_number_theory_tool,
+    build_statistics_tool,
     build_stock_tool,
     build_weather_tool,
     build_wikipedia_tool,
@@ -149,3 +156,398 @@ def test_tool_builders_expose_expected_names():
     assert build_stock_tool(settings).name == "get_stock_quote"
     assert build_currency_tool(settings).name == "convert_currency"
     assert build_wikipedia_tool(settings).name == "search_wikipedia"
+    assert build_directions_tool(settings).name == "get_directions"
+    assert build_map_tool(settings).name == "find_on_map"
+    assert build_math_tool(settings).name == "solve_math"
+    assert build_datetime_tool(settings).name == "calculate_datetime"
+    assert build_statistics_tool(settings).name == "compute_statistics"
+    assert build_linalg_tool(settings).name == "linear_algebra"
+    assert build_number_theory_tool(settings).name == "number_theory"
+
+
+def test_math_tool_computes_limit():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {"operation": "limit", "expression": "sin(x)/x", "variable": "x", "point": "0"}
+    )
+
+    assert "= 1" in result
+
+
+def test_math_tool_limit_to_infinity():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {"operation": "limit", "expression": "1/x", "point": "oo"}
+    )
+
+    assert "= 0" in result
+
+
+def test_math_tool_computes_series():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {"operation": "series", "expression": "exp(x)", "order": 4}
+    )
+
+    # Maclaurin series of e^x: 1 + x + x**2/2 + x**3/6 + ...
+    assert "x**2/2" in result
+    assert "x**3/6" in result
+
+
+def test_statistics_tool_basic():
+    tool = build_statistics_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"numbers": "2, 4, 6, 8, 10"})
+
+    assert "| Mean | 6 |" in result
+    assert "| Median | 6 |" in result
+    assert "| Count | 5 |" in result
+    assert "| Sum | 30 |" in result
+
+
+def test_statistics_tool_requires_numbers():
+    tool = build_statistics_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"numbers": "no digits here"})
+
+    assert "at least one number" in result.lower()
+
+
+def test_linalg_determinant():
+    tool = build_linalg_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {"operation": "determinant", "matrix": "[[1, 2], [3, 4]]"}
+    )
+
+    # det = 1*4 - 2*3 = -2
+    assert "-2" in result
+
+
+def test_linalg_solve_system():
+    tool = build_linalg_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {
+            "operation": "solve",
+            "matrix": "[[2, 1], [1, 3]]",
+            "vector": "[5, 10]",
+        }
+    )
+
+    # 2x + y = 5; x + 3y = 10 -> x = 1, y = 3
+    assert "x = [1, 3]" in result
+
+
+def test_linalg_inverse_singular_reports_clearly():
+    tool = build_linalg_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {"operation": "inverse", "matrix": "[[1, 2], [2, 4]]"}
+    )
+
+    assert "singular" in result.lower()
+
+
+def test_linalg_multiply_shape_mismatch():
+    tool = build_linalg_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {
+            "operation": "multiply",
+            "matrix": "[[1, 2, 3]]",
+            "matrix_b": "[[1, 2, 3]]",
+        }
+    )
+
+    assert "incompatible shapes" in result.lower()
+
+
+def test_number_theory_factorize():
+    tool = build_number_theory_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "factorize", "number": 360})
+
+    # 360 = 2^3 * 3^2 * 5
+    assert "2^3" in result
+    assert "3^2" in result
+    assert "5" in result
+
+
+def test_number_theory_is_prime():
+    tool = build_number_theory_tool(Settings(dashscope_api_key="test-key"))
+    assert "not prime" in tool.invoke({"operation": "is_prime", "number": 91}).lower()
+    assert "is prime" in tool.invoke({"operation": "is_prime", "number": 97}).lower()
+
+
+def test_number_theory_gcd_lcm():
+    tool = build_number_theory_tool(Settings(dashscope_api_key="test-key"))
+    gcd = tool.invoke({"operation": "gcd", "number": 12, "second_number": 18})
+    lcm = tool.invoke({"operation": "lcm", "number": 4, "second_number": 6})
+
+    assert "= 6" in gcd
+    assert "= 12" in lcm
+
+
+def test_number_theory_to_base():
+    tool = build_number_theory_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "to_base", "number": 255, "base": 16})
+
+    assert "ff" in result.lower()
+
+
+def test_number_theory_gcd_requires_second_number():
+    tool = build_number_theory_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "gcd", "number": 12})
+
+    assert "requires second_number" in result.lower()
+
+
+def test_datetime_tool_difference_in_days():
+    tool = build_datetime_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {"operation": "difference", "start": "2026-01-01", "end": "2026-01-11"}
+    )
+
+    assert "10 day(s)" in result
+
+
+def test_datetime_tool_add_offsets_date():
+    tool = build_datetime_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {"operation": "add", "start": "2026-06-30", "days": 5}
+    )
+
+    assert "2026-07-05" in result
+
+
+def test_datetime_tool_weekday():
+    tool = build_datetime_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "weekday", "start": "2026-06-30"})
+
+    # 2026-06-30 is a Tuesday.
+    assert "Tuesday" in result
+
+
+def test_datetime_tool_convert_timezone():
+    tool = build_datetime_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {
+            "operation": "convert_timezone",
+            "start": "2026-06-30T15:00",
+            "timezone_name": "Asia/Tokyo",
+            "to_timezone": "UTC",
+        }
+    )
+
+    # Tokyo is UTC+9, so 15:00 Tokyo -> 06:00 UTC.
+    assert "06:00" in result
+
+
+def test_datetime_tool_rejects_unknown_timezone():
+    tool = build_datetime_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "now", "timezone_name": "Mars/Olympus"})
+
+    assert "unknown timezone" in result.lower()
+
+
+def test_datetime_tool_rejects_unsupported_operation():
+    tool = build_datetime_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "teleport", "start": "2026-06-30"})
+
+    assert "unsupported operation" in result.lower()
+
+
+def test_directions_tool_geocodes_endpoints_and_formats_route():
+    calls = []
+
+    def requester(url, **kwargs):
+        calls.append((url, kwargs))
+        if "geocoding-api" in url:
+            name = kwargs["params"]["name"]
+            coords = {
+                "Shanghai": (31.23, 121.47, "Shanghai", "China"),
+                "Hangzhou": (30.29, 120.16, "Zhejiang", "China"),
+            }[name]
+            lat, lon, admin1, country = coords
+            return {
+                "results": [
+                    {
+                        "name": name,
+                        "admin1": admin1,
+                        "country": country,
+                        "latitude": lat,
+                        "longitude": lon,
+                    }
+                ]
+            }
+        # OSRM route response.
+        assert "/driving/" in url
+        return {
+            "code": "Ok",
+            "routes": [{"distance": 165000.0, "duration": 7200.0}],
+        }
+
+    tool = build_directions_tool(
+        Settings(dashscope_api_key="test-key"), requester=requester
+    )
+    result = tool.invoke(
+        {"origin": "Shanghai", "destination": "Hangzhou", "mode": "driving"}
+    )
+
+    assert "Directions from Shanghai, Shanghai, China to Hangzhou, Zhejiang, China" in result
+    assert "| Distance | 165.0 km |" in result
+    assert "| Estimated time | 2 h |" in result
+    # Two geocoding calls + one routing call.
+    assert len(calls) == 3
+
+
+def test_directions_tool_accepts_raw_coordinates_without_geocoding():
+    def requester(url, **kwargs):
+        # Only the OSRM endpoint should be hit; no geocoding for raw coords.
+        assert "geocoding-api" not in url
+        return {"code": "Ok", "routes": [{"distance": 1000.0, "duration": 600.0}]}
+
+    tool = build_directions_tool(
+        Settings(dashscope_api_key="test-key"), requester=requester
+    )
+    result = tool.invoke(
+        {"origin": "31.23,121.47", "destination": "30.29,120.16"}
+    )
+
+    assert "| Distance | 1.0 km |" in result
+    assert "| Estimated time | 10 min |" in result
+
+
+def test_directions_tool_reports_missing_route():
+    def requester(url, **kwargs):
+        if "geocoding-api" in url:
+            return {
+                "results": [
+                    {"name": "A", "latitude": 1.0, "longitude": 1.0},
+                ]
+            }
+        return {"code": "NoRoute", "message": "no route", "routes": []}
+
+    tool = build_directions_tool(
+        Settings(dashscope_api_key="test-key"), requester=requester
+    )
+    result = tool.invoke({"origin": "A", "destination": "A"})
+
+    assert "No route found" in result
+
+
+def test_directions_tool_error_returns_string_not_raises():
+    def boom(url, **kwargs):
+        raise RuntimeError("network down")
+
+    tool = build_directions_tool(
+        Settings(dashscope_api_key="test-key"), requester=boom
+    )
+    result = tool.invoke({"origin": "Shanghai", "destination": "Hangzhou"})
+
+    assert "failed" in result.lower()
+
+
+def test_map_tool_geocodes_place_and_returns_osm_link():
+    def requester(url, **kwargs):
+        assert "geocoding-api" in url
+        return {
+            "results": [
+                {
+                    "name": "Paris",
+                    "admin1": "Ile-de-France",
+                    "country": "France",
+                    "latitude": 48.8566,
+                    "longitude": 2.3522,
+                    "population": 2138551,
+                }
+            ]
+        }
+
+    tool = build_map_tool(Settings(dashscope_api_key="test-key"), requester=requester)
+    result = tool.invoke({"place": "Paris", "zoom": 12})
+
+    assert "Map location for Paris, Ile-de-France, France" in result
+    assert "| Latitude | 48.8566 |" in result
+    assert "| Longitude | 2.3522 |" in result
+    assert "| Population | 2,138,551 |" in result
+    assert "openstreetmap.org" in result
+    assert "#map=12/48.85660/2.35220" in result
+
+
+def test_map_tool_reports_no_results():
+    def requester(url, **kwargs):
+        return {"results": []}
+
+    tool = build_map_tool(Settings(dashscope_api_key="test-key"), requester=requester)
+    result = tool.invoke({"place": "Nowhereville12345"})
+
+    assert "No map location found" in result
+
+
+def test_math_tool_computes_derivative():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {"operation": "derivative", "expression": "x**2 + 3*x", "variable": "x"}
+    )
+
+    assert "2*x + 3" in result
+
+
+def test_math_tool_computes_indefinite_integral_with_constant():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "integral", "expression": "2*x"})
+
+    assert "x**2" in result
+    assert "+ C" in result
+
+
+def test_math_tool_computes_definite_integral():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke(
+        {
+            "operation": "integral",
+            "expression": "x**2",
+            "lower_bound": "0",
+            "upper_bound": "3",
+        }
+    )
+
+    # Integral of x^2 from 0 to 3 is 9.
+    assert "= 9" in result
+
+
+def test_math_tool_solves_equation():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "solve", "expression": "x**2 - 4", "variable": "x"})
+
+    assert "-2" in result and "2" in result
+
+
+def test_math_tool_solves_equation_with_equals_sign():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "solve", "expression": "2*x + 1 = 5"})
+
+    assert "x = 2" in result
+
+
+def test_math_tool_evaluates_numeric_expression():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "evaluate", "expression": "sqrt(16) + 2"})
+
+    assert "6" in result
+
+
+def test_math_tool_evaluate_rejects_free_symbols():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "evaluate", "expression": "x + 1"})
+
+    assert "unknown symbol" in result.lower()
+
+
+def test_math_tool_rejects_unsupported_operation():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "factorize", "expression": "x**2 - 1"})
+
+    assert "Unsupported operation" in result
+
+
+def test_math_tool_error_returns_string_not_raises():
+    tool = build_math_tool(Settings(dashscope_api_key="test-key"))
+    result = tool.invoke({"operation": "derivative", "expression": "x**"})
+
+    assert "failed" in result.lower()

@@ -51,6 +51,17 @@ weather_enabled: false
 stock_enabled: false
 currency_enabled: false
 wikipedia_enabled: false
+directions_enabled: false
+map_enabled: false
+math_enabled: false
+statistics_enabled: false
+linalg_enabled: false
+number_theory_enabled: false
+datetime_enabled: false
+summarize_url_enabled: false
+file_read_enabled: false
+file_read_root: "."
+file_read_max_bytes: 5000000
 wikipedia_max_summary_chars: 1500
 wikipedia_user_agent: "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
 page_load_timeout: 15

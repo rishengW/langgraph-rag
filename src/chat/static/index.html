@@ -265,6 +265,12 @@
 
         .hidden { display: none !important; }
     </style>
+    <!-- KaTeX: typeset LaTeX math (\\[...\\], \\(...\\), $$...$$) in agent
+         answers. Loaded deferred; renderMath() guards on availability so the
+         page works even if these fail to load. -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
 </head>
 <body>
     <div class="app">
@@ -307,6 +313,6 @@
         </section>
     </div>
 
-    <script src="/static/script.js?v=3"></script>
+    <script src="/static/script.js?v=5"></script>
 </body>
 </html>

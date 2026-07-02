@@ -58,6 +58,17 @@ function renderInlineMarkdown(text) {
         return token;
     });
 
+    // Protect math spans from the escape/emphasis passes below so LaTeX such
+    // as x_1, a * b, and \sum_{i=1} survives intact for KaTeX. Same
+    // token-stash strategy used for inline code; restored raw (un-escaped)
+    // after Markdown so auto-render sees the original delimiters.
+    const mathTokens = [];
+    value = value.replace(/(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?!\s)[^$\n]+?(?<!\s)\$)/g, (m) => {
+        const token = `\u0000MATH${mathTokens.length}\u0000`;
+        mathTokens.push(m);
+        return token;
+    });
+
     value = escapeHtml(value);
     value = value.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     value = value.replace(/__([^_]+)__/g, "<strong>$1</strong>");
@@ -72,7 +83,30 @@ function renderInlineMarkdown(text) {
     for (const [index, html] of codeTokens.entries()) {
         value = value.replaceAll(`\u0000CODE${index}\u0000`, html);
     }
+    for (const [index, m] of mathTokens.entries()) {
+        value = value.replaceAll(`\u0000MATH${index}\u0000`, () => m);
+    }
     return value;
+}
+
+// Typeset any LaTeX math inside an already-rendered element. Called only at
+// final render (not per streaming token) to avoid main-thread blocking and
+// incomplete-LaTeX flicker during streaming. No-op if KaTeX is unavailable.
+function renderMath(target) {
+    if (!target || typeof window.renderMathInElement !== "function") return;
+    try {
+        window.renderMathInElement(target, {
+            delimiters: [
+                { left: "$$", right: "$$", display: true },
+                { left: "\\[", right: "\\]", display: true },
+                { left: "\\(", right: "\\)", display: false },
+                { left: "$", right: "$", display: false },
+            ],
+            throwOnError: false,
+        });
+    } catch (_) {
+        // Leave math as raw text if KaTeX fails on a given expression.
+    }
 }
 
 function renderTableRow(line) {
@@ -225,6 +259,7 @@ function appendTurn(role, content, opts = {}) {
     if (role === "assistant" && !opts.thinking) {
         bubble.classList.add("markdown-preview");
         bubble.innerHTML = renderMarkdownPreview(content);
+        renderMath(bubble);
     } else {
         bubble.innerHTML = escapeHtml(content);
     }
@@ -453,6 +488,7 @@ async function streamMessage(message, thinking) {
         appendTurn("assistant", answer || "(no reply produced)");
     } else {
         bubble.innerHTML = renderMarkdownPreview(answer);
+        renderMath(bubble);
     }
 }
 

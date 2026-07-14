@@ -165,15 +165,24 @@ def _restore_persisted_sessions(
     restored = 0
     for metadata in storage.list_metadata():
         urls = list(metadata.source_urls) or list(base_settings.source_urls)
-        settings = _settings_for_session(
-            base_settings,
-            urls,
-            metadata.thread_id,
-            metadata.isolated_chroma,
-        )
         if metadata.source_mode == "web_search" and base_settings.web_search_lightweight:
+            # Lightweight chat owns discovery inside the graph. Persisted URLs
+            # remain session metadata for the UI, but must not become the next
+            # turn's implicit source set.
+            settings = replace(base_settings, source_urls=[])
             graph = _build_lightweight_chat_graph_for_session(settings, checkpointer)
         else:
+            graph_settings = (
+                replace(base_settings, web_search_enabled=False)
+                if metadata.source_mode == "web_search"
+                else base_settings
+            )
+            settings = _settings_for_session(
+                graph_settings,
+                urls,
+                metadata.thread_id,
+                metadata.isolated_chroma,
+            )
             graph = _build_chat_graph_for_session(
                 settings,
                 rebuild_vectorstore=False,
@@ -213,7 +222,25 @@ def _graph_inputs_for_turn(
     turn_messages.append(HumanMessage(content=message))
 
     inputs: dict[str, Any] = {"messages": turn_messages}
-    if session.source_urls:
+    if (
+        session.source_mode == "web_search"
+        and settings is not None
+        and settings.web_search_lightweight
+    ):
+        # A web-search turn must not inherit the previous question's pages
+        # from the checkpoint. The graph will populate this list from the
+        # current turn's search results.
+        inputs["source_urls"] = []
+        inputs["source_mode"] = "web_search"
+        inputs["sub_questions"] = []
+        inputs["expanded_queries"] = []
+        inputs["search_queries"] = []
+        inputs["web_search_results"] = []
+        inputs["web_search_result_metadata"] = []
+        inputs["web_answer_attempts"] = 0
+        inputs["web_answer_no_readable_content"] = False
+        inputs["expansion_attempted"] = False
+    elif session.source_urls:
         inputs["source_urls"] = list(session.source_urls)
         inputs["source_mode"] = session.source_mode
     return inputs
@@ -245,7 +272,41 @@ def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
 def _source_refresh_allowed(session: ChatSession, settings: Settings) -> bool:
     """Return whether chat should refresh this session from web search."""
 
-    return session.source_mode != "explicit" and settings.web_search_enabled
+    return (
+        session.source_mode != "explicit"
+        and settings.web_search_enabled
+        and not settings.web_search_lightweight
+    )
+
+
+def _sync_graph_owned_web_sources(
+    *,
+    session: ChatSession,
+    values: Any,
+    sessions: ChatSessionRegistry,
+) -> ChatSession:
+    """Persist graph-discovered URLs as session metadata without rebuilding."""
+
+    if session.source_mode != "web_search" or not session.settings.web_search_lightweight:
+        return session
+    if not isinstance(values, dict):
+        return session
+
+    raw_urls = values.get("source_urls")
+    if not isinstance(raw_urls, list):
+        return session
+    urls = [str(url).strip() for url in raw_urls if str(url).strip()]
+    if urls == session.source_urls:
+        return session
+
+    return sessions.update_sources(
+        session.thread_id,
+        graph=session.graph,
+        settings=session.settings,
+        source_urls=urls,
+        source_mode="web_search",
+        isolated_chroma=False,
+    ) or session
 
 
 async def _condense_query_for_refresh(
@@ -351,7 +412,7 @@ async def _refresh_session_sources_from_web(
         isolated_chroma = False
     else:
         session_settings = _settings_for_session(
-            settings,
+            replace(settings, web_search_enabled=False),
             urls,
             session.thread_id,
             isolated=True,
@@ -492,8 +553,13 @@ def create_app(
         urls = _parse_urls(request.urls)
         discovered_from_search = False
         search_error: str | None = None
+        graph_owned_web = (
+            urls is None
+            and settings.web_search_enabled
+            and settings.web_search_lightweight
+        )
 
-        if urls is None and settings.web_search_enabled:
+        if urls is None and settings.web_search_enabled and not graph_owned_web:
             seed = (request.seed_question or "").strip()
             if seed:
                 try:
@@ -509,17 +575,18 @@ def create_app(
 
         if request.urls:
             source_mode = "explicit"
-        elif discovered_from_search:
+        elif graph_owned_web or discovered_from_search:
             source_mode = "web_search"
         else:
             source_mode = "defaults"
 
         # Settle on the URL list. For "defaults" we fall back to the configured
         # source URLs from ``Settings``.
-        if urls is None:
-            urls = list(settings.source_urls)
+        if graph_owned_web:
+            urls = []
             isolated = False
-        elif discovered_from_search and settings.web_search_lightweight:
+        elif urls is None:
+            urls = list(settings.source_urls)
             isolated = False
         else:
             isolated = True
@@ -529,11 +596,17 @@ def create_app(
         from uuid import uuid4
 
         thread_id = uuid4().hex
-        session_settings = (
-            replace(settings, source_urls=urls)
-            if discovered_from_search and settings.web_search_lightweight
-            else _settings_for_session(settings, urls, thread_id, isolated)
-        )
+        if graph_owned_web:
+            session_settings = replace(settings, source_urls=[])
+        else:
+            graph_settings = (
+                replace(settings, web_search_enabled=False)
+                if discovered_from_search
+                else settings
+            )
+            session_settings = _settings_for_session(
+                graph_settings, urls, thread_id, isolated
+            )
 
         checkpointer = getattr(app.state, "chat_checkpointer", None)
 
@@ -542,7 +615,7 @@ def create_app(
         build_failed_for_web_search = False
         try:
             async with graph_factory_lock:
-                if discovered_from_search and settings.web_search_lightweight:
+                if graph_owned_web:
                     graph = await asyncio.to_thread(
                         _build_lightweight_chat_graph_for_session,
                         session_settings,
@@ -671,6 +744,12 @@ def create_app(
             )
             return MessageResponse(thread_id=thread_id, answer="", error=str(exc))
 
+        session = _sync_graph_owned_web_sources(
+            session=session,
+            values=result,
+            sessions=sessions,
+        )
+
         messages = result.get("messages", []) if isinstance(result, dict) else []
         # Only consider messages added during this turn. This prevents echoing
         # the user's own question (the rewrite node may append an AIMessage
@@ -736,10 +815,26 @@ def create_app(
             # REFACTOR: ``tokens`` (default True) enables per-token ``TokenEvent``
             # deltas from the answer nodes in addition to node lifecycle events.
             # Pass ``?tokens=false`` to fall back to node-update-only streaming.
-            for event in executor.stream(
-                inputs, config=config, stream_tokens=tokens
-            ):
-                yield format_sse(event)
+            try:
+                for event in executor.stream(
+                    inputs, config=config, stream_tokens=tokens
+                ):
+                    yield format_sse(event)
+            finally:
+                try:
+                    snapshot = session.graph.get_state(config)
+                    values = getattr(snapshot, "values", {}) or {}
+                    _sync_graph_owned_web_sources(
+                        session=session,
+                        values=values,
+                        sessions=sessions,
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "Could not synchronize graph-owned web sources for %s: %s",
+                        session.thread_id,
+                        exc,
+                    )
 
         return StreamingResponse(event_iter(), media_type="text/event-stream")
 

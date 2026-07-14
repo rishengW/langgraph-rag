@@ -23,8 +23,8 @@ class StartChatRequest(BaseModel):
     seed_question: str | None = Field(
         None,
         description=(
-            "Optional first question to use for web-search discovery. "
-            "If omitted, the configured default URLs are used instead."
+            "Compatibility seed used only by the heavyweight web-search path. "
+            "Lightweight chat performs search inside the graph on each message."
         ),
     )
 

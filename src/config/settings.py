@@ -48,7 +48,12 @@ class Settings:
     allow_low_relevance_generate: bool = False
     min_keyword_matches: int = 2
     max_rewrites: int = 2
+    # Keep the persisted chat transcript complete while bounding the subset
+    # sent to conversational LLM calls on each turn.
+    chat_context_max_turns: int = 8
+    chat_context_max_chars: int = 12_000
     web_search_enabled: bool = True
+    web_search_llm_query_rewrite_enabled: bool = False
     web_search_provider: str = "bing"
     web_search_max_results: int = 20
     # REFACTOR: Use one canonical web-search fetch default and expose URL load concurrency.

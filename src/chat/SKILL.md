@@ -5,14 +5,14 @@ description: >
   FastAPI app at port 8001, the chat REPL CLI, the static chat UI under
   src/chat/static/, the /chat endpoints, the session registry, the chat
   graph wrapper that adds CONDENSE and MemorySaver checkpointing, or the
-  per-turn web-search refresh. Trigger on mentions of chat.api, chat.main,
+  graph-owned web-search path. Trigger on mentions of chat.api, chat.main,
   /chat, port 8001, multi-turn, session, MemorySaver, condense, or thread_id.
 ---
 
 # Chat App Architect — src/chat/
 
-Domain: multi-turn conversation interface with per-thread memory, optional
-per-turn source refresh, and SQLite-backed checkpoint persistence.
+Domain: multi-turn conversation interface with per-thread memory, graph-owned
+web discovery, and SQLite-backed checkpoint persistence.
 Parent: `SKILL.md` (root). Siblings: `src/qa/SKILL.md`, `src/api/SKILL.md`,
 `src/graph/SKILL.md`, `src/sessions/SKILL.md`.
 
@@ -28,7 +28,7 @@ Parent: `SKILL.md` (root). Siblings: `src/qa/SKILL.md`, `src/api/SKILL.md`,
 | Static UI | `src/chat/static/index.html` + `script.js` (chat-style transcript) |
 | Memory | LangGraph `MemorySaver` per thread, optionally backed by `SQLiteMemorySaver` |
 | Session metadata | Optional `SQLiteStorage` under `.chroma/chat/sessions.sqlite3` |
-| Source persistence | Per-thread Chroma at `.chroma/chat/<thread_id>/` for isolated sessions; shared store for "defaults" sessions |
+| Source persistence | Explicit-source Chroma under `.chroma/chat/<thread_id>/`; lightweight web URLs in session metadata |
 
 ## File Map
 
@@ -36,7 +36,7 @@ Parent: `SKILL.md` (root). Siblings: `src/qa/SKILL.md`, `src/api/SKILL.md`,
 src/chat/
 ├── __init__.py     # Package docstring (deprecated re-export shim notice)
 ├── api.py          # FastAPI app: create_app() + endpoints + lifespan + session restore
-├── main.py        # CLI: serve + chat REPL with per-turn web-search refresh
+├── main.py        # CLI: serve + graph-owned lightweight chat REPL
 ├── graph.py        # build_chat_graph wrapper around src/graph/builder
 ├── nodes.py        # Re-exports condense/agent/grade/rewrite/generate from src/graph/nodes
 ├── sessions.py     # Re-exports ChatSession/ChatSessionRegistry from src/sessions
@@ -81,8 +81,8 @@ GET    /metrics                           → in-process executor metrics
 | Concern | QA (`src/qa/`) | Chat (`src/chat/`) |
 |---|---|---|
 | Memory | None | LangGraph `MemorySaver` per `thread_id`; optional SQLite persistence |
-| Sources | Per-request, can change every call | Fixed-at-start by default; per-turn refresh when sources came from web search and source_mode != "explicit" |
-| Multi-turn rewrite | None | `condense_question` node runs at the start of every turn |
+| Sources | Per-request, can change every call | Explicit URLs stay fixed; lightweight web discovery runs inside the compiled graph |
+| Multi-turn rewrite | None | `condense_question` runs only for context-dependent follow-ups |
 | Endpoint shape | `POST /query` (single shot) | `POST /chat` (start) + `POST /chat/{tid}/message` (turn) + `GET /chat/{tid}/history` (transcript) |
 | State key | None | `thread_id` (UUID hex; passed in `config={"configurable": {"thread_id": ...}}` to LangGraph) |
 | Lifespan | Builds default graph once | Loads settings + session registry + checkpointer; restores persisted sessions |
@@ -92,7 +92,7 @@ GET    /metrics                           → in-process executor metrics
 
 ```
 POST /chat
-  ↓ resolve sources: explicit URLs | web search | defaults
+  ↓ resolve mode: explicit URLs | graph-owned lightweight web | defaults
   ↓ build per-thread Settings (isolated Chroma dir if not "defaults")
   ↓ build graph (lightweight if web_search + lightweight enabled, else heavy with retriever)
   ↓ register ChatSession in ChatSessionRegistry
@@ -100,7 +100,7 @@ POST /chat
 
 POST /chat/{tid}/message
   ↓ look up session (404 if missing)
-  ↓ if source_mode != "explicit" and web_search_enabled: refresh sources from web search
+  ↓ clear prior-turn lightweight search state
   ↓ snapshot prev message count (for current-turn answer isolation)
   ↓ graph.invoke({"messages": [HumanMessage(message)]}, {"configurable": {"thread_id": tid}})
   ↓ scan new messages for the last AI message with non-empty content (skip tool-call carriers)
@@ -128,17 +128,16 @@ things over the QA graph:
 2. **`MemorySaver` checkpointer** attached at compile time. Conversation
    state is keyed by `thread_id` in `config["configurable"]["thread_id"]`.
 
-## Per-Turn Web Search Refresh
+## Graph-Owned Web Search
 
-The chat app re-runs web search on **every user turn** (when the session
-wasn't started from explicit URLs and `web_search_enabled=True`). If the new
-results differ from the current session URLs, the graph is rebuilt with the
-new sources before invoking. This keeps multi-turn chats current as the
-topic shifts.
-
-- Skipped when `source_mode == "explicit"` (user pinned the sources).
-- Failures are logged and the previous sources are kept (no hard fail).
-- Rebuilding the graph is locked via `graph_factory_lock` from `src/api/dependencies.py`.
+When `web_search_lightweight=True`, chat compiles the lightweight graph once.
+The agent decides whether a turn needs live information; a web tool call flows
+through conditional decomposition, bounded parallel search, merge, fetch, and
+answer nodes. The API clears prior-turn search state before invocation and
+persists the resulting URLs as session metadata afterward without rebuilding
+the graph. The heavyweight compatibility path still discovers sources before
+building Chroma, but disables the graph's live-search tool to avoid a duplicate
+provider call.
 
 ## Session Persistence
 
@@ -171,15 +170,13 @@ old thread and the transcript comes back.
 |---|---|---|---|---|
 | 1 | Chat 404 used to be shadowed by 503 when config/lock dependencies were resolved before the session lookup | Fixed | `api.py` post_message | Look up the session first, resolve config after |
 | 2 | `SQLiteMemorySaver` failed to restore on newer LangGraph (no `blobs` attribute) | Fixed | `src/sessions/checkpoint.py` | Tolerate variants that don't expose `blobs` |
-| 3 | Per-turn web search adds latency to every message; not skippable per-turn from the UI | Medium | `api.py` _refresh_session_sources_from_web | Surface a per-turn `refresh=false` opt-out |
-| 4 | Session memory is unbounded; chats with hundreds of turns grow the `MemorySaver` per-thread state | Medium | LangGraph internal | Window the message history before invoke; or use LangGraph's planned summarization checkpoint |
+| 3 | Per-turn preliminary search and graph rebuild added latency to every message | Fixed | `api.py` | Lightweight chat now owns search inside one compiled graph |
+| 4 | Full transcripts were sent to the model on every turn | Fixed | graph nodes | Bound the model context while retaining persisted history |
 | 5 | Streaming endpoint exists but the static UI doesn't use it | Low | `static/script.js` | Switch to SSE for progressive token rendering |
-| 6 | The session refresh happens unconditionally on every turn for web-search sessions, even if the question is a clarification on prior content | Medium | api.py | Add a heuristic (or LLM-judged) refresh trigger based on whether the question references current information |
+| 6 | Standalone follow-ups unnecessarily invoked the condensation LLM | Fixed | condense node | Condense only when contextual signals are present |
 
 ## Refactoring To-Do List
 
-- [ ] **Window message history** before `graph.invoke` so long sessions don't OOM the checkpointer.
-- [ ] **Per-turn refresh opt-out** in the request body and UI.
 - [ ] **SSE streaming UI** — switch `script.js` to consume `/chat/{tid}/message/stream`.
 - [ ] **Session export endpoint** — `GET /chat/{tid}/export` returns the transcript as Markdown or JSON.
 - [ ] **TTL eviction** — purge sessions idle for longer than `chat_session_ttl_seconds` (already tracked in `src/sessions/`).

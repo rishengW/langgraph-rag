@@ -63,13 +63,15 @@ def structured_output_method(settings: Settings) -> str | None:
 
     DeepSeek's OpenAI-compatible API rejects the ``json_schema`` response
     format that ``langchain-openai`` uses by default (HTTP 400 "This
-    response_format type is unavailable now"). It does support OpenAI-style
-    tool calling, so we pin the ``function_calling`` method for DeepSeek and
-    leave other providers on their library default (``None``).
+    response_format type is unavailable now). Its thinking mode also rejects
+    the forced ``tool_choice`` emitted by the ``function_calling`` method.
+    ``json_mode`` requests a plain JSON object without binding a tool, so it is
+    compatible with both normal and thinking responses. Other providers keep
+    their library default (``None``).
     """
 
     if settings.llm_provider.strip().lower() == "deepseek":
-        return "function_calling"
+        return "json_mode"
     return None
 
 
@@ -81,7 +83,8 @@ def build_structured_chat_model(
     """Build a chat model bound to a structured-output schema.
 
     Selects a provider-appropriate structured-output method so DeepSeek does
-    not hit the unsupported ``json_schema`` response format.
+    not hit either the unsupported ``json_schema`` response format or the
+    thinking-mode ``tool_choice`` restriction.
     """
 
     model = build_chat_model(settings, provider)

@@ -1,6 +1,6 @@
 # REFACTOR: Conditional-expansion merge node. Deduplicates URLs across the
-# first-attempt and expanded search results, ranks by
-# ``(hit_count, best_provider_rank)``, and keeps the top-K per
+# first-attempt and expanded search results, ranks by semantic relevance,
+# quality, overlap, and provider rank, and keeps the top-K per
 # ``settings.web_search_top_k``. The first-attempt URLs are merged WITH
 # (not discarded in favor of) the expanded URLs so the original search's
 # provider ranking still anchors the result set.
@@ -36,9 +36,10 @@ def merge_factory(
     """Return a node that combines and ranks search URL candidates.
 
     The node reads ``state["source_urls"]`` (the entry-point set or the
-    previous merge's output) plus the URLs emitted by the most recent
-    ``live_web_search`` ToolMessage(s), deduplicates them by canonical
-    URL, ranks by ``(hit_count, best_provider_rank, first_seen)``, and
+    previous merge's output) plus the per-query URL sets emitted by bounded
+    web search. It falls back to recent ``live_web_search`` ToolMessages for
+    compatibility, deduplicates by canonical URL, ranks semantic relevance
+    before cross-query overlap, and
     emits a single ranked ``source_urls`` list of length up to
     ``settings.web_search_top_k``. The original entry-point URLs are
     kept AND combined with the tool-message URLs rather than replaced
@@ -57,10 +58,16 @@ def merge_factory(
         # the top-K clamp keeps them. Restricting the scan to messages after the
         # last HumanMessage ensures only this turn's search results are eligible.
         current_turn_messages = _current_turn_messages(state.get("messages") or [])
-        tool_urls = _clean_urls(_urls_from_tool_messages(current_turn_messages))
-        combined = _combine_and_rank(
+        message_result_sets = _url_sets_from_tool_messages(current_turn_messages)
+        state_result_sets = _clean_url_sets(state.get("web_search_results"))
+        result_sets = state_result_sets or message_result_sets
+        metadata_sets = _clean_result_metadata_sets(
+            state.get("web_search_result_metadata")
+        )
+        combined = _combine_and_rank_sets(
             first_attempt=explicit,
-            expanded=tool_urls,
+            result_sets=result_sets,
+            metadata_sets=metadata_sets,
             top_k=int(getattr(settings, "web_search_top_k", 0) or 0),
         )
         return {"source_urls": combined}
@@ -73,8 +80,12 @@ def _combine_and_rank(
 ) -> list[str]:
     """Combine first-attempt and expanded URLs, then rank and clamp.
 
-    Ranking is ``(hit_count desc, best_provider_rank asc, first_seen
-    asc)``:
+    Ranking uses semantic relevance, overall quality, overlap, provider rank,
+    then insertion order:
+    - ``relevance_score`` prevents an off-topic URL repeated by several weak
+      queries from outranking one strongly relevant result.
+    - ``quality_score`` preserves the provider result's complete URL + text
+      score as a secondary relevance signal.
     - ``hit_count`` rewards URLs returned by multiple queries
       (overlap across the pre-graph refresh AND the in-graph search =
       stronger evidence) and is the dominant signal.
@@ -85,9 +96,28 @@ def _combine_and_rank(
     - ``first_seen`` preserves insertion order as a final tie-breaker.
     """
 
+    return _combine_and_rank_sets(first_attempt, [expanded], top_k=top_k)
+
+
+def _combine_and_rank_sets(
+    first_attempt: list[str],
+    result_sets: list[list[str]],
+    top_k: int,
+    metadata_sets: list[list[dict[str, Any]]] | None = None,
+) -> list[str]:
+    """Rank candidates, prioritizing semantic relevance before overlap."""
+
     canonical_to_records: dict[str, dict[str, Any]] = {}
 
-    def record(url: str, provider_rank: int) -> None:
+    def record(
+        url: str,
+        provider_rank: int,
+        *,
+        relevance_score: int = 0,
+        quality_score: int = 0,
+        has_score: bool = False,
+        count_hit: bool = True,
+    ) -> None:
         canonical = _canonical_url(url)
         if not canonical:
             return
@@ -98,12 +128,27 @@ def _combine_and_rank(
                 "display_url": url,
                 "hit_count": 0,
                 "best_provider_rank": provider_rank,
+                "best_relevance_score": relevance_score,
+                "best_quality_score": quality_score,
+                "has_score": has_score,
                 "first_seen": len(canonical_to_records),
             }
             canonical_to_records[canonical] = entry
-        entry["hit_count"] += 1
+        if count_hit:
+            entry["hit_count"] += 1
         if provider_rank < entry["best_provider_rank"]:
             entry["best_provider_rank"] = provider_rank
+        if has_score and not entry["has_score"]:
+            entry["best_relevance_score"] = relevance_score
+            entry["best_quality_score"] = quality_score
+            entry["has_score"] = True
+        elif has_score:
+            entry["best_relevance_score"] = max(
+                entry["best_relevance_score"], relevance_score
+            )
+            entry["best_quality_score"] = max(
+                entry["best_quality_score"], quality_score
+            )
 
     # REFACTOR: Rank both sets by their OWN provider position (no offset).
     # Previously the expanded/in-graph URLs were offset by
@@ -116,12 +161,44 @@ def _combine_and_rank(
     # overlap (hit_count) still promotes URLs returned by both.
     for index, url in enumerate(first_attempt):
         record(url, provider_rank=index)
-    for index, url in enumerate(expanded):
-        record(url, provider_rank=index)
+
+    # URL sets remain the compatibility source of truth for membership and
+    # cross-query overlap. Metadata mirrors those URLs when artifacts are
+    # available, but a mixed/legacy batch may contain metadata for only some
+    # results. Recording metadata instead of URL sets would silently drop the
+    # unscored URLs and lose their overlap signal.
+    result_canonicals: set[str] = set()
+    for result_set in result_sets:
+        for index, url in enumerate(result_set):
+            canonical = _canonical_url(url)
+            if canonical:
+                result_canonicals.add(canonical)
+            record(url, provider_rank=index)
+
+    if metadata_sets:
+        for metadata_set in metadata_sets:
+            for index, item in enumerate(metadata_set):
+                url = str(item.get("url") or "").strip()
+                if not url:
+                    continue
+                canonical = _canonical_url(url)
+                record(
+                    url,
+                    provider_rank=_safe_int(item.get("provider_rank"), index),
+                    relevance_score=_safe_int(item.get("relevance_score"), 0),
+                    quality_score=_safe_int(item.get("quality_score"), 0),
+                    has_score=True,
+                    # Usually metadata enriches a URL already counted above.
+                    # Still accept metadata-only callers and count each
+                    # per-query occurrence when no URL set contains it.
+                    count_hit=canonical not in result_canonicals,
+                )
 
     ranked = sorted(
         canonical_to_records.values(),
         key=lambda item: (
+            -item["best_relevance_score"],
+            -item["best_quality_score"],
             -item["hit_count"],
             item["best_provider_rank"],
             item["first_seen"],
@@ -132,15 +209,52 @@ def _combine_and_rank(
 
 
 def _urls_from_tool_messages(messages: Any) -> list[str]:
-    urls: list[str] = []
+    return [url for result_set in _url_sets_from_tool_messages(messages) for url in result_set]
+
+
+def _url_sets_from_tool_messages(messages: Any) -> list[list[str]]:
+    result_sets: list[list[str]] = []
     if not isinstance(messages, list):
-        return urls
+        return result_sets
     for message in messages:
         if _message_role(message) != "tool":
             continue
         content = getattr(message, "content", None) or ""
-        urls.extend(_URL_RE.findall(str(content)))
-    return urls
+        urls = _clean_urls(_URL_RE.findall(str(content)))
+        if urls:
+            result_sets.append(urls)
+    return result_sets
+
+
+def _clean_url_sets(values: Any) -> list[list[str]]:
+    if not isinstance(values, list):
+        return []
+    result_sets: list[list[str]] = []
+    for value in values:
+        urls = _clean_urls(value)
+        if urls:
+            result_sets.append(urls)
+    return result_sets
+
+
+def _clean_result_metadata_sets(values: Any) -> list[list[dict[str, Any]]]:
+    if not isinstance(values, list):
+        return []
+    result_sets: list[list[dict[str, Any]]] = []
+    for value in values:
+        if not isinstance(value, list):
+            continue
+        result_set = [item for item in value if isinstance(item, dict) and item.get("url")]
+        if result_set:
+            result_sets.append(result_set)
+    return result_sets
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _current_turn_messages(messages: Any) -> list[Any]:

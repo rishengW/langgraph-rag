@@ -69,6 +69,7 @@ def test_web_answer_fetches_state_urls_and_invokes_llm(monkeypatch, isolated_set
     )
 
     assert result["messages"][0].content == "answer from direct web context"
+    assert result["source_urls"] == ["https://a.test/page"]
     assert calls["fetch"] == (
         ["https://a.test/page"],
         {
@@ -217,6 +218,7 @@ def test_web_answer_returns_grounded_refusal_when_no_readable_pages(
     content = result["messages"][0].content
     assert "couldn't retrieve readable content" in content
     assert "https://dead.test/a" in content
+    assert result["source_urls"] == []
 
 
 def test_web_answer_rejects_trivial_js_shell_text(
@@ -252,6 +254,59 @@ def test_web_answer_rejects_trivial_js_shell_text(
     content = result["messages"][0].content
     assert "couldn't retrieve readable content" in content
     assert "https://shell.test/a" in content
+
+
+def test_web_answer_filters_readable_pages_by_chinese_query_relevance(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(
+        source_urls=["https://irrelevant.test/a", "https://relevant.test/b"],
+        web_search_min_page_chars=1,
+        web_search_min_page_tokens=1,
+    )
+    pages = [
+        SimpleNamespace(
+            url="https://irrelevant.test/a",
+            title="Slack product updates",
+            text="Slack channels, integrations, and workflow tools for teams. " * 20,
+        ),
+        SimpleNamespace(
+            url="https://relevant.test/b",
+            title="南京地铁线路",
+            text="目前共运营14条线路。",
+        ),
+    ]
+    calls: dict[str, object] = {}
+
+    def fake_fetch_pages(_urls, **_kwargs):
+        return pages
+
+    def fake_build_prompt(question, resolved_pages):
+        calls["prompt"] = (question, resolved_pages)
+        return "prompt containing only relevant sources"
+
+    _install_lightweight_web_modules(monkeypatch, fake_fetch_pages, fake_build_prompt)
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "fake-model")
+    monkeypatch.setattr(
+        web_answer_module,
+        "invoke_with_retry",
+        lambda *_args, **_kwargs: AIMessage(content="14条线路"),
+    )
+
+    node = web_answer_module.web_answer_factory(settings)
+    result = node(
+        {"messages": [HumanMessage(content="南京地铁线路数量 2025 2026 几条线")]}
+    )
+
+    assert calls["prompt"] == (
+        "南京地铁线路数量 2025 2026 几条线",
+        [pages[1]],
+    )
+    assert result["messages"][0].content == "14条线路"
+
+
+    assert result["source_urls"] == ["https://relevant.test/b"]
 
 
 @tool
@@ -484,6 +539,7 @@ def test_web_answer_no_readable_content_sets_fallback_state(monkeypatch, isolate
 
     assert result["web_answer_no_readable_content"] is True
     assert result["web_answer_attempts"] == 1
+    assert result["source_urls"] == []
     assert "couldn't retrieve readable content" in result["messages"][-1].content
 
 
@@ -519,6 +575,7 @@ def test_web_answer_success_clears_fallback_state(monkeypatch, isolated_settings
 
     assert result["web_answer_no_readable_content"] is False
     assert result["web_answer_attempts"] == 2
+    assert result["source_urls"] == ["https://good.test/a"]
     assert result["messages"][-1].content == "grounded answer"
 
 
@@ -572,11 +629,9 @@ def test_route_after_web_answer_routes_to_expand_on_first_failure():
     assert route_after_web_answer(state) == "expand"
 
 
-def test_route_after_web_answer_routes_to_agent_after_expansion():
-    # Unit test: when the previous ``web_answer`` run produced no readable
-    # content AND expansion has already been attempted, the edge must
-    # route back to the agent (one retry) so the LLM can answer from
-    # training data instead of the user seeing a hard refusal.
+def test_route_after_web_answer_routes_to_tool_free_fallback_after_expansion():
+    # The general agent still has live_web_search bound, so it must never be
+    # used for the final training-data fallback.
     from src.graph.edges import route_after_web_answer
 
     state = {
@@ -584,13 +639,12 @@ def test_route_after_web_answer_routes_to_agent_after_expansion():
         "web_answer_attempts": 1,
         "expansion_attempted": True,
     }
-    assert route_after_web_answer(state) == "agent"
+    assert route_after_web_answer(state) == "fallback_answer"
 
 
-def test_route_after_web_answer_terminates_after_max_attempts():
-    # Unit test: after the bounded retry budget is exhausted, the edge
-    # must terminate so the user sees the grounded refusal rather than
-    # the agent/web_answer loop spinning forever.
+def test_route_after_web_answer_terminates_above_attempt_ceiling():
+    # Stale or externally supplied state beyond the normal two attempts must
+    # terminate without starting another fallback.
     from src.graph.edges import (
         WEB_ANSWER_FALLBACK_MAX_ATTEMPTS,
         route_after_web_answer,
@@ -598,7 +652,7 @@ def test_route_after_web_answer_terminates_after_max_attempts():
 
     state = {
         "web_answer_no_readable_content": True,
-        "web_answer_attempts": WEB_ANSWER_FALLBACK_MAX_ATTEMPTS,
+        "web_answer_attempts": WEB_ANSWER_FALLBACK_MAX_ATTEMPTS + 1,
         "expansion_attempted": True,
     }
     assert route_after_web_answer(state) == "__end__"
@@ -617,15 +671,13 @@ def test_route_after_web_answer_terminates_on_success():
     assert route_after_web_answer(state) == "__end__"
 
 
-def test_build_lightweight_graph_falls_back_to_agent_when_no_readable_content(
+def test_build_lightweight_graph_uses_tool_free_fallback_when_no_readable_content(
     monkeypatch, isolated_settings
 ):
     # End-to-end regression guard for the failure mode that motivated the
     # fallback: an over-eager web search returns pages that don't contain
-    # the answer to a stable historical question. The lightweight graph
-    # must loop back to the agent once so the LLM can answer from its own
-    # knowledge instead of the user seeing the "I couldn't retrieve
-    # readable content" refusal.
+    # the answer to a stable historical question. The lightweight graph uses
+    # a separate no-tools node instead of re-entering the search-capable agent.
     import src.web_search.content_fetcher as content_fetcher_module
     import src.web_search.prompt_builder as prompt_builder_module
     from src.web_search.tool import build_web_search_tool
@@ -657,35 +709,29 @@ def test_build_lightweight_graph_falls_back_to_agent_when_no_readable_content(
     )
 
     seen: list[str] = []
-    call_count = {"agent": 0}
+    call_count = {"agent": 0, "fallback": 0}
 
     def agent(state):
         call_count["agent"] += 1
-        # Track which run we're on so we can verify the fallback retry.
         seen.append(f"agent-run-{call_count['agent']}")
-        if call_count["agent"] == 1:
-            # First turn: search the web (over-eager, will return junk).
-            return {
-                "messages": [
-                    AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "name": "live_web_search",
-                                "args": {"query": "University of Melbourne founded"},
-                                "id": "call_live_web_search",
-                            }
-                        ],
-                    )
-                ]
-            }
-        # Second turn (fallback): the LLM has decided to answer from its
-        # own knowledge after the conditional-expansion path also failed.
-        # The previous behavior would have left the user with the hard
-        # refusal; the new design routes to the agent exactly once.
-        assert (
-            "couldn't retrieve readable content" in state["messages"][-1].content
-        )
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "live_web_search",
+                            "args": {"query": "University of Melbourne founded"},
+                            "id": "call_live_web_search",
+                        }
+                    ],
+                )
+            ]
+        }
+
+    def fallback_answer(state):
+        call_count["fallback"] += 1
+        assert "couldn't retrieve readable content" in state["messages"][-1].content
         return {
             "messages": [
                 AIMessage(
@@ -720,6 +766,7 @@ def test_build_lightweight_graph_falls_back_to_agent_when_no_readable_content(
             tools=[tool],
             nodes=GraphNodeOverrides(
                 agent=agent,
+                fallback_answer=fallback_answer,
                 decompose=fake_decompose,
                 expand=fake_expand,
                 merge=fake_merge,
@@ -731,23 +778,18 @@ def test_build_lightweight_graph_falls_back_to_agent_when_no_readable_content(
         {"messages": [HumanMessage(content="When was the University of Melbourne founded?")]}
     )
 
-    # The agent must run exactly twice: once to search, once to answer.
-    assert seen == ["agent-run-1", "agent-run-2"]
-    assert call_count["agent"] == 2
-    # The final user-visible answer is the agent's training-data fallback,
-    # not the grounded refusal.
+    assert seen == ["agent-run-1"]
+    assert call_count == {"agent": 1, "fallback": 1}
     final = state["messages"][-1].content
     assert "1853" in final
     assert "couldn't retrieve readable content" not in final
 
 
-def test_build_lightweight_graph_terminates_with_refusal_after_two_web_answer_failures(
+def test_build_lightweight_graph_fallback_cannot_start_a_third_search(
     monkeypatch, isolated_settings
 ):
-    # End-to-end regression guard for the loop bound: if the second
-    # ``web_answer`` run also fails to find readable content, the graph
-    # must terminate with the grounded refusal rather than spinning
-    # forever between the agent and ``web_answer``.
+    # End-to-end regression guard: after two failed web-answer attempts, the
+    # fixed fallback edge must terminate without re-entering the agent.
     import src.web_search.content_fetcher as content_fetcher_module
     import src.web_search.prompt_builder as prompt_builder_module
     from src.web_search.tool import build_web_search_tool
@@ -775,11 +817,10 @@ def test_build_lightweight_graph_terminates_with_refusal_after_two_web_answer_fa
         lambda *_a, **_k: AIMessage(content="must not run"),
     )
 
-    call_count = {"agent": 0, "web_answer": 0}
+    call_count = {"agent": 0, "web_answer": 0, "fallback": 0}
 
     def agent(state):
         call_count["agent"] += 1
-        # Keep re-issuing the same tool call so ``web_answer`` runs twice.
         return {
             "messages": [
                 AIMessage(
@@ -813,6 +854,16 @@ def test_build_lightweight_graph_terminates_with_refusal_after_two_web_answer_fa
             "web_answer_attempts": call_count["web_answer"],
         }
 
+    def fallback_answer(state):
+        call_count["fallback"] += 1
+        return {
+            "messages": [
+                AIMessage(
+                    content="I couldn't verify this against readable live web sources."
+                )
+            ]
+        }
+
     # REFACTOR: Inject deterministic decompose/expand/merge nodes so the
     # test does not need a live LLM for the conditional-expansion path.
     # The expand node sets ``expansion_attempted`` to True so the
@@ -836,6 +887,7 @@ def test_build_lightweight_graph_terminates_with_refusal_after_two_web_answer_fa
             tools=[tool],
             nodes=GraphNodeOverrides(
                 agent=agent,
+                fallback_answer=fallback_answer,
                 web_answer=web_answer,
                 decompose=fake_decompose,
                 expand=fake_expand,
@@ -846,13 +898,7 @@ def test_build_lightweight_graph_terminates_with_refusal_after_two_web_answer_fa
 
     state = graph.invoke({"messages": [HumanMessage(content="Q?")]})
 
-    # REFACTOR: The conditional-expansion path adds a 3rd web_answer run
-    # because the agent fallback (which re-issues the tool call) is now
-    # reachable: 1st web_answer failure -> expand -> 2nd web_answer
-    # failure -> agent fallback -> 3rd web_answer failure -> END
-    # (attempts=3 == WEB_ANSWER_FALLBACK_MAX_ATTEMPTS).
-    assert call_count["web_answer"] == 3
-    assert call_count["agent"] == 2
+    assert call_count == {"agent": 1, "web_answer": 2, "fallback": 1}
     final = state["messages"][-1].content
-    assert "couldn't retrieve readable content" in final
-    assert "call #3" in final
+    assert "couldn't verify" in final
+    assert "call #3" not in final

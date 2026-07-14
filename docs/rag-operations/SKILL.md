@@ -59,6 +59,13 @@ python -m pip install -r requirements-dev.txt
 Copy-Item .env.example .env
 ```
 
+Playwright is already pinned in `requirements.txt`. When JavaScript fallback is
+enabled, install its browser runtime separately:
+
+```powershell
+python -m playwright install chromium
+```
+
 Required/important environment variables:
 
 | Variable | Purpose |
@@ -71,6 +78,9 @@ Required/important environment variables:
 | `WEB_SEARCH_ENABLED` | Enables live web search. |
 | `WEB_SEARCH_PROVIDER` | `bing`, `baidu`, or `duckduckgo`. |
 | `WEB_SEARCH_LIGHTWEIGHT` | Use lightweight graph for web-search-sourced answers. |
+| `WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED` | Optional extra LLM query rewrite; deterministic cleanup is the default. |
+| `CHAT_CONTEXT_MAX_TURNS` | Maximum recent turns projected into chat model calls. |
+| `CHAT_CONTEXT_MAX_CHARS` | Character budget for the model-side projection; checkpoints remain complete. |
 
 Configuration precedence is:
 
@@ -198,10 +208,20 @@ Used when web search discovers sources and `WEB_SEARCH_LIGHTWEIGHT=true`.
 ```text
 START → agent ──direct answer──► END
           │
-          └─live_web_search→ decompose → web_search → merge → web_answer → END
+          └─live_web_search→ decompose → bounded search → merge → web_answer → END
 ```
 
-On failed readable extraction, the lightweight path can expand queries once and retry, then fall back to the agent with a caveat.
+The graph owns the lightweight chat search and runs at most six queries with
+three concurrent provider calls. Merge ranking prioritizes provider
+title/snippet relevance and URL quality before overlap and provider rank.
+Predominantly Chinese queries prefer Baidu → Bing → DuckDuckGo; other queries
+start with the configured provider and fall back through Bing, Baidu, and
+DuckDuckGo. Deterministic query cleanup is the default, with the optional LLM
+rewrite gated by `WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED`.
+
+On failed readable or relevant extraction, the lightweight path expands queries
+once and retries. If that second search/fetch attempt fails, `fallback_answer`
+makes one tool-free model call with a live-verification caveat and then ends.
 
 Use lightweight diagnostics when the problem involves live web search, URL discovery, page fetching, readable text extraction, source merge/ranking, or grounded web answers.
 
@@ -235,12 +255,13 @@ python -m compileall src tests
 1. Confirm `WEB_SEARCH_ENABLED=true`.
 2. Confirm selected provider: `WEB_SEARCH_PROVIDER=bing|baidu|duckduckgo`.
 3. Check whether lightweight mode is enabled with `WEB_SEARCH_LIGHTWEIGHT=true`.
-4. If one provider is failing, try another provider rather than changing graph logic first.
+4. Remember that predominantly Chinese queries automatically prefer Baidu, then Bing and DuckDuckGo; other queries start with the configured provider.
 5. For low-text or JS-heavy pages, inspect:
    - `src/web_search/content_fetcher.py`
    - `src/web_search/fetch_policy.py`
    - `src/web_search/playwright_loader.py`
-6. Only enable JS fallback when the user accepts the extra dependency/runtime cost.
+6. For JS fallback, confirm `playwright` is installed from `requirements.txt` and run `python -m playwright install chromium` once.
+7. Inspect result title/snippet relevance and fetched-page relevance before lowering `WEB_SEARCH_MIN_URL_SCORE`; off-topic URLs should be rejected rather than merely moved down.
 
 Do not weaken readability guards just to force an answer. Passing shell text or unreadable boilerplate to the LLM causes worse grounded answers.
 
@@ -261,7 +282,8 @@ Do not weaken readability guards just to force an answer. Passing shell text or 
 3. Check whether checkpoint state is in `.chroma/chat/checkpoints.sqlite3`.
 4. Confirm the server was started normally so `SQLiteMemorySaver` is active.
 5. For explicit/web-search sessions, confirm isolated Chroma path exists under `.chroma/chat/<thread_id>/`.
-6. Consult `src/sessions/SKILL.md` before changing registry, isolation, SQLite, or checkpoint behavior.
+6. Distinguish persistence from model context: the checkpoint/history remains complete even though each model call sees only the bounded recent projection configured by `CHAT_CONTEXT_MAX_TURNS` and `CHAT_CONTEXT_MAX_CHARS`.
+7. Consult `src/sessions/SKILL.md` before changing registry, isolation, SQLite, or checkpoint behavior.
 
 ### Streaming/SSE problems
 

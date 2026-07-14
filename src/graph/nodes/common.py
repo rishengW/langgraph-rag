@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel, Field
 
@@ -35,8 +35,8 @@ def new_chat_model(settings: Settings) -> Any:
 def new_structured_chat_model(settings: Settings, schema: Any) -> Any:
     """Create a chat model bound to a structured-output schema.
 
-    Routes through the provider seam so DeepSeek uses ``function_calling``
-    instead of the unsupported ``json_schema`` response format.
+    Routes through the provider seam so DeepSeek uses tool-free JSON mode
+    instead of unsupported JSON-schema or forced-tool response formats.
     """
 
     return build_structured_chat_model(settings, schema)
@@ -48,6 +48,221 @@ def message_text(message: Any) -> str:
     if isinstance(message, (tuple, list)) and len(message) >= 2:
         return str(message[1])
     return str(message)
+
+
+def bounded_chat_messages(
+    messages: Sequence[Any],
+    *,
+    max_turns: int,
+    max_chars: int,
+) -> list[Any]:
+    """Return a bounded, read-only projection of a chat transcript.
+
+    Checkpoint state remains the source of truth for the history API. This
+    helper only selects messages for an LLM invocation, removes historical
+    tool protocol messages, and copies a message before truncating its text.
+    The most recent user message is always retained.
+    """
+
+    values = list(messages or [])
+    if not values:
+        return []
+
+    turn_limit = max(1, int(max_turns))
+    char_limit = max(1, int(max_chars))
+    human_indices = [
+        index
+        for index, message in enumerate(values)
+        if _message_role(message) in ("human", "user")
+    ]
+    if not human_indices:
+        visible = [message for message in values if _is_chat_context_message(message)]
+        return _bounded_messages_without_turns(visible, char_limit)
+
+    first_turn_index = human_indices[-min(turn_limit, len(human_indices))]
+    while (
+        first_turn_index > 0
+        and _message_role(values[first_turn_index - 1]) == "system"
+    ):
+        first_turn_index -= 1
+    recent = values[first_turn_index:]
+
+    latest_human = max(
+        index
+        for index, message in enumerate(recent)
+        if _message_role(message) in ("human", "user")
+    )
+    current_start = latest_human
+    while current_start > 0 and _message_role(recent[current_start - 1]) == "system":
+        current_start -= 1
+
+    # Preserve the complete current-turn message protocol. In particular, an
+    # AI tool-call carrier and its matching ToolMessage must reach the agent
+    # when the graph re-enters it to synthesize an auxiliary tool result.
+    current_messages = recent[current_start:]
+    current_human = latest_human - current_start
+    bounded_current = _bounded_current_turn(
+        current_messages,
+        human_index=current_human,
+        max_chars=char_limit,
+    )
+    selected: dict[int, Any] = {
+        current_start + index: message
+        for index, message in enumerate(bounded_current)
+    }
+    remaining = char_limit - sum(
+        len(message_text(message)) for message in bounded_current
+    )
+
+    # Add older turns only when each complete turn fits, avoiding an orphaned
+    # assistant answer at the beginning of the projected conversation.
+    older = [
+        message
+        for message in recent[:current_start]
+        if _is_chat_context_message(message)
+    ]
+    older_humans = [
+        index
+        for index, message in enumerate(older)
+        if _message_role(message) in ("human", "user")
+    ]
+    turn_starts: list[int] = []
+    for human_index in older_humans:
+        start = human_index
+        while start > 0 and _message_role(older[start - 1]) == "system":
+            start -= 1
+        turn_starts.append(start)
+
+    turn_ranges: list[tuple[int, int]] = []
+    for position, start in enumerate(turn_starts):
+        end = (
+            turn_starts[position + 1]
+            if position + 1 < len(turn_starts)
+            else len(older)
+        )
+        turn_ranges.append((start, end))
+
+    for start, end in reversed(turn_ranges):
+        turn_chars = sum(len(message_text(message)) for message in older[start:end])
+        if turn_chars > remaining:
+            continue
+        for index in range(start, end):
+            selected[index] = older[index]
+        remaining -= turn_chars
+
+    return [selected[index] for index in sorted(selected)]
+
+
+def _bounded_current_turn(
+    messages: list[Any],
+    *,
+    human_index: int,
+    max_chars: int,
+) -> list[Any]:
+    """Fit current-turn content while retaining every protocol message."""
+
+    contents = [message_text(message) for message in messages]
+    if sum(len(content) for content in contents) <= max_chars:
+        return list(messages)
+
+    allocations = [0 for _message in messages]
+    other_chars = sum(
+        len(content) for index, content in enumerate(contents) if index != human_index
+    )
+    human_limit = max_chars if other_chars == 0 else max(1, max_chars // 2)
+    allocations[human_index] = min(len(contents[human_index]), human_limit)
+    remaining = max_chars - allocations[human_index]
+
+    for index in range(len(messages) - 1, -1, -1):
+        if index == human_index or remaining <= 0:
+            continue
+        allocations[index] = min(len(contents[index]), remaining)
+        remaining -= allocations[index]
+
+    if remaining > 0:
+        extra_human = min(
+            len(contents[human_index]) - allocations[human_index],
+            remaining,
+        )
+        allocations[human_index] += extra_human
+
+    bounded: list[Any] = []
+    for message, content, allocation in zip(
+        messages,
+        contents,
+        allocations,
+        strict=False,
+    ):
+        bounded_content = _truncate_context_text(content, allocation) if allocation else ""
+        bounded.append(
+            message
+            if bounded_content == content
+            else _copy_message_with_content(message, bounded_content)
+        )
+    return bounded
+
+
+def _message_role(message: Any) -> str:
+    role = getattr(message, "type", None) or getattr(message, "role", None)
+    if role:
+        return str(role).lower()
+    if isinstance(message, (tuple, list)) and message:
+        return str(message[0]).lower()
+    return str(message.__class__.__name__).lower()
+
+
+def _is_chat_context_message(message: Any) -> bool:
+    role = _message_role(message)
+    if role in ("tool", "function", "toolmessage", "functionmessage"):
+        return False
+    if role in ("ai", "assistant", "aimessage") and getattr(message, "tool_calls", None):
+        return False
+    return bool(message_text(message).strip())
+
+
+def _bounded_messages_without_turns(messages: list[Any], max_chars: int) -> list[Any]:
+    selected: list[Any] = []
+    remaining = max_chars
+    for message in reversed(messages):
+        text = message_text(message)
+        if len(text) <= remaining:
+            selected.append(message)
+            remaining -= len(text)
+        elif not selected:
+            selected.append(
+                _copy_message_with_content(
+                    message,
+                    _truncate_context_text(text, remaining),
+                )
+            )
+            remaining = 0
+        if remaining <= 0:
+            break
+    return list(reversed(selected))
+
+
+def _truncate_context_text(text: str, max_chars: int) -> str:
+    limit = max(1, int(max_chars))
+    if len(text) <= limit:
+        return text
+    marker = "\n...[truncated]...\n"
+    if limit <= len(marker) + 2:
+        return text[:limit]
+    available = limit - len(marker)
+    head = (available * 2) // 3
+    return f"{text[:head]}{marker}{text[-(available - head):]}"
+
+
+def _copy_message_with_content(message: Any, content: str) -> Any:
+    if isinstance(message, BaseMessage):
+        if hasattr(message, "model_copy"):
+            return message.model_copy(update={"content": content})
+        return message.copy(update={"content": content})
+    if isinstance(message, tuple) and len(message) >= 2:
+        return (message[0], content, *message[2:])
+    if isinstance(message, list) and len(message) >= 2:
+        return [message[0], content, *message[2:]]
+    return message
 
 
 def qa_question_resolver(state: dict[str, Any]) -> str:
@@ -459,11 +674,17 @@ def agent_factory(
 
     def agent(state: dict[str, Any]) -> dict[str, list[AIMessage]]:
         logger.info("CALL AGENT")
-        messages = state["messages"]
+        messages = list(state["messages"])
+        if question_resolver is chat_question_resolver:
+            messages = bounded_chat_messages(
+                messages,
+                max_turns=settings.chat_context_max_turns,
+                max_chars=settings.chat_context_max_chars,
+            )
         # Prepend a system prompt so the model knows when to use tools and
         # when to answer directly from its own knowledge.
         dated_prompt = AGENT_SYSTEM_PROMPT.format(current_date=date.today().isoformat())
-        messages = [SystemMessage(content=dated_prompt)] + list(messages)
+        messages = [SystemMessage(content=dated_prompt)] + messages
         model = new_chat_model(settings).bind_tools(tools)
 
         try:

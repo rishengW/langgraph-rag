@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from langchain_core.documents import Document
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableLambda
 
 from src.chat.state import ChatState
@@ -120,6 +120,199 @@ def test_condense_followup_question_uses_history(monkeypatch, mock_settings):
 
     assert "Argentina" in standalone and "Jordan" in standalone
     assert "World Cup" in standalone
+
+
+def test_condense_standalone_followup_skips_llm(monkeypatch, mock_settings):
+    from src.graph.nodes import condense as condense_module
+
+    monkeypatch.setattr(
+        condense_module,
+        "new_chat_model",
+        lambda _settings: (_ for _ in ()).throw(AssertionError("LLM should not run")),
+    )
+
+    standalone = condense_module.condense_followup_question(
+        [
+            HumanMessage(content="Tell me about PAI."),
+            AIMessage(content="PAI is Alibaba Cloud's AI platform."),
+        ],
+        "What is LangGraph?",
+        mock_settings,
+    )
+
+    assert standalone == "What is LangGraph?"
+
+
+def test_condense_bounds_history_without_mutating_checkpoint_messages(
+    monkeypatch,
+    isolated_settings,
+):
+    from src.graph.nodes import condense as condense_module
+
+    settings = isolated_settings(chat_context_max_turns=2, chat_context_max_chars=240)
+    captured_payload = {}
+    fake_model = RunnableLambda(lambda _prompt: AIMessage(content="standalone"))
+    monkeypatch.setattr(condense_module, "new_chat_model", lambda _settings: fake_model)
+
+    def fake_invoke(_chain, payload, max_retries):
+        captured_payload.update(payload)
+        return "standalone"
+
+    monkeypatch.setattr(condense_module, "invoke_with_retry", fake_invoke)
+    history = [
+        HumanMessage(content="old-user-marker " + "x" * 80),
+        AIMessage(content="old-assistant-marker " + "y" * 80),
+        HumanMessage(content="recent first"),
+        AIMessage(content="recent answer"),
+        HumanMessage(content="recent second"),
+        AIMessage(content="another recent answer"),
+    ]
+    original_contents = [message.content for message in history]
+
+    result = condense_module.condense_followup_question(
+        history,
+        "What about its pricing?",
+        settings,
+    )
+
+    assert result == "standalone"
+    assert "old-user-marker" not in captured_payload["history"]
+    assert "recent first" in captured_payload["history"]
+    assert "recent second" in captured_payload["history"]
+    assert [message.content for message in history] == original_contents
+
+
+def test_bounded_chat_messages_keeps_recent_turns_and_hard_char_limit():
+    messages = [
+        HumanMessage(content="old question"),
+        AIMessage(content="old answer"),
+        HumanMessage(content="recent question"),
+        AIMessage(content="recent answer"),
+        ToolMessage(content="hidden tool output", tool_call_id="call-1"),
+        HumanMessage(content="latest-" + "z" * 100),
+    ]
+    original_latest = messages[-1].content
+
+    bounded = common_nodes.bounded_chat_messages(
+        messages,
+        max_turns=2,
+        max_chars=60,
+    )
+
+    assert sum(len(common_nodes.message_text(message)) for message in bounded) <= 60
+    assert any("latest-" in message.content for message in bounded)
+    assert not any(isinstance(message, ToolMessage) for message in bounded)
+    assert not any("old question" in message.content for message in bounded)
+    assert messages[-1].content == original_latest
+
+
+def test_bounded_chat_messages_keeps_system_note_with_its_turn():
+    bounded = common_nodes.bounded_chat_messages(
+        [
+            SystemMessage(content="Uploaded path: chat_uploads/thread/notes.txt"),
+            HumanMessage(content="Please read my notes"),
+            AIMessage(content="I can do that."),
+            HumanMessage(content="What did the notes say?"),
+        ],
+        max_turns=2,
+        max_chars=500,
+    )
+
+    assert isinstance(bounded[0], SystemMessage)
+    assert "chat_uploads/thread/notes.txt" in bounded[0].content
+
+
+def test_chat_agent_receives_bounded_projection(monkeypatch, isolated_settings):
+    settings = isolated_settings(chat_context_max_turns=1, chat_context_max_chars=100)
+    captured_messages = []
+
+    class FakeModel:
+        def bind_tools(self, _tools):
+            return self
+
+    monkeypatch.setattr(common_nodes, "new_chat_model", lambda _settings: FakeModel())
+
+    def fake_invoke(_model, messages, max_retries):
+        captured_messages.extend(messages)
+        return AIMessage(content="answer")
+
+    monkeypatch.setattr(common_nodes, "invoke_with_retry", fake_invoke)
+    state_messages = [
+        HumanMessage(content="old question"),
+        AIMessage(content="old answer"),
+        HumanMessage(content="latest question"),
+    ]
+
+    common_nodes.agent_factory(
+        settings,
+        [],
+        common_nodes.chat_question_resolver,
+    )({"messages": state_messages})
+
+    assert captured_messages[0].type == "system"
+    assert [message.content for message in captured_messages[1:]] == [
+        "latest question"
+    ]
+    assert [message.content for message in state_messages] == [
+        "old question",
+        "old answer",
+        "latest question",
+    ]
+
+
+def test_chat_agent_keeps_current_tool_protocol(monkeypatch, isolated_settings):
+    settings = isolated_settings(chat_context_max_turns=1, chat_context_max_chars=200)
+    captured_messages = []
+
+    class FakeModel:
+        def bind_tools(self, _tools):
+            return self
+
+    monkeypatch.setattr(common_nodes, "new_chat_model", lambda _settings: FakeModel())
+
+    def fake_invoke(_model, messages, max_retries):
+        captured_messages.extend(messages)
+        return AIMessage(content="It is 22 degrees.")
+
+    monkeypatch.setattr(common_nodes, "invoke_with_retry", fake_invoke)
+    tool_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "weather",
+                "args": {"location": "Shanghai"},
+                "id": "weather-1",
+            }
+        ],
+    )
+    tool_result = ToolMessage(
+        content="Shanghai: 22 C and clear. " + "forecast detail " * 30,
+        tool_call_id="weather-1",
+    )
+    original_tool_content = tool_result.content
+
+    common_nodes.agent_factory(
+        settings,
+        [],
+        common_nodes.chat_question_resolver,
+    )(
+        {
+            "messages": [
+                HumanMessage(content="old question"),
+                AIMessage(content="old answer"),
+                HumanMessage(content="What is the weather?"),
+                tool_call,
+                tool_result,
+            ]
+        }
+    )
+
+    projected = captured_messages[1:]
+    assert [message.type for message in projected] == ["human", "ai", "tool"]
+    assert projected[1].tool_calls[0]["id"] == "weather-1"
+    assert projected[2].content.startswith("Shanghai: 22 C and clear")
+    assert sum(len(message.content) for message in projected) <= 200
+    assert tool_result.content == original_tool_content
 
 
 def test_rerank_retrieved_context_prefers_lexically_relevant_chunks():
@@ -257,6 +450,18 @@ def test_grade_documents_uses_reranked_context_and_binary_score(
         "PAI reinforcement learning training pipeline",
         "unrelated installation details",
     ]
+
+
+def test_grade_prompt_treats_json_shape_as_literal_text():
+    from src.llm.prompts import GRADE_PROMPT
+
+    rendered = GRADE_PROMPT.format(
+        question="What is DeepSeek?",
+        context="DeepSeek is an AI company.",
+        current_date="2026-07-14",
+    )
+
+    assert '{"binary_score":"yes or no","explanation":"short reason"}' in rendered
 
 
 def test_low_relevance_generate_requires_at_least_one_keyword_match(

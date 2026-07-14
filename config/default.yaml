@@ -27,7 +27,13 @@ cors_allow_origins: []
 allow_low_relevance_generate: false
 min_keyword_matches: 2
 max_rewrites: 2
+# Full chat history remains persisted; only this recent, bounded projection is
+# passed to the agent and follow-up condensation model.
+chat_context_max_turns: 8
+chat_context_max_chars: 12000
 web_search_enabled: true
+# Optional compatibility mode. The normal path uses deterministic query cleanup.
+web_search_llm_query_rewrite_enabled: false
 web_search_provider: bing
 web_search_max_results: 20
 # REFACTOR: Canonical top-ranked search URLs to fetch before indexing.

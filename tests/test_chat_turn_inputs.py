@@ -57,3 +57,25 @@ def test_graph_inputs_omit_source_urls_when_session_has_none():
     assert "source_urls" not in inputs
     assert "source_mode" not in inputs
     assert inputs["messages"][0].content == "hi"
+
+
+def test_lightweight_web_turn_resets_checkpointed_search_state():
+    settings = SimpleNamespace(
+        file_read_enabled=False,
+        web_search_lightweight=True,
+    )
+    inputs = _graph_inputs_for_turn(
+        _session(["https://previous.test/page"], source_mode="web_search"),
+        "A new question",
+        settings,
+    )
+
+    assert inputs["source_urls"] == []
+    assert inputs["sub_questions"] == []
+    assert inputs["expanded_queries"] == []
+    assert inputs["search_queries"] == []
+    assert inputs["web_search_results"] == []
+    assert inputs["web_search_result_metadata"] == []
+    assert inputs["web_answer_attempts"] == 0
+    assert inputs["web_answer_no_readable_content"] is False
+    assert inputs["expansion_attempted"] is False

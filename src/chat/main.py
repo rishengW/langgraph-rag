@@ -13,6 +13,7 @@ import argparse
 import os
 import sys
 from collections.abc import Iterable
+from dataclasses import replace
 
 from langchain_core.messages import HumanMessage
 
@@ -78,8 +79,8 @@ def parse_args() -> argparse.Namespace:
         "--seed-question",
         default="",
         help=(
-            "Question used to seed web search when --urls is empty. "
-            "If omitted, the configured default URLs are used."
+            "Compatibility seed for heavyweight web search. Lightweight chat "
+            "searches inside the graph when a message requires it."
         ),
     )
     chat.add_argument(
@@ -97,12 +98,13 @@ def _serve(args: argparse.Namespace) -> None:
     from .api import create_app
 
     app = create_app(api_host=args.host, api_port=args.port, config_file=args.config)
-    print(f"💬 Starting only Subcribers chat server at http://{args.host}:{args.port}")
-    print(f"📖 Open http://{args.host}:{args.port} in a browser to chat")
+    print(f"Starting Subscribers chat server at http://{args.host}:{args.port}")
+    print(f"Open http://{args.host}:{args.port} in a browser to chat")
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload, log_level="info")
 
 
 def _repl(args: argparse.Namespace) -> None:
+    from ..graph.builder import build_lightweight_graph
     from .graph import _build_memory_saver, build_chat_graph
 
     urls = [u.strip() for u in args.urls.split(",") if u.strip()] or None
@@ -113,10 +115,18 @@ def _repl(args: argparse.Namespace) -> None:
         else load_settings(urls=urls, config_file=args.config)
     )
     base_settings = settings
+    graph_owned_web = (
+        urls is None
+        and settings.web_search_enabled
+        and settings.web_search_lightweight
+    )
     print(f"DashScope API key loaded: {secret_fingerprint(settings.dashscope_api_key)}")
 
     rebuild = False
-    if urls is None and settings.web_search_enabled and args.seed_question.strip():
+    if graph_owned_web:
+        settings = replace(settings, source_urls=[])
+        print("Web search will run inside the chat graph when needed.")
+    elif urls is None and settings.web_search_enabled and args.seed_question.strip():
         print(f"---WEB SEARCH ({settings.web_search_provider})---")
         try:
             found = discover_urls_from_web(args.seed_question.strip(), settings)
@@ -124,7 +134,9 @@ def _repl(args: argparse.Namespace) -> None:
             print(f"Web search failed; using configured source URLs instead: {exc}")
             found = []
         if found:
-            settings = settings_for_discovered_urls(base_settings, found)
+            settings = settings_for_discovered_urls(
+                replace(base_settings, web_search_enabled=False), found
+            )
             rebuild = True
             _print_urls("Discovered source URLs:", found)
         else:
@@ -136,11 +148,18 @@ def _repl(args: argparse.Namespace) -> None:
 
     print("\nBuilding chat graph (this may index sources on the first run)...")
     checkpointer = _build_memory_saver()
-    graph = build_chat_graph(
-        settings,
-        rebuild_vectorstore=rebuild,
-        checkpointer=checkpointer,
-    )
+    if graph_owned_web:
+        graph = build_lightweight_graph(
+            settings=settings,
+            mode="chat",
+            checkpointer=checkpointer,
+        )
+    else:
+        graph = build_chat_graph(
+            settings,
+            rebuild_vectorstore=rebuild,
+            checkpointer=checkpointer,
+        )
 
     thread_id = "cli"
     config = {"configurable": {"thread_id": thread_id}}
@@ -158,7 +177,11 @@ def _repl(args: argparse.Namespace) -> None:
         if prompt.lower() in {"exit", "quit", ":q"}:
             break
 
-        if urls is None and base_settings.web_search_enabled:
+        if (
+            not graph_owned_web
+            and urls is None
+            and base_settings.web_search_enabled
+        ):
             try:
                 found = discover_urls_from_web(prompt, base_settings)
             except Exception as exc:
@@ -166,7 +189,9 @@ def _repl(args: argparse.Namespace) -> None:
                 found = []
 
             if found and found != settings.source_urls:
-                settings = settings_for_discovered_urls(base_settings, found)
+                settings = settings_for_discovered_urls(
+                    replace(base_settings, web_search_enabled=False), found
+                )
                 _print_urls("Refreshed source URLs from web search:", found)
                 graph = build_chat_graph(
                     settings,
@@ -179,8 +204,24 @@ def _repl(args: argparse.Namespace) -> None:
             answer = ""
             streamed_any = False
             printed_prefix = False
+            inputs: dict[str, object] = {"messages": [HumanMessage(content=prompt)]}
+            if graph_owned_web:
+                inputs.update(
+                    {
+                        "source_urls": [],
+                        "source_mode": "web_search",
+                        "sub_questions": [],
+                        "expanded_queries": [],
+                        "search_queries": [],
+                        "web_search_results": [],
+                        "web_search_result_metadata": [],
+                        "web_answer_attempts": 0,
+                        "web_answer_no_readable_content": False,
+                        "expansion_attempted": False,
+                    }
+                )
             for event in executor.stream(
-                {"messages": [HumanMessage(content=prompt)]},
+                inputs,
                 config,
                 stream_tokens=True,
             ):
@@ -197,9 +238,9 @@ def _repl(args: argparse.Namespace) -> None:
                     if not answer and event.answer:
                         answer = event.answer
                 elif isinstance(event, ErrorEvent):
-                    print(f"\n⚠️  Error: {event.message}")
+                    print(f"\nError: {event.message}")
         except Exception as exc:
-            print(f"⚠️  Error: {exc}")
+            print(f"Error: {exc}")
             continue
 
         if streamed_any:

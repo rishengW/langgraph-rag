@@ -35,35 +35,42 @@ WEB_SEARCH_TOOL_NAME = "live_web_search"
 # REFACTOR: After ``web_answer`` runs, decide whether to terminate the
 # lightweight graph (the fetched pages grounded a real answer), retry via
 # conditional expansion (one-shot decompose -> N x k search -> merge ->
-# ``web_answer``), or fall back to the agent (synthesise from training data
-# with a "I couldn't verify" caveat) when no readable page content was
-# found AND expansion has already been attempted. The agent retry is
-# bounded by ``WEB_ANSWER_FALLBACK_MAX_ATTEMPTS`` so a second failure
-# terminates the graph with the grounded refusal rather than spinning
-# forever.
+# ``web_answer``), or run one tool-free training-data fallback when no
+# readable page content was found after expansion. The fallback has a fixed
+# edge to END, so it cannot issue another search or start a loop.
 WEB_ANSWER_EDGE_MAP: dict[Hashable, str] = {
-    "agent": "agent",
+    "fallback_answer": "fallback_answer",
     "expand": "expand",
     END: END,
 }
 
-# REFACTOR: Cap the lightweight web-search fallback loop at this many
-# ``web_answer`` runs. A second failure routes to the agent fallback
-# (when expansion has already been attempted) which can either
-# synthesise from training data or call the tool once more; the third
-# ``web_answer`` run terminates the graph with the grounded refusal
-# rather than spinning forever. Bumped from 2 to 3 so the conditional
-# expansion's agent fallback (third outcome of route_after_web_answer)
-# is reachable after 2 web_answer failures -- with max=2 the check
-# ``attempts < max`` would be ``2 < 2 == False`` and the agent would
-# never get its one-shot synthesis opportunity.
-WEB_ANSWER_FALLBACK_MAX_ATTEMPTS = 3
+# Defensive ceiling for externally supplied or stale graph state. Normal
+# execution runs web_answer at most twice: the initial search and one expanded
+# retry, followed by the fixed tool-free fallback edge.
+WEB_ANSWER_FALLBACK_MAX_ATTEMPTS = 2
 
 
 def route_after_agent(state: Any) -> str:
     """Route after the agent node using LangGraph's built-in tool condition."""
 
     return tools_condition(state)
+
+
+def route_after_lightweight_agent(state: Any) -> str:
+    """Send pure web-search calls through fan-out and other tools to ToolNode.
+
+    Agents can technically emit multiple tool calls in one message. Fan-out is
+    only selected for one ``live_web_search`` call; multi-call batches stay on
+    the generic ToolNode path so every call receives its required response.
+    """
+
+    route = tools_condition(state)
+    if route != "tools":
+        return route
+    names = _last_ai_tool_call_names(_state_messages(state))
+    if names == [WEB_SEARCH_TOOL_NAME]:
+        return "decompose"
+    return "web_search"
 
 
 def route_after_lightweight_tool(state: Any) -> str:
@@ -78,13 +85,18 @@ def route_after_lightweight_tool(state: Any) -> str:
 
     messages = _state_messages(state)
     last_tool_name = _last_tool_message_name(messages)
-    if last_tool_name == WEB_SEARCH_TOOL_NAME:
+    called_tool_names = _last_ai_tool_call_names(messages)
+    if (
+        last_tool_name == WEB_SEARCH_TOOL_NAME
+        and called_tool_names
+        and all(name == WEB_SEARCH_TOOL_NAME for name in called_tool_names)
+    ):
         return "merge"
     return "agent"
 
 
 def route_after_web_answer(state: Any) -> str:
-    """Route after ``web_answer``: expansion, agent retry, then end.
+    """Route after ``web_answer``: expansion, tool-free fallback, then end.
 
     Three outcomes drive the post-``web_answer`` conditional edge:
 
@@ -92,14 +104,12 @@ def route_after_web_answer(state: Any) -> str:
       grounded answer is the final user-visible reply).
     - ``web_answer`` produced no readable content AND
       ``expansion_attempted`` is False -> ``"expand"``: the graph will
-      go through ``decompose -> web_search -> merge -> web_answer`` to
+      go through ``expand -> search_queries -> merge -> web_answer`` to
       retry the grounded answer with N x k rewritten queries.
     - ``web_answer`` produced no readable content AND
-      ``expansion_attempted`` is True -> ``"agent"`` (if the bounded
-      retry budget has not been exhausted) so the LLM can synthesise
-      a final answer from its own knowledge with a "couldn't verify
-      against the live web" caveat, or ``END`` once the bound is
-      reached.
+      ``expansion_attempted`` is True -> ``"fallback_answer"`` while within
+      the defensive attempt ceiling. That node uses an unbound model and has
+      a fixed edge to ``END``.
     """
 
     if not _state_bool(state, "web_answer_no_readable_content"):
@@ -107,8 +117,8 @@ def route_after_web_answer(state: Any) -> str:
     if not _state_bool(state, "expansion_attempted"):
         return "expand"
     attempts = _state_int(state, "web_answer_attempts")
-    if attempts < WEB_ANSWER_FALLBACK_MAX_ATTEMPTS:
-        return "agent"
+    if attempts <= WEB_ANSWER_FALLBACK_MAX_ATTEMPTS:
+        return "fallback_answer"
     return END
 
 
@@ -130,20 +140,14 @@ def _state_messages(state: Any) -> list[Any]:
 def _state_bool(state: Any, key: str) -> bool:
     """Read a boolean from graph state, tolerating dict or attribute shapes."""
 
-    if isinstance(state, dict):
-        value = state.get(key)
-    else:
-        value = getattr(state, key, None)
+    value = state.get(key) if isinstance(state, dict) else getattr(state, key, None)
     return bool(value)
 
 
 def _state_int(state: Any, key: str) -> int:
     """Read an int from graph state, tolerating dict or attribute shapes."""
 
-    if isinstance(state, dict):
-        value = state.get(key)
-    else:
-        value = getattr(state, key, None)
+    value = state.get(key) if isinstance(state, dict) else getattr(state, key, None)
     try:
         return int(value or 0)
     except (TypeError, ValueError):
@@ -157,6 +161,19 @@ def _last_tool_message_name(messages: list[Any]) -> str | None:
         name = getattr(message, "name", None)
         return name if isinstance(name, str) else None
     return None
+
+
+def _last_ai_tool_call_names(messages: list[Any]) -> list[str]:
+    for message in reversed(messages):
+        calls = getattr(message, "tool_calls", None)
+        if not calls:
+            continue
+        return [
+            str(call.get("name"))
+            for call in calls
+            if isinstance(call, dict) and call.get("name")
+        ]
+    return []
 
 
 def _message_role(message: Any) -> str:
@@ -174,6 +191,7 @@ __all__ = [
     "WEB_ANSWER_FALLBACK_MAX_ATTEMPTS",
     "WEB_SEARCH_TOOL_NAME",
     "route_after_agent",
+    "route_after_lightweight_agent",
     "route_after_lightweight_tool",
     "route_after_web_answer",
 ]

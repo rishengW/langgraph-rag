@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import ssl
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from urllib.parse import parse_qs, unquote, urlparse
@@ -288,14 +289,57 @@ _SEARCH_QUERY_FILLER_RE = re.compile(
     re.I,
 )
 
+# Chinese does not normally separate words with spaces, so the Latin-only
+# tokenizer below used to produce no terms at all for Chinese queries. Character
+# bigrams give us a small, dependency-free lexical signal: ``南京地铁`` becomes
+# ``南京``, ``京地``, and ``地铁``. An unrelated Nanjing homepage may match the
+# first bigram, but it will not cover enough of a metro-specific query to pass.
+_CJK_RUN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
+_CJK_QUERY_FILLERS = (
+    "告诉我",
+    "是什么",
+    "怎么样",
+    "有多少",
+    "请问",
+    "帮我",
+    "查询",
+    "查找",
+    "多少",
+    "几个",
+    "几条",
+)
+
+
+def _normalize_relevance_text(text: str) -> str:
+    """Normalize full-width forms and case for deterministic matching."""
+
+    return unicodedata.normalize("NFKC", text or "").casefold()
+
+
+def _cjk_bigrams(text: str) -> list[str]:
+    terms: list[str] = []
+    for run in _CJK_RUN_RE.findall(text):
+        if len(run) == 1:
+            terms.append(run)
+            continue
+        terms.extend(run[index : index + 2] for index in range(len(run) - 1))
+    return terms
+
 
 def _search_query_terms(query: str) -> list[str]:
-    cleaned = _SEARCH_QUERY_FILLER_RE.sub(" ", query)
-    return [
+    cleaned = _normalize_relevance_text(query)
+    cleaned = _SEARCH_QUERY_FILLER_RE.sub(" ", cleaned)
+    for filler in _CJK_QUERY_FILLERS:
+        cleaned = cleaned.replace(filler, " ")
+
+    latin_terms = [
         token.lower()
         for token in re.findall(r"[a-zA-Z][a-zA-Z0-9_-]{2,}", cleaned)
         if len(token) >= 3
     ]
+    # Preserve deterministic ordering while avoiding double-counting repeated
+    # query words or overlapping runs.
+    return list(dict.fromkeys([*latin_terms, *_cjk_bigrams(cleaned)]))
 
 
 # REFACTOR: Title/snippet relevance is the strongest topical signal a provider
@@ -430,7 +474,7 @@ def text_relevance_delta(text: str, query: str) -> int:
     if not query_terms:
         return 0
 
-    normalized = text.lower()
+    normalized = _normalize_relevance_text(text)
     if not normalized.strip():
         return 0
 
@@ -463,6 +507,23 @@ def text_relevance_delta(text: str, query: str) -> int:
         return -round(TEXT_RELEVANCE_MISS_PENALTY * penalty_fraction)
 
     return round(coverage * TEXT_RELEVANCE_MAX_BONUS)
+
+
+def is_page_text_relevant(text: str, query: str, *, title: str = "") -> bool:
+    """Return whether fetched page text has enough lexical overlap to ground ``query``.
+
+    Very short queries carry too little evidence for a reliable deterministic
+    rejection, so this predicate deliberately abstains when fewer than two
+    usable terms are available. Specific Chinese queries produce several CJK
+    bigrams and are checked normally. The title is included because a short
+    factual page often states the subject there and the answer in its body.
+    """
+
+    query_terms = set(_search_query_terms(query))
+    if len(query_terms) < 2:
+        return True
+    combined = f"{title} {text}".strip()
+    return text_relevance_delta(combined, query) > 0
 
 
 def result_quality_score(result: SearchResult, *, query: str = "") -> int:

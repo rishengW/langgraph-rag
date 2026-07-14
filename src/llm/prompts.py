@@ -156,7 +156,9 @@ GRADE_PROMPT = PromptTemplate(
         "or content about a different product, model, company, person, or time "
         "period.\n\n"
         "Give a binary score: 'yes' or 'no'. Also provide a short explanation "
-        "that states the evidence found, or what required evidence is missing."
+        "that states the evidence found, or what required evidence is missing. "
+        "Return only one JSON object with this exact shape: "
+        '{{"binary_score":"yes or no","explanation":"short reason"}}.'
     ),
     input_variables=["context", "question", "current_date"],
 )

@@ -11,8 +11,11 @@ from src.web_search import (
     BaiduWebSearch,
     BingWebSearch,
     DuckDuckGoWebSearch,
+    RankedSearchResult,
+    SearchResult,
     WebSearchProvider,
     build_web_search_tool,
+    discover_search_results_from_web,
     discover_urls_from_web,
     format_web_search_results,
     get_search_provider,
@@ -366,6 +369,76 @@ def test_discover_urls_falls_back_to_alternate_provider(monkeypatch, isolated_se
     assert providers["duckduckgo"].calls == []
 
 
+def test_discover_urls_prefers_baidu_for_predominantly_chinese_query(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(web_search_provider="bing", web_search_top_k=1)
+    providers = {
+        "baidu": StaticSearchProvider(["https://example.cn/nanjing/metro"]),
+        "bing": StaticSearchProvider(["https://example.com/bing"]),
+        "duckduckgo": StaticSearchProvider(["https://example.com/duck"]),
+    }
+
+    monkeypatch.setattr(
+        discovery_module,
+        "get_search_provider",
+        lambda name, _config: providers[name],
+    )
+
+    urls = discover_urls_from_web("南京地铁线路数量 2026", settings)
+
+    assert urls == ["https://example.cn/nanjing/metro"]
+    assert providers["baidu"].calls == [("南京地铁线路数量 2026", 20)]
+    assert providers["bing"].calls == []
+    assert providers["duckduckgo"].calls == []
+
+
+def test_discover_urls_respects_injected_provider_for_chinese_query(isolated_settings):
+    provider = StaticSearchProvider(["https://example.com/pinned"])
+
+    urls = discover_urls_from_web(
+        "南京地铁线路数量 2026",
+        isolated_settings(web_search_provider="baidu"),
+        provider=provider,
+    )
+
+    assert urls == ["https://example.com/pinned"]
+    assert provider.calls == [("南京地铁线路数量 2026", 20)]
+
+
+def test_discovery_retains_provider_relevance_metadata(isolated_settings):
+    class MetadataProvider:
+        provider_name = "bing"
+
+        @staticmethod
+        def search(_query: str, _max_results: int = 20) -> list[str]:
+            return []
+
+        @staticmethod
+        def search_results(_query: str, _max_results: int = 20) -> list[SearchResult]:
+            return [
+                SearchResult(
+                    url="https://example.com/news/deepseek-v4",
+                    title="DeepSeek V4 release",
+                    snippet="DeepSeek V4 model release details for 2026",
+                )
+            ]
+
+    results = discover_search_results_from_web(
+        "DeepSeek V4 release 2026",
+        isolated_settings(web_search_top_k=1),
+        provider=MetadataProvider(),
+    )
+
+    assert len(results) == 1
+    assert isinstance(results[0], RankedSearchResult)
+    assert results[0].provider == "bing"
+    assert results[0].provider_rank == 0
+    assert results[0].relevance_score > 0
+    assert results[0].quality_score >= 45
+
+
 def test_discover_urls_falls_back_when_provider_urls_fail_quality_gates(
     monkeypatch,
     isolated_settings,
@@ -620,7 +693,7 @@ def test_rewrite_search_query_llm_returns_rewritten_query(isolated_settings):
     assert result == "DeepSeek V4 Pro latest model"
 
 
-def test_build_search_query_uses_llm_when_available(isolated_settings, monkeypatch):
+def test_build_search_query_skips_llm_by_default(isolated_settings, monkeypatch):
     from src.web_search import query_prep as qp
 
     settings = isolated_settings(
@@ -629,14 +702,35 @@ def test_build_search_query_uses_llm_when_available(isolated_settings, monkeypat
     )
 
     def fake_rewrite(question, settings_obj, *, _llm=None):
-        if settings_obj.deepseek_api_key:
-            return "deepseek latest model"
-        return None
+        raise AssertionError("LLM rewrite must be opt-in")
 
     monkeypatch.setattr(qp, "rewrite_search_query_llm", fake_rewrite)
     result = qp.build_search_query("what is the latest model of deepseek", settings)
     assert "deepseek" in result.lower()
     assert "what" not in result.lower()
+
+
+def test_build_search_query_uses_llm_when_explicitly_enabled(
+    isolated_settings, monkeypatch
+):
+    from src.web_search import query_prep as qp
+
+    settings = isolated_settings(
+        deepseek_api_key="sk-test",
+        web_search_llm_query_rewrite_enabled=True,
+    )
+    calls = []
+
+    def fake_rewrite(question, settings_obj, *, _llm=None):
+        calls.append((question, settings_obj))
+        return "DeepSeek V4 Pro latest model"
+
+    monkeypatch.setattr(qp, "rewrite_search_query_llm", fake_rewrite)
+
+    result = qp.build_search_query("what is the latest model of deepseek", settings)
+
+    assert calls == [("what is the latest model of deepseek", settings)]
+    assert result == "DeepSeek V4 Pro latest model 2026"
 
 
 # ── url_quality_score query relevance ───────────────────────────────────────
@@ -943,3 +1037,62 @@ def test_discover_urls_drops_generic_only_matches_end_to_end(isolated_settings):
     )
 
     assert urls == ["https://mcpcn.com/docs/intro"]
+
+
+def test_chinese_query_terms_use_cjk_bigrams():
+    from src.web_search.common import _search_query_terms
+
+    terms = _search_query_terms("南京地铁线路数量 2025 2026 几条线")
+
+    assert {"南京", "地铁", "线路", "数量"} <= set(terms)
+    assert _search_query_terms("龙") == ["龙"]
+
+
+def test_chinese_text_relevance_penalizes_topical_miss():
+    from src.web_search.common import text_relevance_delta
+
+    query = "南京地铁线路数量 2025 2026 几条线"
+
+    assert text_relevance_delta("南京地铁目前共运营14条线路", query) > 0
+    assert text_relevance_delta("南京市政府门户网站，提供旅游和政务信息", query) < 0
+
+
+def test_chinese_off_topic_snippet_falls_below_url_gate():
+    from src.web_search.common import (
+        DEFAULT_MIN_USABLE_URL_SCORE,
+        SearchResult,
+        result_quality_score,
+    )
+
+    query = "南京地铁线路数量 2025 2026 几条线"
+    off_topic = SearchResult(
+        url="https://example.com/news/2026/nanjing-overview",
+        title="南京市人民政府门户网站",
+        snippet="南京旅游、政务服务和城市介绍。",
+    )
+    on_topic = SearchResult(
+        url="https://example.com/news/2026/nanjing-metro",
+        title="南京地铁运营线路数量",
+        snippet="南京地铁目前共运营14条线路。",
+    )
+
+    assert result_quality_score(off_topic, query=query) < DEFAULT_MIN_USABLE_URL_SCORE
+    assert result_quality_score(on_topic, query=query) >= DEFAULT_MIN_USABLE_URL_SCORE
+
+
+def test_page_relevance_keeps_short_chinese_fact_and_rejects_unrelated_page():
+    from src.web_search.common import is_page_text_relevant
+
+    query = "南京地铁线路数量 2025 2026 几条线"
+
+    assert is_page_text_relevant(
+        "目前共运营14条线路。",
+        query,
+        title="南京地铁线路",
+    )
+    assert not is_page_text_relevant(
+        "Slack brings team communication, channels, integrations, and workflow tools together."
+        * 20,
+        query,
+        title="Slack product updates",
+    )

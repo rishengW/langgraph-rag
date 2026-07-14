@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -24,6 +25,19 @@ QuestionResolver = Callable[[dict[str, Any]], str]
 # output above this bound keeps the N x k search cost bounded on the worst
 # case and matches the design decision in the 2026-06-17 form.
 DECOMPOSE_MAX_SUBQUESTIONS = 3
+
+_COMPARISON_RE = re.compile(
+    r"\b(?:compare|comparison|versus|vs\.?|difference|differences|differ)\b"
+    r"|\bpros\s+and\s+cons\b"
+    r"|\badvantages\s+and\s+disadvantages\b",
+    re.IGNORECASE,
+)
+_INTERROGATIVE_RE = re.compile(r"\b(?:what|when|where|who|whom|whose|why|how|which)\b")
+_REQUEST_VERB_RE = re.compile(
+    r"\b(?:analyze|compare|describe|evaluate|explain|identify|list|summarize)\b",
+    re.IGNORECASE,
+)
+_CLAUSE_CONNECTOR_RE = re.compile(r"\b(?:also|and|then)\b|[?;]")
 
 
 class _DecomposeResult(BaseModel):
@@ -58,11 +72,25 @@ def decompose_factory(
     def decompose(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("DECOMPOSE QUESTION")
         try:
-            question = question_resolver(state).strip()
+            question = _search_tool_query(state) or question_resolver(state).strip()
         except Exception:  # noqa: BLE001 - defensive passthrough by design
             question = ""
         if not question:
-            return {"sub_questions": []}
+            return {
+                "sub_questions": [],
+                "expanded_queries": [],
+                "search_queries": [],
+                "web_search_results": [],
+                "web_search_result_metadata": [],
+            }
+        if not _is_likely_compound(question):
+            return {
+                "sub_questions": [question],
+                "expanded_queries": [],
+                "search_queries": [question],
+                "web_search_results": [],
+                "web_search_result_metadata": [],
+            }
 
         prompt = (
             "You split compound research questions into independent "
@@ -73,14 +101,15 @@ def decompose_factory(
             f"{question}\n"
             "-------\n\n"
             "Rules:\n"
-            "- If the question is atomic (one fact, one comparison, one "
-            "named entity), return exactly ONE sub-question equal to the "
+            "- If the question is atomic (one fact or one named entity), return "
+            "exactly ONE sub-question equal to the "
             "original input verbatim.\n"
             "- Otherwise return 2-3 self-contained sub-questions that "
             "together cover every distinct fact the original asks for. "
             "Each sub-question must stand alone (no pronouns like 'it' "
             "or 'they' referring to earlier parts).\n"
-            "- Output JSON matching the schema.\n"
+            '- Return only one JSON object with this exact shape: '
+            '{"sub_questions":["question 1","question 2"]}.\n'
         )
 
         try:
@@ -97,9 +126,31 @@ def decompose_factory(
             logger.warning("Decompose LLM call failed; using atomic passthrough: %s", exc)
             sub_questions = [question]
 
-        return {"sub_questions": sub_questions}
+        return {
+            "sub_questions": sub_questions,
+            "expanded_queries": [],
+            "search_queries": list(sub_questions),
+            "web_search_results": [],
+            "web_search_result_metadata": [],
+        }
 
     return decompose
+
+
+def _search_tool_query(state: dict[str, Any]) -> str:
+    """Return the latest live-search query selected by the agent."""
+
+    messages = state.get("messages") or []
+    for message in reversed(list(messages)):
+        calls = getattr(message, "tool_calls", None) or []
+        for call in reversed(list(calls)):
+            if not isinstance(call, dict) or call.get("name") != "live_web_search":
+                continue
+            args = call.get("args")
+            query = args.get("query") if isinstance(args, dict) else None
+            if isinstance(query, str) and query.strip():
+                return query.strip()
+    return ""
 
 
 def _clamp_sub_questions(raw: Any, original: str) -> list[str]:
@@ -124,6 +175,31 @@ def _clamp_sub_questions(raw: Any, original: str) -> list[str]:
     if not cleaned:
         return [original]
     return cleaned
+
+
+def _is_likely_compound(question: str) -> bool:
+    """Return True only for strong, cheap signals of independent search tasks."""
+
+    normalized = " ".join(question.split())
+    if not normalized:
+        return False
+    if _COMPARISON_RE.search(normalized):
+        return True
+    if normalized.count("?") >= 2:
+        return True
+
+    interrogatives = list(_INTERROGATIVE_RE.finditer(normalized.lower()))
+    for first, second in zip(interrogatives, interrogatives[1:], strict=False):
+        between = normalized[first.end() : second.start()]
+        if _CLAUSE_CONNECTOR_RE.search(between):
+            return True
+
+    request_verbs = list(_REQUEST_VERB_RE.finditer(normalized))
+    for first, second in zip(request_verbs, request_verbs[1:], strict=False):
+        between = normalized[first.end() : second.start()]
+        if _CLAUSE_CONNECTOR_RE.search(between):
+            return True
+    return False
 
 
 def _today_iso() -> str:

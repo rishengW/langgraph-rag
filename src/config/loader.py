@@ -40,7 +40,10 @@ SETTING_ENV_NAMES = {
     "allow_low_relevance_generate": "ALLOW_LOW_RELEVANCE_GENERATE",
     "min_keyword_matches": "MIN_KEYWORD_MATCHES",
     "max_rewrites": "MAX_REWRITES",
+    "chat_context_max_turns": "CHAT_CONTEXT_MAX_TURNS",
+    "chat_context_max_chars": "CHAT_CONTEXT_MAX_CHARS",
     "web_search_enabled": "WEB_SEARCH_ENABLED",
+    "web_search_llm_query_rewrite_enabled": "WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED",
     "web_search_provider": "WEB_SEARCH_PROVIDER",
     "web_search_max_results": "WEB_SEARCH_MAX_RESULTS",
     "web_search_top_k": "WEB_SEARCH_TOP_K",
@@ -242,6 +245,8 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "api_port",
         "min_keyword_matches",
         "max_rewrites",
+        "chat_context_max_turns",
+        "chat_context_max_chars",
         "web_search_max_results",
         "web_search_top_k",
         "web_search_min_url_score",
@@ -277,6 +282,8 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
             "wikipedia_max_summary_chars",
         ):
             return max(0, parsed)
+        if name in ("chat_context_max_turns", "chat_context_max_chars"):
+            return max(1, parsed)
         if name in (
             "page_load_timeout",
             "page_load_max_concurrency",
@@ -292,6 +299,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
     if name in (
         "allow_low_relevance_generate",
         "web_search_enabled",
+        "web_search_llm_query_rewrite_enabled",
         "web_search_verify_ssl",
         "web_search_lightweight",
         "web_search_js_fallback_enabled",

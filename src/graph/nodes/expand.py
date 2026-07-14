@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from ...config import Settings
 from ...utils.retry import invoke_with_retry
 from .common import new_structured_chat_model, qa_question_resolver
+from .search_queries import WEB_SEARCH_MAX_QUERIES
 
 logger = logging.getLogger(__name__)
 
@@ -65,20 +66,32 @@ def expand_factory(
             # ``expand`` again. Without this the graph loops
             # web_answer -> expand -> web_search -> merge -> web_answer
             # forever until the recursion limit.
-            return {"expanded_queries": [], "expansion_attempted": True}
+            return {
+                "expanded_queries": [],
+                "search_queries": [],
+                "expansion_attempted": True,
+            }
 
         expanded: list[str] = []
         for sub_question in sub_questions:
             for query in _paraphrases_for(sub_question, settings):
                 if query not in expanded:
                     expanded.append(query)
+                if len(expanded) >= WEB_SEARCH_MAX_QUERIES:
+                    break
+            if len(expanded) >= WEB_SEARCH_MAX_QUERIES:
+                break
 
         # REFACTOR: One-shot switch. ``route_after_web_answer`` routes to
         # ``expand`` only while ``expansion_attempted`` is False; setting it
         # here bounds the conditional-expansion retry to a single pass so a
         # persistently unreadable source set falls through to the agent
         # fallback / grounded refusal instead of looping forever.
-        return {"expanded_queries": expanded, "expansion_attempted": True}
+        return {
+            "expanded_queries": expanded,
+            "search_queries": list(expanded),
+            "expansion_attempted": True,
+        }
 
     return expand
 
@@ -112,7 +125,8 @@ def _paraphrases_for(sub_question: str, settings: Settings) -> list[str]:
         "the original search is preserved.\n"
         "- Queries should be keyword-form, not full natural-language "
         "questions. Drop filler words (what, is, the, of, does, etc.).\n"
-        "- Output JSON matching the schema.\n"
+        '- Return only one JSON object with this exact shape: '
+        '{"paraphrases":["query 1","query 2"]}.\n'
     )
 
     try:

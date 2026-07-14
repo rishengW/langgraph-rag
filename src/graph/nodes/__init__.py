@@ -17,12 +17,20 @@ from .common import (
 from .condense import condense_question_factory, format_history, latest_user_index
 from .decompose import DECOMPOSE_MAX_SUBQUESTIONS, decompose_factory
 from .expand import EXPAND_MAX_PARAPHRASES, expand_factory
+from .fallback_answer import fallback_answer_factory
 from .merge import merge_factory
+from .search_queries import (
+    WEB_SEARCH_MAX_CONCURRENCY,
+    WEB_SEARCH_MAX_QUERIES,
+    search_queries_factory,
+)
 from .web_answer import web_answer_factory
 
 __all__ = [
     "DECOMPOSE_MAX_SUBQUESTIONS",
     "EXPAND_MAX_PARAPHRASES",
+    "WEB_SEARCH_MAX_CONCURRENCY",
+    "WEB_SEARCH_MAX_QUERIES",
     "QuestionResolver",
     "agent_factory",
     "build_chat_agent_factory",
@@ -32,6 +40,7 @@ __all__ = [
     "condense_question_factory",
     "decompose_factory",
     "expand_factory",
+    "fallback_answer_factory",
     "format_history",
     "generate_factory",
     "grade_documents_factory",
@@ -41,6 +50,7 @@ __all__ = [
     "new_chat_model",
     "qa_question_resolver",
     "rewrite_factory",
+    "search_queries_factory",
     "web_answer_factory",
 ]
 

@@ -8,7 +8,7 @@ A local LangGraph retrieval-augmented generation project with two FastAPI apps:
 The project supports two LangGraph workflows:
 
 - **Full graph**: agent → retrieve (Chroma) → grade → generate, with query rewrite on low-relevance grades.
-- **Lightweight graph**: agent → decompose → web_search → merge → web_answer, with one-shot conditional expansion on retrieval failure and a training-data agent fallback. Skips Chroma, embeddings, grading, and rewriting entirely.
+- **Lightweight graph**: agent → decompose → bounded parallel search → relevance-aware merge → web_answer, with one expanded retry followed by a tool-free training-data fallback. Skips Chroma, embeddings, and grading; search-query LLM rewriting is optional and disabled by default.
 
 The project started as a Python extraction of a Jupyter notebook; it is now organized as a reusable codebase with YAML configuration, typed graph events, SSE streaming, health/readiness/metrics endpoints, optional API-key auth, Docker support, CI quality gates, and company-readiness documentation.
 
@@ -25,7 +25,7 @@ langgraph-rag/
 |   |-- core/                 # Deprecated re-exports (redirect to src/graph, src/rag, etc.)
 |   |-- errors.py             # Typed RAG exceptions
 |   |-- graph/                # LangGraph builder, state, edges, executor, metrics
-|   |   |-- nodes/            # Node factories (agent, condense, decompose, expand, generate, grade, merge, rewrite, web_answer)
+|   |   |-- nodes/            # Node factories (agent, condense, decompose, bounded search, expand, generate, grade, merge, rewrite, web_answer)
 |   |-- llm/                  # LLM provider seam (DashScope, DeepSeek) + prompt templates
 |   |-- qa/                   # Single-shot QA app (API, CLI, UI)
 |   |-- rag/                  # Chroma retriever, embeddings (DashScope, HuggingFace), document loader/quality
@@ -56,6 +56,12 @@ Install runtime dependencies:
 
 ```powershell
 python -m pip install -r requirements.txt
+```
+
+Playwright is included in the runtime requirements. Install its Chromium binary only if you enable `WEB_SEARCH_JS_FALLBACK_ENABLED`:
+
+```powershell
+python -m playwright install chromium
 ```
 
 For local development and CI-equivalent checks:
@@ -97,7 +103,10 @@ Key settings:
 | `QWEN_MODEL` | `qwen-plus` | DashScope model name |
 | `DEEPSEEK_MODEL` | `deepseek-v4-pro` | DeepSeek model name |
 | `EMBEDDING_MODEL` | `text-embedding-v4` | Embedding model |
+| `CHAT_CONTEXT_MAX_TURNS` | `8` | Recent chat turns projected into model calls |
+| `CHAT_CONTEXT_MAX_CHARS` | `12000` | Hard character budget for the model-side chat projection |
 | `WEB_SEARCH_ENABLED` | `true` | Enable live web search |
+| `WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED` | `false` | Compatibility opt-in for an extra search-query LLM call |
 | `WEB_SEARCH_PROVIDER` | `bing` | `bing`, `baidu`, or `duckduckgo` |
 | `WEB_SEARCH_LIGHTWEIGHT` | `true` | Use lightweight graph for web search |
 | `WEB_SEARCH_TOP_K` | `6` | Top-K URLs after merge ranking |
@@ -145,27 +154,29 @@ START → agent → retrieve → grade → generate → END
 ```
 START → agent ──(no tool)──► END                                    (direct answer)
           │
-          └─(live_web_search)─► decompose → web_search → merge → web_answer ─► END   (grounded)
+          └─(live_web_search)─► decompose → search_queries → merge → web_answer ─► END   (grounded)
                                                                        │
                                                           (no readable, !expanded)
                                                                        │
                                                                        ▼
-                                                          expand → web_search → merge → web_answer ─► END   (grounded retry)
+                                                          expand → search_queries → merge → web_answer ─► END   (grounded retry)
                                                                                               │
                                                                                   (no readable, expanded)
                                                                                               │
                                                                                               ▼
-                                                                                           agent ─► END   (training-data fallback)
+                                                                                 fallback_answer ─► END   (tool-free fallback)
 ```
 
-Skips Chroma, embeddings, grading, and rewriting. The agent either answers directly (system prompt steers it away from tools for stable factual questions like founding dates and capitals) or calls the live web search tool, which kicks off a `decompose → web_search → merge → web_answer` chain:
+Skips Chroma, embeddings, and grading. The agent either answers directly (system prompt steers it away from tools for stable factual questions like founding dates and capitals) or calls the live web search tool, which kicks off a `decompose → search_queries → merge → web_answer` chain:
 
-- **decompose** splits a compound question into 1-3 atomic sub-questions (passthrough for already-atomic Qs).
-- **web_search** fans out one keyword query per sub-question.
-- **merge** dedupes URLs by canonical form and ranks by `(hit_count, best_provider_rank)`, keeping `web_search_top_k`.
-- **web_answer** fetches the merged URLs, extracts readable text, and prompts the LLM to synthesize a grounded answer.
+- **decompose** splits a compound question into 1-3 atomic sub-questions; atomic questions bypass the decomposition LLM.
+- **search_queries** executes up to 6 distinct queries with at most 3 concurrent provider calls; this bounded fan-out is owned by the graph, so chat does not run a duplicate preliminary search or rebuild the graph per turn.
+- **merge** dedupes URLs by canonical form and ranks provider title/snippet relevance and overall quality before cross-query overlap and provider rank, keeping `web_search_top_k`.
+- **web_answer** fetches the merged URLs, rejects fetched pages that are not relevant to the query, extracts readable text, and prompts the LLM to synthesize a grounded answer.
 
-When `web_answer` produces no readable content and expansion has not yet fired, the post-`web_answer` edge routes to **expand**, which produces k=3 keyword paraphrases per sub-question. The graph re-enters `web_search → merge → web_answer` with the broader query set; the merge stage combines the new URLs with the first attempt's URLs rather than discarding them. A second failure routes to the **agent** so the LLM can answer from training data with a "couldn't verify against the live web" caveat. Each fallback step is bounded by a one-shot flag (`expansion_attempted`) and an attempt counter (`web_answer_attempts`, capped at `WEB_ANSWER_FALLBACK_MAX_ATTEMPTS=3`) so the graph cannot loop indefinitely.
+When `web_answer` produces no readable, relevant content and expansion has not yet fired, the post-`web_answer` edge routes to **expand**, which produces bounded keyword paraphrases per sub-question. The graph re-enters `search_queries → merge → web_answer` with the broader query set; the merge stage combines the new URLs with the first attempt's URLs rather than discarding them. A second failure routes to **fallback_answer**, which calls an unbound model once using the preserved user question and clearly states that the answer could not be verified against live web sources. It cannot invoke search or turn a generated refusal into another query. The two search/fetch attempts are bounded by `expansion_attempted` and `web_answer_attempts` (`WEB_ANSWER_FALLBACK_MAX_ATTEMPTS=2`).
+
+Provider queries use deterministic keyword cleanup by default. Set `WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED=true` only when an additional LLM rewrite call is worth its latency and cost; it is not required for ordinary chat search.
 
 ### Graph Nodes
 
@@ -179,8 +190,10 @@ When `web_answer` produces no readable content and expansion has not yet fired, 
 | condense | `condense_question_factory` | `CONDENSE_PROMPT` |
 | decompose | `decompose_factory` | inline prompt (1-3 sub-questions, passthrough on atomic) |
 | expand | `expand_factory` | inline prompt (k=3 paraphrases per sub-question) |
-| merge | `merge_factory` | — (pure code: dedupe + rank URLs) |
+| search_queries | `search_queries_factory` | — (bounded concurrent provider calls) |
+| merge | `merge_factory` | — (pure code: relevance-aware dedupe + rank) |
 | web_answer | `web_answer_factory` | `build_web_search_prompt` |
+| fallback_answer | `fallback_answer_factory` | inline tool-free fallback prompt |
 
 ### Agent Tools
 
@@ -207,7 +220,7 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `read_excel_spreadsheet` | `src/tools/excel_file.py` | `FILE_READ_ENABLED=true` | Read .xlsx rows from `FILE_READ_ROOT` (needs `openpyxl`) |
 | `read_pdf` | `src/tools/pdf_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .pdf in `FILE_READ_ROOT` (needs `pypdf`) |
 
-When the agent calls a non-web-search tool in the lightweight graph (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, or a file reader), the post-tool edge routes back to the agent so it can synthesize the structured tool output into a final answer — bypassing the `decompose → web_search → merge → web_answer` chain that's specific to `live_web_search`.
+When the agent calls a non-web-search tool in the lightweight graph (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, or a file reader), the post-tool edge routes back to the agent so it can synthesize the structured tool output into a final answer — bypassing the `decompose → search_queries → merge → web_answer` chain that's specific to `live_web_search`.
 
 ### LLM Provider Seam
 
@@ -298,7 +311,7 @@ Chat uses additional persisted state:
 - `.chroma/chat/sessions.sqlite3`: session metadata via `SQLiteStorage`
 - `.chroma/chat/checkpoints.sqlite3`: LangGraph checkpoints via `SQLiteMemorySaver`
 
-Chat sessions survive app restarts. Sessions with the global default source set share the global Chroma collection; sessions with explicit URLs or web-discovered sources get isolated per-thread stores. The `SQLiteMemorySaver` checkpointer is thread-safe under concurrent `/chat` requests for the same thread (uses a reentrant lock around the inherited `MemorySaver` mutations and the SQLite snapshot).
+Chat sessions survive app restarts. Sessions with explicit URLs use isolated per-thread stores. Lightweight web chat compiles once, discovers sources inside the graph, and persists the latest URLs as session metadata without rebuilding Chroma or the graph. Checkpoints retain the complete transcript for history and restart recovery, while model calls receive only a bounded recent projection controlled by `CHAT_CONTEXT_MAX_TURNS` and `CHAT_CONTEXT_MAX_CHARS`. The `SQLiteMemorySaver` checkpointer is thread-safe under concurrent `/chat` requests for the same thread (uses a reentrant lock around the inherited `MemorySaver` mutations and the SQLite snapshot).
 
 ## File Uploads and Reading
 
@@ -349,17 +362,17 @@ Live web search is provided by three providers in `src/web_search/`:
 - **Baidu** (`BaiduWebSearch`) — HTML scraping with captcha detection
 - **DuckDuckGo** (`DuckDuckGoWebSearch`) — HTML scraping
 
-The default provider order is Bing → Baidu → DuckDuckGo, with automatic fallback on failure. Search queries are LLM-rewritten into keyword form before being sent to the provider (with mechanical filler-word stripping as a fallback when the LLM is unavailable).
+The default provider order is Bing → Baidu → DuckDuckGo, with automatic fallback on failure. Predominantly Chinese queries instead prefer Baidu → Bing → DuckDuckGo, regardless of the default provider setting, so Chinese-language result titles and snippets are available for relevance scoring. An explicitly injected provider (for tests or integrations) remains pinned.
 
 A multi-stage quality pipeline runs before the agent sees URLs:
 
-- **URL scoring** (`web_search_min_url_score`, default 45) drops low-quality result patterns (search/login/tag/file/feed pages) and rewards hostname/path matches against query keywords.
+- **Result relevance and URL scoring** (`web_search_min_url_score`, default 45) combines normalized provider title/snippet matches (including CJK query terms) with URL quality, dropping off-topic results and low-quality patterns such as search/login/tag/file/feed pages.
 - **Provider-result dedup** by canonical host/path.
 - **Pre-index document filtering** drops short/empty/boilerplate/low-signal pages, with optional embedding similarity gate against the question (`document_quality_relevance_query`) and configurable recency bias from extracted publication dates.
 - **Post-retrieval re-ranking** scores chunks by query/document overlap, frequency, and phrase matches; `RERANK_STRATEGY` switches between lexical (default), embedding, or hybrid.
 - **Optional JS-capable fallback** (`WEB_SEARCH_JS_FALLBACK_ENABLED`) retries known JS-only domains (`baike.baidu.com`, `zhuanlan.zhihu.com`, `apps.microsoft.com`, `deepseek.net` by default) through a lazy headless Chromium adapter when the HTTP loader returns empty/insufficient text. Off by default; requires installing `playwright` and a Chromium runtime.
 
-When `web_search_lightweight` is enabled (default), the lightweight graph routes the agent's tool call through `decompose → web_search → merge → web_answer` as described above, with one-shot conditional expansion and a training-data agent fallback as the final safety net.
+When `web_search_lightweight` is enabled (default), the lightweight graph routes the agent's tool call through `decompose → search_queries → merge → web_answer` as described above, with one-shot conditional expansion and a tool-free training-data fallback as the final safety net. Chat uses this as the sole web-search owner; it no longer performs a preliminary provider search or recompiles the graph for each turn.
 
 ## Streaming
 
@@ -409,8 +422,8 @@ git diff --check                            # Whitespace check
 
 - The chat model is configurable via `LLM_PROVIDER` — DashScope (`qwen-plus`) or DeepSeek (`deepseek-v4-pro`). Embeddings always use DashScope/Tongyi unless `embedding_model` is set to a HuggingFace model.
 - Existing Chroma stores with incompatible embedding metadata are rebuilt automatically on startup.
-- Web search defaults to Bing with Baidu and DuckDuckGo fallback. If Baidu returns a captcha/verification page, it is temporarily skipped. Set `WEB_SEARCH_PROVIDER` to pin a single provider.
+- Web search defaults to Bing with Baidu and DuckDuckGo fallback; predominantly Chinese queries prefer Baidu first. If Baidu returns a captcha/verification page, it is temporarily skipped. `WEB_SEARCH_PROVIDER` selects the starting provider for non-Chinese queries.
 - The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
 - Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.
 - Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (the four file readers share `FILE_READ_ENABLED`). None require an API key; only `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.
-- The lightweight graph's conditional expansion fires only on web-search retrieval failure — single-keyword questions that get a readable page back take the fast path with one search and one LLM call. Compound questions that decompose into multiple sub-Qs still take the fast path; expansion only fires when no fetched page yields readable text.
+- The lightweight graph's conditional expansion fires only on web-search retrieval failure — single-keyword questions that get a readable, relevant page back take the fast path with one search and one LLM call. Compound questions that decompose into multiple sub-Qs still take the fast path; expansion only fires when no fetched page yields usable evidence.

@@ -27,7 +27,7 @@ _URL_RE = re.compile(r"https?://[^\s<>()\[\]{}\u3000-\u303f\uff00-\uffef\u4e00-\
 def web_answer_factory(
     settings: Settings,
     question_resolver: QuestionResolver = qa_question_resolver,
-) -> Callable[[dict[str, Any]], dict[str, list[AIMessage]]]:
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Return a node that answers directly from fetched web pages.
 
     The node intentionally avoids retrievers, embeddings, Chroma, grading, and
@@ -35,7 +35,7 @@ def web_answer_factory(
     search lightweight-path modules.
     """
 
-    def web_answer(state: dict[str, Any]) -> dict[str, list[AIMessage]]:
+    def web_answer(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("GENERATE WEB ANSWER")
         question = question_resolver(state)
         urls = _extract_source_urls(state, settings)
@@ -45,6 +45,7 @@ def web_answer_factory(
         # in src/graph/edges.py.
         attempts = int(state.get("web_answer_attempts", 0) or 0) + 1
 
+        from ...web_search.common import is_page_text_relevant
         from ...web_search.content_fetcher import fetch_pages, is_readable_text
         from ...web_search.prompt_builder import build_web_search_prompt
 
@@ -75,19 +76,37 @@ def web_answer_factory(
                 min_tokens=settings.web_search_min_page_tokens,
             )
         ]
-        if not readable_pages:
+        relevant_pages = [
+            page
+            for page in readable_pages
+            if is_page_text_relevant(
+                page.text or "",
+                question,
+                title=page.title or "",
+            )
+        ]
+        filtered_urls = [page.url for page in readable_pages if page not in relevant_pages]
+        if filtered_urls:
+            logger.info(
+                "Filtered readable but off-topic web source content: urls=%s",
+                ", ".join(filtered_urls),
+            )
+        if not relevant_pages:
             attempted = ", ".join(page.url for page in pages if page.url) or "none"
             logger.warning(
-                "No readable web source content for question; skipping LLM call "
+                "No relevant readable web source content for question; skipping LLM call "
                 "to avoid an ungrounded answer (attempted URLs: %s)",
                 attempted,
             )
             return {
+                # Do not persist or display candidates that failed the final
+                # readability/relevance gate as if they grounded an answer.
+                "source_urls": [],
                 "messages": [
                     AIMessage(
                         content=(
-                            "I couldn't retrieve readable content from the web "
-                            "sources for this question, so I don't have grounded "
+                            "I couldn't retrieve readable content relevant to this "
+                            "question from the web sources, so I don't have grounded "
                             "information to answer it and won't guess.\n\n"
                             f"Attempted sources: {attempted}\n\n"
                             "Suggestions:\n"
@@ -108,7 +127,7 @@ def web_answer_factory(
                 "web_answer_attempts": attempts,
             }
 
-        prompt = build_web_search_prompt(question, readable_pages)
+        prompt = build_web_search_prompt(question, relevant_pages)
 
         try:
             result = invoke_with_retry(
@@ -125,6 +144,9 @@ def web_answer_factory(
             )
 
         return {
+            # The chat UI and session metadata should expose only sources that
+            # were actually admitted to the grounded answer prompt.
+            "source_urls": [page.url for page in relevant_pages if page.url],
             "messages": [AIMessage(content=content)],
             # REFACTOR: Clear the fallback flag on the success branch so a
             # later ``web_answer`` failure (e.g. a different question in the

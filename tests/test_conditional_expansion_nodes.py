@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from langchain_core.messages import HumanMessage, ToolMessage
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from src.graph.nodes import decompose as decompose_module
 from src.graph.nodes import expand as expand_module
@@ -55,22 +56,110 @@ def test_decompose_passthrough_for_unresolvable_question(isolated_settings, monk
 
     node = decompose_module.decompose_factory(settings)
     result = node({})
-    assert result == {"sub_questions": []}
+    assert result == {
+        "sub_questions": [],
+        "expanded_queries": [],
+        "search_queries": [],
+        "web_search_results": [],
+        "web_search_result_metadata": [],
+    }
 
 
-def test_decompose_uses_atomic_passthrough_when_llm_fails(isolated_settings, monkeypatch):
+@pytest.mark.parametrize(
+    "question",
+    [
+        "What year was X founded?",
+        "DeepSeek latest model 2026",
+        "Research and development policy",
+        "What is the restaurant where the agreement was signed?",
+    ],
+)
+def test_decompose_bypasses_llm_for_atomic_questions(
+    question, isolated_settings, monkeypatch
+):
     settings = isolated_settings()
     monkeypatch.setattr(
         decompose_module,
         "invoke_with_retry",
-        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+        lambda *a, **k: pytest_forbidden("LLM must not run for atomic questions"),
     )
-    _patch_structured_model(monkeypatch, decompose_module, lambda: None)
+    monkeypatch.setattr(
+        decompose_module,
+        "new_structured_chat_model",
+        lambda *_a, **_k: pytest_forbidden("model must not be built for atomic questions"),
+    )
 
     node = decompose_module.decompose_factory(settings)
-    result = node({"messages": [HumanMessage(content="What year was X founded?")]})
-    # Passthrough fallback emits the original question.
-    assert result == {"sub_questions": ["What year was X founded?"]}
+    result = node({"messages": [HumanMessage(content=question)]})
+    assert result == {
+        "sub_questions": [question],
+        "expanded_queries": [],
+        "search_queries": [question],
+        "web_search_results": [],
+        "web_search_result_metadata": [],
+    }
+
+
+def test_decompose_prefers_contextual_search_query_from_agent(
+    isolated_settings, monkeypatch
+):
+    monkeypatch.setattr(
+        decompose_module,
+        "new_structured_chat_model",
+        lambda *_a, **_k: pytest_forbidden("atomic tool query must bypass the model"),
+    )
+    state = {
+        "messages": [
+            HumanMessage(content="What about its pricing?"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "live_web_search",
+                        "args": {"query": "LangGraph Platform pricing 2026"},
+                        "id": "search-call",
+                    }
+                ],
+            ),
+        ]
+    }
+
+    result = decompose_module.decompose_factory(isolated_settings())(state)
+
+    assert result["search_queries"] == ["LangGraph Platform pricing 2026"]
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Compare Alpha and Beta",
+        "Alpha versus Beta",
+        "Who founded Alpha and when did it launch?",
+        "When and where was Alpha founded?",
+        "List Alpha's releases and summarize Beta's roadmap",
+        "What launched first? Where was it announced?",
+    ],
+)
+def test_decompose_calls_llm_for_likely_compound_questions(
+    question, isolated_settings, monkeypatch
+):
+    settings = isolated_settings()
+    fake_result = type("R", (), {"sub_questions": ["Part A", "Part B"]})()
+    calls = []
+    monkeypatch.setattr(
+        decompose_module,
+        "invoke_with_retry",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or fake_result,
+    )
+    _patch_structured_model(monkeypatch, decompose_module, lambda: fake_result)
+
+    result = decompose_module.decompose_factory(settings)(
+        {"messages": [HumanMessage(content=question)]}
+    )
+
+    assert result["sub_questions"] == ["Part A", "Part B"]
+    assert result["web_search_result_metadata"] == []
+    assert len(calls) == 1
 
 
 def test_decompose_clamps_llm_output_to_max_subquestions(isolated_settings, monkeypatch):
@@ -80,7 +169,7 @@ def test_decompose_clamps_llm_output_to_max_subquestions(isolated_settings, monk
     _patch_structured_model(monkeypatch, decompose_module, lambda: fake_result)
 
     node = decompose_module.decompose_factory(settings)
-    result = node({"messages": [HumanMessage(content="Compound question.")]})
+    result = node({"messages": [HumanMessage(content="Compare A, B, C, D, and E.")]})
 
     assert len(result["sub_questions"]) == decompose_module.DECOMPOSE_MAX_SUBQUESTIONS
     assert result["sub_questions"] == ["A", "B", "C"]
@@ -93,7 +182,7 @@ def test_decompose_returns_llm_subquestions_as_is(isolated_settings, monkeypatch
     _patch_structured_model(monkeypatch, decompose_module, lambda: fake_result)
 
     node = decompose_module.decompose_factory(settings)
-    result = node({"messages": [HumanMessage(content="Compound question.")]})
+    result = node({"messages": [HumanMessage(content="Compare two systems.")]})
 
     # The LLM's sub-questions are returned verbatim; we don't prepend
     # the original.
@@ -107,7 +196,7 @@ def test_decompose_dedupes_repeated_subquestions(isolated_settings, monkeypatch)
     _patch_structured_model(monkeypatch, decompose_module, lambda: fake_result)
 
     node = decompose_module.decompose_factory(settings)
-    result = node({"messages": [HumanMessage(content="Compound question.")]})
+    result = node({"messages": [HumanMessage(content="Compare A, B, and C.")]})
 
     assert result["sub_questions"] == ["A", "B", "C"]
 
@@ -128,7 +217,11 @@ def test_expand_passthrough_when_no_sub_questions(isolated_settings, monkeypatch
 
     node = expand_module.expand_factory(settings)
     result = node({"messages": []})
-    assert result == {"expanded_queries": [], "expansion_attempted": True}
+    assert result == {
+        "expanded_queries": [],
+        "search_queries": [],
+        "expansion_attempted": True,
+    }
 
 
 def test_expand_returns_k1_passthrough_when_llm_fails(isolated_settings, monkeypatch):
@@ -142,6 +235,7 @@ def test_expand_returns_k1_passthrough_when_llm_fails(isolated_settings, monkeyp
     result = node({"sub_questions": ["What year was X founded?"]})
     assert result == {
         "expanded_queries": ["What year was X founded?"],
+        "search_queries": ["What year was X founded?"],
         "expansion_attempted": True,
     }
 
@@ -206,6 +300,20 @@ def test_expand_dedupes_across_sub_questions(isolated_settings, monkeypatch):
     result = node({"sub_questions": ["X", "Y"]})
 
     assert result["expanded_queries"] == ["X", "Y"]
+
+
+def test_expand_clamps_total_query_batch(isolated_settings, monkeypatch):
+    monkeypatch.setattr(
+        expand_module,
+        "_paraphrases_for",
+        lambda question, _settings: [question, f"{question} alt 1", f"{question} alt 2"],
+    )
+    node = expand_module.expand_factory(isolated_settings())
+
+    result = node({"sub_questions": ["First", "Second", "Third"]})
+
+    assert len(result["expanded_queries"]) == 6
+    assert result["search_queries"] == result["expanded_queries"]
 
 
 def test_expand_always_marks_expansion_attempted(isolated_settings, monkeypatch):
@@ -340,6 +448,104 @@ def test_merge_ranks_higher_hit_count_first(isolated_settings):
     result = node(state)
     # "shared" has hit_count=2, so it leads the ranking.
     assert result["source_urls"][0] == "https://example.com/shared"
+
+
+def test_merge_rewards_overlap_across_fanout_query_results(isolated_settings):
+    settings = replace(isolated_settings(), web_search_top_k=0)
+    node = merge_module.merge_factory(settings)
+
+    result = node(
+        {
+            "source_urls": [],
+            "messages": [],
+            "web_search_results": [
+                ["https://example.com/first", "https://example.com/shared"],
+                ["https://example.com/second", "https://example.com/shared"],
+            ],
+        }
+    )
+
+    assert result["source_urls"][0] == "https://example.com/shared"
+
+
+def test_merge_prioritizes_relevance_over_repeated_generic_result(isolated_settings):
+    settings = replace(isolated_settings(), web_search_top_k=0)
+    node = merge_module.merge_factory(settings)
+
+    result = node(
+        {
+            "source_urls": [],
+            "messages": [],
+            "web_search_results": [
+                ["https://example.com/generic", "https://example.com/relevant"],
+                ["https://example.com/generic"],
+            ],
+            "web_search_result_metadata": [
+                [
+                    {
+                        "url": "https://example.com/generic",
+                        "provider_rank": 0,
+                        "relevance_score": 0,
+                        "quality_score": 65,
+                    },
+                    {
+                        "url": "https://example.com/relevant",
+                        "provider_rank": 1,
+                        "relevance_score": 40,
+                        "quality_score": 105,
+                    },
+                ],
+                [
+                    {
+                        "url": "https://example.com/generic",
+                        "provider_rank": 0,
+                        "relevance_score": 0,
+                        "quality_score": 65,
+                    }
+                ],
+            ],
+        }
+    )
+
+    assert result["source_urls"] == [
+        "https://example.com/relevant",
+        "https://example.com/generic",
+    ]
+
+
+def test_merge_keeps_url_only_results_when_metadata_is_partial(isolated_settings):
+    settings = replace(isolated_settings(), web_search_top_k=0)
+    node = merge_module.merge_factory(settings)
+
+    result = node(
+        {
+            "source_urls": [],
+            "messages": [],
+            "web_search_results": [
+                ["https://example.com/scored", "https://example.com/shared"],
+                ["https://example.com/shared", "https://example.com/legacy"],
+            ],
+            "web_search_result_metadata": [
+                [
+                    {
+                        "url": "https://example.com/scored",
+                        "provider_rank": 0,
+                        "relevance_score": 0,
+                        "quality_score": 0,
+                    }
+                ],
+                [],
+            ],
+        }
+    )
+
+    # The URL-only shared result keeps both query hits and the other legacy
+    # result remains eligible even though one sibling has ranking metadata.
+    assert result["source_urls"] == [
+        "https://example.com/shared",
+        "https://example.com/scored",
+        "https://example.com/legacy",
+    ]
 
 
 def test_merge_handles_empty_inputs(isolated_settings):

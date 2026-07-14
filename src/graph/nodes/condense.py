@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Sequence
 from datetime import date
 from typing import Any
@@ -11,9 +12,25 @@ from langchain_core.output_parsers import StrOutputParser
 from ...config import Settings
 from ...llm.prompts import CONDENSE_PROMPT
 from ...utils.retry import invoke_with_retry
-from .common import new_chat_model
+from .common import _truncate_context_text, bounded_chat_messages, new_chat_model
 
 logger = logging.getLogger(__name__)
+
+_CONTEXT_REFERENCE_RE = re.compile(
+    r"\b(?:it|its|they|them|their|this|that|these|those|he|him|his|she|her|hers|"
+    r"there|former|latter|same|above|previous|earlier)\b",
+    re.IGNORECASE,
+)
+_ELLIPTICAL_START_RE = re.compile(
+    r"^\s*(?:(?:what|how)\s+about\b|and\b|but\b|tell\s+me\s+more\b|"
+    r"go\s+on\b|continue\b|elaborate\b)",
+    re.IGNORECASE,
+)
+_STANDALONE_START_RE = re.compile(
+    r"^\s*(?:who|what|when|where|why|how|which|is|are|was|were|do|does|did|"
+    r"can|could|should|would|will|compare|explain|describe|tell|list|show|find)\b",
+    re.IGNORECASE,
+)
 
 
 def format_history(messages: Sequence[BaseMessage]) -> str:
@@ -45,6 +62,24 @@ def latest_user_index(messages: Sequence[BaseMessage]) -> int:
     return 0
 
 
+def needs_condensation(question: str) -> bool:
+    """Return whether a follow-up visibly depends on prior conversation."""
+
+    text = (question or "").strip()
+    if not text:
+        return False
+    if _CONTEXT_REFERENCE_RE.search(text) or _ELLIPTICAL_START_RE.search(text):
+        return True
+
+    words = re.findall(r"[\w'-]+", text, flags=re.UNICODE)
+    return bool(
+        words
+        and len(words) <= 8
+        and not text.endswith("?")
+        and not _STANDALONE_START_RE.match(text)
+    )
+
+
 def condense_followup_question(
     messages: Sequence[BaseMessage],
     latest_text: str,
@@ -59,12 +94,16 @@ def condense_followup_question(
     history or the LLM call fails (passthrough fallback).
     """
 
-    history_messages = [
-        msg
-        for msg in messages
-        if (getattr(msg, "content", None) or "").strip()
-        and (getattr(msg, "type", "") or "").lower() not in ("tool", "function")
-    ]
+    if not needs_condensation(latest_text):
+        return latest_text
+
+    question_budget = max(1, settings.chat_context_max_chars // 2)
+    prompt_question = _truncate_context_text(latest_text, question_budget)
+    history_messages = bounded_chat_messages(
+        messages,
+        max_turns=settings.chat_context_max_turns,
+        max_chars=max(1, settings.chat_context_max_chars - len(prompt_question)),
+    )
     if not history_messages:
         return latest_text
 
@@ -77,7 +116,7 @@ def condense_followup_question(
     try:
         standalone = invoke_with_retry(
             chain,
-            {"history": history_text, "question": latest_text},
+            {"history": history_text, "question": prompt_question},
             max_retries=settings.dashscope_max_retries,
         )
         return (standalone or "").strip() or latest_text

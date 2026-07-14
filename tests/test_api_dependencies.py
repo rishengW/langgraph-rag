@@ -284,9 +284,10 @@ def test_chat_web_search_ignores_request_toggle_and_refreshes_turns(
         ["https://fresh.test"],
     ]
     assert [item[1] for item in built] == [True, True]
+    assert all(item[0].web_search_enabled is False for item in built)
 
 
-def test_chat_web_search_lightweight_start_and_refresh(
+def test_chat_web_search_lightweight_is_graph_owned_and_built_once(
     monkeypatch,
     isolated_settings,
 ):
@@ -302,23 +303,29 @@ def test_chat_web_search_lightweight_start_and_refresh(
     class FakeGraph:
         def __init__(self, source_urls):
             self.source_urls = list(source_urls)
+            self.current_urls = list(source_urls)
             self.messages = []
 
         def get_state(self, config):
-            return SimpleNamespace(values={"messages": list(self.messages)})
+            return SimpleNamespace(
+                values={
+                    "messages": list(self.messages),
+                    "source_urls": list(self.current_urls),
+                }
+            )
 
         def invoke(self, inputs, config):
             self.messages.extend(inputs["messages"])
-            self.messages.append(AIMessage(content=f"answer from {self.source_urls[-1]}"))
-            return {"messages": list(self.messages)}
+            self.current_urls = ["https://fresh-light.test"]
+            self.messages.append(AIMessage(content="answer from https://fresh-light.test"))
+            return {
+                "messages": list(self.messages),
+                "source_urls": list(self.current_urls),
+            }
 
     def fake_discover_urls_from_web(question, search_settings):
         searches.append((question, list(search_settings.source_urls)))
-        if question == "seed question":
-            return ["https://seed-light.test"]
-        if question == "fresh question":
-            return ["https://fresh-light.test"]
-        return []
+        raise AssertionError("lightweight chat search must be owned by the graph")
 
     def fake_build_chat_graph(*args, **kwargs):
         heavy_built.append((args, kwargs))
@@ -344,7 +351,7 @@ def test_chat_web_search_lightweight_start_and_refresh(
         thread_id = start_body["thread_id"]
 
         assert start_body["source_mode"] == "web_search"
-        assert start_body["source_urls"] == ["https://seed-light.test"]
+        assert start_body["source_urls"] == []
 
         message = client.post(
             f"/chat/{thread_id}/message",
@@ -353,11 +360,13 @@ def test_chat_web_search_lightweight_start_and_refresh(
         assert message.status_code == 200
         assert message.json()["answer"] == "answer from https://fresh-light.test"
 
-    assert [call[0] for call in searches] == ["seed question", "fresh question"]
-    assert searches[1][1] == ["https://chat-default.test"]
+        history = client.get(f"/chat/{thread_id}/history")
+        assert history.status_code == 200
+        assert history.json()["source_urls"] == ["https://fresh-light.test"]
+
+    assert searches == []
     assert heavy_built == []
     assert [list(item[0].source_urls) for item in lightweight_built] == [
-        ["https://seed-light.test"],
-        ["https://fresh-light.test"],
+        [],
     ]
-    assert [item[1] for item in lightweight_built] == ["chat", "chat"]
+    assert [item[1] for item in lightweight_built] == ["chat"]

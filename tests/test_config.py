@@ -37,8 +37,17 @@ def test_web_search_and_page_load_defaults_align_with_yaml():
     defaults = load_yaml_config("config/default.yaml")
     settings = Settings(dashscope_api_key="test-key")
 
+    assert settings.chat_context_max_turns == 8
+    assert defaults["chat_context_max_turns"] == settings.chat_context_max_turns
+    assert settings.chat_context_max_chars == 12000
+    assert defaults["chat_context_max_chars"] == settings.chat_context_max_chars
     assert settings.web_search_top_k == 6
     assert defaults["web_search_top_k"] == settings.web_search_top_k
+    assert settings.web_search_llm_query_rewrite_enabled is False
+    assert (
+        defaults["web_search_llm_query_rewrite_enabled"]
+        == settings.web_search_llm_query_rewrite_enabled
+    )
     assert settings.web_search_min_url_score == 45
     assert defaults["web_search_min_url_score"] == settings.web_search_min_url_score
     assert settings.web_search_lightweight is True
@@ -201,6 +210,17 @@ def test_load_settings_accepts_page_load_max_concurrency_env(tmp_path, monkeypat
     assert settings.web_search_min_url_score == 0
 
 
+def test_load_settings_accepts_and_clamps_chat_context_bounds(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("CHAT_CONTEXT_MAX_TURNS", "0")
+    monkeypatch.setenv("CHAT_CONTEXT_MAX_CHARS", "-50")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.chat_context_max_turns == 1
+    assert settings.chat_context_max_chars == 1
+
+
 def test_load_settings_accepts_lightweight_web_search_env(tmp_path, monkeypatch):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
     monkeypatch.setenv("WEB_SEARCH_LIGHTWEIGHT", "false")
@@ -208,6 +228,15 @@ def test_load_settings_accepts_lightweight_web_search_env(tmp_path, monkeypatch)
     settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
 
     assert settings.web_search_lightweight is False
+
+
+def test_load_settings_accepts_llm_query_rewrite_opt_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED", "true")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.web_search_llm_query_rewrite_enabled is True
 
 
 def test_load_settings_accepts_web_search_js_policy_env(tmp_path, monkeypatch):

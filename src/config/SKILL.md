@@ -95,7 +95,8 @@ Examples:
 | Embeddings | `embedding_model`, `embedding_dimension`, `embedding_batch_size` |
 | Vector store | `chroma_dir`, `collection_name`, `chunk_size`, `chunk_overlap` |
 | Sources | `source_urls` |
-| Web search | `web_search_enabled`, `web_search_provider`, `web_search_max_results`, `web_search_top_k`, `web_search_min_url_score`, `web_search_region`, `web_search_timelimit`, `web_search_verify_ssl`, `web_search_lightweight`, `web_search_max_page_tokens`, `web_search_min_page_chars`, `web_search_min_page_tokens`, `web_search_js_*` |
+| Web search | `web_search_enabled`, `web_search_llm_query_rewrite_enabled`, `web_search_provider`, `web_search_max_results`, `web_search_top_k`, `web_search_min_url_score`, `web_search_region`, `web_search_timelimit`, `web_search_verify_ssl`, `web_search_lightweight`, `web_search_max_page_tokens`, `web_search_min_page_chars`, `web_search_min_page_tokens`, `web_search_js_*` |
+| Chat context | `chat_context_max_turns`, `chat_context_max_chars` |
 | Page load | `page_load_timeout`, `page_load_max_concurrency`, `page_load_cache_ttl_seconds` |
 | Document quality | `document_quality_filter_enabled`, `document_quality_min_text_length`, `document_quality_min_unique_terms`, `document_quality_relevance_query`, `document_quality_query_min_overlap`, `document_quality_min_similarity`, `document_quality_recency_bias_days`, `rerank_strategy` |
 | Optional tools | `weather_enabled`, `stock_enabled`, `currency_enabled`, `wikipedia_enabled`, `wikipedia_max_summary_chars`, `wikipedia_user_agent` |

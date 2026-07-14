@@ -1,8 +1,27 @@
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from dataclasses import asdict, dataclass
+from typing import Any, Protocol, runtime_checkable
 
 from .common import SearchResult
+
+
+@dataclass(frozen=True)
+class RankedSearchResult:
+    """A usable provider result with ranking signals preserved end to end."""
+
+    url: str
+    title: str = ""
+    snippet: str = ""
+    provider: str = ""
+    provider_rank: int = 0
+    relevance_score: int = 0
+    quality_score: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a LangChain-artifact-safe representation."""
+
+        return asdict(self)
 
 
 @runtime_checkable
@@ -21,3 +40,6 @@ class WebSearchProvider(Protocol):
     def search_results(self, query: str, max_results: int = 20) -> list[SearchResult]:
         """Return candidate results with title/snippet text for relevance ranking."""
         ...
+
+
+__all__ = ["RankedSearchResult", "WebSearchProvider"]

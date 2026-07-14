@@ -136,13 +136,16 @@ def rewrite_search_query_llm(
 
 
 def build_search_query(question: str, settings: Settings) -> str:
-    """Produce the best available search query using LLM rewrite + mechanical fallback.
+    """Produce a search query using deterministic cleanup by default.
 
-    Tries an LLM-based rewrite first (DeepSeek V4 Flash), then applies
-    mechanical preprocessing as a safety net on the result.
+    LLM rewriting is retained as an explicit compatibility option. Keeping it
+    disabled avoids an additional model call when the graph has already
+    formulated a search query.
     """
 
-    llm_rewritten = rewrite_search_query_llm(question, settings)
+    llm_rewritten = None
+    if settings.web_search_llm_query_rewrite_enabled:
+        llm_rewritten = rewrite_search_query_llm(question, settings)
     base = llm_rewritten if llm_rewritten else question
     return prepare_search_query(base)
 

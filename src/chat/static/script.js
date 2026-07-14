@@ -394,6 +394,12 @@ async function sendMessage(text) {
 
     try {
         await streamMessage(trimmed, thinking);
+        try {
+            const history = await apiGet(`/chat/${threadId}/history`);
+            renderSessionInfo(history.source_urls, history.source_mode);
+        } catch (_) {
+            // The answer is already complete; stale source metadata is non-fatal.
+        }
     } catch (err) {
         thinking.remove();
         showError(err.message);

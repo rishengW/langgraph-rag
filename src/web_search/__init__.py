@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .api_providers import BingApiWebSearch, BraveWebSearch, SerperWebSearch, TavilyWebSearch
 from .baidu import BaiduVerificationError, BaiduWebSearch
 from .bing import BingVerificationError, BingWebSearch
 
@@ -14,7 +15,12 @@ from .discovery import (
     settings_for_discovered_urls,
 )
 from .duckduckgo import DuckDuckGoWebSearch
-from .factory import get_search_provider, normalize_provider_name
+from .factory import (
+    configured_api_provider_names,
+    get_search_provider,
+    is_search_provider_configured,
+    normalize_provider_name,
+)
 from .fetch_policy import FetchPolicy, resolve_fetch_policy
 
 # REFACTOR: Export direct-answer prompt assembly for discovered pages.
@@ -30,10 +36,14 @@ __all__ = [
     "BaiduVerificationError",
     "BingVerificationError",
     "BingWebSearch",
+    "BingApiWebSearch",
+    "BraveWebSearch",
     "DuckDuckGoWebSearch",
     "FetchedPage",
     "FetchPolicy",
     "SearchResult",
+    "SerperWebSearch",
+    "TavilyWebSearch",
     "RankedSearchResult",
     "WebSearchProvider",
     "WebSearchInput",
@@ -44,6 +54,8 @@ __all__ = [
     "fetch_pages",
     "format_web_search_results",
     "get_search_provider",
+    "configured_api_provider_names",
+    "is_search_provider_configured",
     "is_readable_text",
     "normalize_provider_name",
     "build_search_query",

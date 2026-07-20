@@ -23,6 +23,7 @@ from .metrics import MetricsCollector
 # answer stream. ``agent`` is included because in the lightweight chat graph
 # the agent can answer directly without a tool call.
 ANSWER_NODES = frozenset({"generate", "web_answer", "agent"})
+TERMINAL_UPDATE_NODES = frozenset({"fallback_answer"})
 
 
 class RunnableGraph(Protocol):
@@ -134,6 +135,8 @@ class GraphExecutor:
                     continue
                 final_output = chunk
                 yield from self._events_from_chunk(chunk)
+                if TERMINAL_UPDATE_NODES.intersection(chunk):
+                    break
         except Exception as exc:
             yield from self._emit(ErrorEvent(message=str(exc), recoverable=False))
 
@@ -225,10 +228,7 @@ def _is_streaming_chunk(message: Any) -> bool:
 
     if message is None:
         return False
-    for klass in type(message).__mro__:
-        if klass.__name__.endswith("Chunk"):
-            return True
-    return False
+    return any(klass.__name__.endswith("Chunk") for klass in type(message).__mro__)
 
 
 def _as_output_dict(node_output: Any) -> dict[str, Any] | None:

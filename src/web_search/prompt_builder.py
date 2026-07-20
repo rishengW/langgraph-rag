@@ -13,6 +13,7 @@ def build_web_search_prompt(
     *,
     max_total_tokens: int = 100000,
     today: date | None = None,
+    grounding_note: str = "",
 ) -> str:
     """Assemble a direct-answer prompt from fetched web pages.
 
@@ -53,6 +54,8 @@ def build_web_search_prompt(
         "after semantic matching, say so plainly rather than guessing from "
         "prior knowledge.\n\n"
     )
+    if grounding_note.strip():
+        instructions += f"EVIDENCE CONSTRAINT — {grounding_note.strip()}\n\n"
     question_block = f"Question: {question.strip()}\n\nSources:"
     header = f"{instructions}{question_block}"
     footer = "\n\nAnswer:"
@@ -82,7 +85,11 @@ def _source_section(page: FetchedPage, remaining_tokens: int) -> str:
         return ""
 
     title_suffix = f" (Title: {page.title})" if page.title else ""
-    prefix = f"--- Source: {page.url}{title_suffix} ---\n"
+    publication_date = getattr(page, "publication_date", None)
+    date_suffix = (
+        f" (Published: {publication_date.isoformat()})" if publication_date is not None else ""
+    )
+    prefix = f"--- Source: {page.url}{title_suffix}{date_suffix} ---\n"
     suffix = "\n--- End Source ---"
     content_budget = remaining_tokens - estimate_tokens(prefix) - estimate_tokens(suffix)
     if content_budget <= 0:

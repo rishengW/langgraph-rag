@@ -35,11 +35,9 @@ WEB_SEARCH_TOOL_NAME = "live_web_search"
 # REFACTOR: After ``web_answer`` runs, decide whether to terminate the
 # lightweight graph (the fetched pages grounded a real answer), retry via
 # conditional expansion (one-shot decompose -> N x k search -> merge ->
-# ``web_answer``), or run one tool-free training-data fallback when no
-# readable page content was found after expansion. The fallback has a fixed
-# edge to END, so it cannot issue another search or start a loop.
+# ``web_answer``). After that bounded retry, zero grounded sources terminate
+# with the web-answer refusal instead of falling back to model knowledge.
 WEB_ANSWER_EDGE_MAP: dict[Hashable, str] = {
-    "fallback_answer": "fallback_answer",
     "expand": "expand",
     END: END,
 }
@@ -96,7 +94,7 @@ def route_after_lightweight_tool(state: Any) -> str:
 
 
 def route_after_web_answer(state: Any) -> str:
-    """Route after ``web_answer``: expansion, tool-free fallback, then end.
+    """Route after ``web_answer``: one expansion retry, then end.
 
     Three outcomes drive the post-``web_answer`` conditional edge:
 
@@ -107,18 +105,14 @@ def route_after_web_answer(state: Any) -> str:
       go through ``expand -> search_queries -> merge -> web_answer`` to
       retry the grounded answer with N x k rewritten queries.
     - ``web_answer`` produced no readable content AND
-      ``expansion_attempted`` is True -> ``"fallback_answer"`` while within
-      the defensive attempt ceiling. That node uses an unbound model and has
-      a fixed edge to ``END``.
+      ``expansion_attempted`` is True -> ``END``. Web-search mode must never
+      replace missing evidence with an answer from model training data.
     """
 
     if not _state_bool(state, "web_answer_no_readable_content"):
         return END
     if not _state_bool(state, "expansion_attempted"):
         return "expand"
-    attempts = _state_int(state, "web_answer_attempts")
-    if attempts <= WEB_ANSWER_FALLBACK_MAX_ATTEMPTS:
-        return "fallback_answer"
     return END
 
 
@@ -169,9 +163,7 @@ def _last_ai_tool_call_names(messages: list[Any]) -> list[str]:
         if not calls:
             continue
         return [
-            str(call.get("name"))
-            for call in calls
-            if isinstance(call, dict) and call.get("name")
+            str(call.get("name")) for call in calls if isinstance(call, dict) and call.get("name")
         ]
     return []
 

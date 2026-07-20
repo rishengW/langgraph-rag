@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from time import monotonic
 from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from urllib.request import urlopen
@@ -44,11 +45,12 @@ def load_ddgs() -> Any:
 
 @dataclass(frozen=True)
 class DuckDuckGoWebSearch:
-    """DuckDuckGo search provider using ddgs with an HTML fallback."""
+    """Bounded DuckDuckGo HTML provider with optional direct DDGS helpers."""
 
     region: str = "wt-wt"
     timelimit: str | None = None
     verify_ssl: bool = True
+    timeout: float = 8.0
 
     @property
     def provider_name(self) -> str:
@@ -58,26 +60,11 @@ class DuckDuckGoWebSearch:
         return [result.url for result in self.search_results(query, max_results)]
 
     def search_results(self, query: str, max_results: int = 20) -> list[SearchResult]:
-        ddgs_error: Exception | None = None
-        try:
-            results = _dedupe_results(self.search_ddgs_results(query, max_results))
-        except Exception as exc:
-            ddgs_error = exc
-            logger.warning("DDGS search failed; trying DuckDuckGo HTML fallback: %s", exc)
-            results = []
-
-        if results:
-            return results[:max_results]
-
-        try:
-            return _dedupe_results(self.search_html_results(query, max_results))[:max_results]
-        except Exception as exc:
-            if ddgs_error:
-                raise RuntimeError(
-                    f"DDGS search failed ({ddgs_error}); "
-                    f"DuckDuckGo HTML fallback also failed ({exc})"
-                ) from exc
-            raise
+        # The installed ``ddgs`` package may fan one query out to many search
+        # engines and continue working after the chat deadline. Keep it as an
+        # explicit compatibility helper, but use DuckDuckGo's own bounded HTML
+        # endpoint for normal provider fallback.
+        return _dedupe_results(self.search_html_results(query, max_results))[:max_results]
 
     def search_ddgs(self, query: str, max_results: int) -> list[str]:
         return [result.url for result in self.search_ddgs_results(query, max_results)]
@@ -93,10 +80,13 @@ class DuckDuckGoWebSearch:
             search_kwargs["timelimit"] = self.timelimit
 
         try:
-            client = DDGS(verify=self.verify_ssl)
+            client = DDGS(verify=self.verify_ssl, timeout=self.timeout)
         except TypeError:
             # Older client versions do not expose the SSL verification argument.
-            client = DDGS()
+            try:
+                client = DDGS(timeout=self.timeout)
+            except TypeError:
+                client = DDGS()
 
         with client as ddgs:
             results = list(ddgs.text(query, **search_kwargs))
@@ -124,6 +114,14 @@ class DuckDuckGoWebSearch:
         return [result.url for result in self.search_html_results(query, max_results)]
 
     def search_html_results(self, query: str, max_results: int) -> list[SearchResult]:
+        # urllib/DNS timeouts can overshoot on Windows. Use a conservative
+        # fraction of the provider budget so this final fallback still returns
+        # before discovery's outer deadline.
+        network_budget = max(
+            0.1,
+            min(float(self.timeout) * 0.4, float(self.timeout) - 1.0),
+        )
+        deadline_at = monotonic() + network_budget
         params = {
             "q": query,
             "kl": self.region,
@@ -133,14 +131,14 @@ class DuckDuckGoWebSearch:
 
         html = ""
         last_error: Exception | None = None
-        for base_url in (
-            "https://html.duckduckgo.com/html/",
-            "https://duckduckgo.com/html/",
-        ):
+        for base_url in ("https://html.duckduckgo.com/html/",):
+            remaining = deadline_at - monotonic()
+            if remaining <= 0:
+                break
             try:
                 with urlopen(
                     search_request(f"{base_url}?{urlencode(params)}"),
-                    timeout=30,
+                    timeout=max(0.1, min(self.timeout, remaining)),
                     context=urlopen_context(self.verify_ssl),
                 ) as response:
                     html = response.read().decode("utf-8", errors="replace")

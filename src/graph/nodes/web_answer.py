@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from collections.abc import Callable, Sequence
+from difflib import SequenceMatcher
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -22,6 +24,7 @@ QuestionResolver = Callable[[dict[str, Any]], str]
 # Chinese prose (e.g. "https://deepseek.net/zh）虽为官方渠道") would greedily
 # swallow the surrounding sentence and produce an unreachable garbage URL.
 _URL_RE = re.compile(r"https?://[^\s<>()\[\]{}\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+")
+_YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 
 
 def web_answer_factory(
@@ -45,8 +48,9 @@ def web_answer_factory(
         # in src/graph/edges.py.
         attempts = int(state.get("web_answer_attempts", 0) or 0) + 1
 
+        from ...web_search.claim_consensus import assess_status_consensus
         from ...web_search.common import is_page_text_relevant
-        from ...web_search.content_fetcher import fetch_pages, is_readable_text
+        from ...web_search.content_fetcher import fetch_pages, is_readable_page
         from ...web_search.prompt_builder import build_web_search_prompt
 
         pages = fetch_pages(
@@ -57,6 +61,7 @@ def web_answer_factory(
             max_concurrent_loads=settings.page_load_max_concurrency,
             min_readable_chars=settings.web_search_min_page_chars,
             min_readable_tokens=settings.web_search_min_page_tokens,
+            relevance_query=question,
             js_fallback_enabled=settings.web_search_js_fallback_enabled,
             js_fallback_domains=settings.web_search_js_fallback_domains,
             js_force_domains=settings.web_search_js_force_domains,
@@ -70,13 +75,16 @@ def web_answer_factory(
         readable_pages = [
             page
             for page in pages
-            if is_readable_text(
+            if is_readable_page(
                 page.text or "",
+                url=page.url or "",
+                title=page.title or "",
+                query=question,
                 min_chars=settings.web_search_min_page_chars,
                 min_tokens=settings.web_search_min_page_tokens,
             )
         ]
-        relevant_pages = [
+        topical_pages = [
             page
             for page in readable_pages
             if is_page_text_relevant(
@@ -85,7 +93,29 @@ def web_answer_factory(
                 title=page.title or "",
             )
         ]
-        filtered_urls = [page.url for page in readable_pages if page not in relevant_pages]
+        date_ranked_pages, date_conflict_urls = _rank_pages_by_publication_date(
+            topical_pages,
+            question,
+        )
+        if date_conflict_urls:
+            logger.info(
+                "Filtered web sources with conflicting publication years: urls=%s",
+                ", ".join(date_conflict_urls),
+            )
+        relevant_pages, duplicate_urls = _dedupe_near_duplicate_pages(date_ranked_pages)
+        if duplicate_urls:
+            logger.info(
+                "Filtered near-duplicate web source content: urls=%s",
+                ", ".join(duplicate_urls),
+            )
+        missing_years = _missing_year_evidence(relevant_pages, question)
+        if missing_years:
+            logger.info(
+                "Filtered web sources without complete requested-year coverage: years=%s",
+                ", ".join(missing_years),
+            )
+            relevant_pages = []
+        filtered_urls = [page.url for page in readable_pages if page not in topical_pages]
         if filtered_urls:
             logger.info(
                 "Filtered readable but off-topic web source content: urls=%s",
@@ -118,16 +148,22 @@ def web_answer_factory(
                         )
                     )
                 ],
-                # REFACTOR: Signal the post-web-answer edge to route back to the
-                # agent for a single retry. The agent can then answer from its
-                # own knowledge (with a "I couldn't verify" caveat) instead of
-                # the user seeing the hard refusal. ``attempts`` is bumped here
-                # so the next web_answer run can stop the loop at 2.
+                # Signal the post-web-answer edge to run one expanded search
+                # pass. A second failure terminates with this grounded refusal;
+                # web-search mode never substitutes model training knowledge.
                 "web_answer_no_readable_content": True,
                 "web_answer_attempts": attempts,
             }
 
-        prompt = build_web_search_prompt(question, relevant_pages)
+        status_consensus = assess_status_consensus(relevant_pages, question)
+        if status_consensus.prompt_instruction:
+            prompt = build_web_search_prompt(
+                question,
+                relevant_pages,
+                grounding_note=status_consensus.prompt_instruction,
+            )
+        else:
+            prompt = build_web_search_prompt(question, relevant_pages)
 
         try:
             result = invoke_with_retry(
@@ -211,6 +247,90 @@ def _clean_urls(values: Sequence[Any]) -> list[str]:
         seen.add(url)
         urls.append(url)
     return urls
+
+
+def _dedupe_near_duplicate_pages(
+    pages: Sequence[Any],
+    *,
+    similarity_threshold: float = 0.88,
+) -> tuple[list[Any], list[str]]:
+    """Preserve ranked pages while removing syndicated copies of the same text."""
+
+    kept: list[Any] = []
+    kept_fingerprints: list[str] = []
+    duplicate_urls: list[str] = []
+    for page in pages:
+        fingerprint = _page_fingerprint(page)
+        is_duplicate = bool(fingerprint) and any(
+            SequenceMatcher(None, fingerprint, existing, autojunk=False).ratio()
+            >= similarity_threshold
+            for existing in kept_fingerprints
+        )
+        if is_duplicate:
+            url = str(getattr(page, "url", "") or "").strip()
+            if url:
+                duplicate_urls.append(url)
+            continue
+        kept.append(page)
+        kept_fingerprints.append(fingerprint)
+    return kept, duplicate_urls
+
+
+def _rank_pages_by_publication_date(
+    pages: Sequence[Any],
+    question: str,
+) -> tuple[list[Any], list[str]]:
+    """Apply explicit-year compatibility and stable freshness ordering."""
+
+    from ...web_search.recency import assess_publication_date
+
+    ranked: list[tuple[int, int, Any]] = []
+    conflict_urls: list[str] = []
+    for position, page in enumerate(pages):
+        assessment = assess_publication_date(
+            getattr(page, "publication_date", None),
+            question,
+        )
+        if assessment.conflicts_with_required_year:
+            url = str(getattr(page, "url", "") or "").strip()
+            if url:
+                conflict_urls.append(url)
+            continue
+        ranked.append((assessment.score, position, page))
+
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    return [page for _score, _position, page in ranked], conflict_urls
+
+
+def _page_fingerprint(page: Any) -> str:
+    title = str(getattr(page, "title", "") or "")
+    text = str(getattr(page, "text", "") or "")[:4000]
+    normalized = unicodedata.normalize("NFKC", f"{title} {text}").casefold()
+    return " ".join(normalized.split())
+
+
+def _missing_year_evidence(pages: Sequence[Any], question: str) -> list[str]:
+    """Return requested years that no admitted page can answer independently."""
+
+    years = list(dict.fromkeys(_YEAR_RE.findall(question)))
+    if len(years) < 2:
+        return []
+
+    from ...web_search.common import is_page_text_relevant
+
+    without_years = _YEAR_RE.sub(" ", question)
+    return [
+        year
+        for year in years
+        if not any(
+            is_page_text_relevant(
+                str(getattr(page, "text", "") or ""),
+                f"{' '.join(without_years.split())} {year}".strip(),
+                title=str(getattr(page, "title", "") or ""),
+            )
+            for page in pages
+        )
+    ]
 
 
 __all__ = ["web_answer_factory"]

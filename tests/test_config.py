@@ -43,6 +43,19 @@ def test_web_search_and_page_load_defaults_align_with_yaml():
     assert defaults["chat_context_max_chars"] == settings.chat_context_max_chars
     assert settings.web_search_top_k == 6
     assert defaults["web_search_top_k"] == settings.web_search_top_k
+    assert settings.web_search_providers == []
+    assert defaults["web_search_providers"] == settings.web_search_providers
+    assert settings.web_search_provider_fanout == 2
+    assert defaults["web_search_provider_fanout"] == settings.web_search_provider_fanout
+    assert settings.web_search_provider_timeout_seconds == 8
+    assert (
+        defaults["web_search_provider_timeout_seconds"]
+        == settings.web_search_provider_timeout_seconds
+    )
+    assert settings.web_search_api_timeout_seconds == 20
+    assert defaults["web_search_api_timeout_seconds"] == settings.web_search_api_timeout_seconds
+    assert settings.web_search_deadline_seconds == 30
+    assert defaults["web_search_deadline_seconds"] == settings.web_search_deadline_seconds
     assert settings.web_search_llm_query_rewrite_enabled is False
     assert (
         defaults["web_search_llm_query_rewrite_enabled"]
@@ -73,10 +86,7 @@ def test_web_search_and_page_load_defaults_align_with_yaml():
     assert settings.wikipedia_enabled is False
     assert defaults["wikipedia_enabled"] == settings.wikipedia_enabled
     assert settings.wikipedia_max_summary_chars == 1500
-    assert (
-        defaults["wikipedia_max_summary_chars"]
-        == settings.wikipedia_max_summary_chars
-    )
+    assert defaults["wikipedia_max_summary_chars"] == settings.wikipedia_max_summary_chars
     assert defaults["wikipedia_user_agent"] == settings.wikipedia_user_agent
     assert settings.page_load_max_concurrency == 4
     assert defaults["page_load_max_concurrency"] == settings.page_load_max_concurrency
@@ -98,10 +108,7 @@ def test_web_search_and_page_load_defaults_align_with_yaml():
         == settings.document_quality_query_min_overlap
     )
     assert settings.document_quality_min_similarity == 0.5
-    assert (
-        defaults["document_quality_min_similarity"]
-        == settings.document_quality_min_similarity
-    )
+    assert defaults["document_quality_min_similarity"] == settings.document_quality_min_similarity
     assert settings.document_quality_recency_bias_days == 365
     assert (
         defaults["document_quality_recency_bias_days"]
@@ -199,6 +206,8 @@ def test_load_settings_accepts_page_load_max_concurrency_env(tmp_path, monkeypat
     monkeypatch.setenv("WEB_SEARCH_MIN_PAGE_CHARS", "-50")
     monkeypatch.setenv("WEB_SEARCH_MIN_PAGE_TOKENS", "-1")
     monkeypatch.setenv("WEB_SEARCH_MIN_URL_SCORE", "-10")
+    monkeypatch.setenv("WEB_SEARCH_PROVIDER_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("WEB_SEARCH_DEADLINE_SECONDS", "-10")
 
     settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
 
@@ -208,6 +217,8 @@ def test_load_settings_accepts_page_load_max_concurrency_env(tmp_path, monkeypat
     assert settings.web_search_min_page_chars == 0
     assert settings.web_search_min_page_tokens == 0
     assert settings.web_search_min_url_score == 0
+    assert settings.web_search_provider_timeout_seconds == 1
+    assert settings.web_search_deadline_seconds == 1
 
 
 def test_load_settings_accepts_and_clamps_chat_context_bounds(tmp_path, monkeypatch):

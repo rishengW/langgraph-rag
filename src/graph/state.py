@@ -42,9 +42,9 @@ class RAGState(TypedDict, total=False):
     web_search_result_metadata: list[list[WebSearchResultMetadata]]
     # REFACTOR: Lightweight web-search fallback. When ``web_answer`` produces
     # no readable page text, ``web_answer_no_readable_content`` is set to True
-    # so the post-``web_answer`` edge can route back to the agent for one
-    # retry, and ``web_answer_attempts`` bounds that loop to a single retry
-    # (the second failure terminates the graph with the grounded refusal).
+    # so the post-``web_answer`` edge can run one expanded search pass, and
+    # ``web_answer_attempts`` bounds that loop. The second failure terminates
+    # the graph with the grounded refusal.
     web_answer_attempts: int
     web_answer_no_readable_content: bool
     # REFACTOR: Conditional-expansion one-shot switch. When the first
@@ -61,4 +61,3 @@ AgentState = RAGState
 ChatState = RAGState
 
 __all__ = ["AgentState", "ChatState", "RAGState", "WebSearchResultMetadata"]
-

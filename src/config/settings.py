@@ -55,7 +55,19 @@ class Settings:
     web_search_enabled: bool = True
     web_search_llm_query_rewrite_enabled: bool = False
     web_search_provider: str = "bing"
+    # Optional priority list. Configured key-backed providers are
+    # automatically placed first for Mandarin queries even when this is empty.
+    web_search_providers: list[str] = field(default_factory=list)
+    web_search_provider_fanout: int = 2
     web_search_max_results: int = 20
+    web_search_provider_timeout_seconds: int = 8
+    web_search_api_timeout_seconds: int = 20
+    web_search_deadline_seconds: int = 30
+    serper_api_key: str = ""
+    brave_search_api_key: str = ""
+    tavily_api_key: str = ""
+    bing_search_api_key: str = ""
+    bing_search_endpoint: str = "https://api.bing.microsoft.com/v7.0/search"
     # REFACTOR: Use one canonical web-search fetch default and expose URL load concurrency.
     web_search_top_k: int = 6
     web_search_min_url_score: int = 45
@@ -87,9 +99,7 @@ class Settings:
     file_read_root: str = "."
     file_read_max_bytes: int = 5_000_000
     wikipedia_max_summary_chars: int = 1500
-    wikipedia_user_agent: str = (
-        "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
-    )
+    wikipedia_user_agent: str = "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
     page_load_timeout: int = 15
     page_load_max_concurrency: int = 4
     page_load_cache_ttl_seconds: int = 0

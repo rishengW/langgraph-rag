@@ -8,6 +8,8 @@ from typing import Any
 
 from langchain_core.messages import ToolMessage
 
+from ...web_search.query_constraints import validate_query_candidate
+from ...web_search.query_prep import plan_search_queries
 from ..edges import WEB_SEARCH_TOOL_NAME
 
 logger = logging.getLogger(__name__)
@@ -115,35 +117,85 @@ def _find_search_tool(tools: Sequence[Any]) -> Any:
 
 
 def _resolve_queries(state: dict[str, Any], limit: int) -> list[str]:
+    original_question = _state_original_question(state)
     keys = (
         ("expanded_queries", "search_queries", "sub_questions")
         if state.get("expansion_attempted")
         else ("search_queries", "sub_questions", "expanded_queries")
     )
     for key in keys:
-        queries = _clean_queries(state.get(key), limit)
+        queries = _clean_queries(
+            state.get(key),
+            limit,
+            original_question=original_question,
+        )
         if queries:
             return queries
 
     tool_call = _current_search_tool_call(state)
     args = (tool_call or {}).get("args")
     query = args.get("query") if isinstance(args, dict) else None
-    return _clean_queries([query], limit)
+    return _clean_queries([query], limit, original_question=original_question)
 
 
-def _clean_queries(values: Any, limit: int) -> list[str]:
+def _clean_queries(
+    values: Any,
+    limit: int,
+    *,
+    original_question: str = "",
+) -> list[str]:
     if not isinstance(values, list):
         return []
     queries: list[str] = []
+    if original_question:
+        _append_planned_queries(queries, original_question, limit)
     for value in values:
         if not isinstance(value, str):
             continue
-        query = value.strip()
+        candidate = value.strip()
+        if not candidate:
+            continue
+        if (
+            original_question
+            and candidate != original_question
+            and not validate_query_candidate(
+                original_question,
+                candidate,
+                allow_partial=True,
+            )
+        ):
+            logger.info(
+                "Discarded search query that changed language or constraints: %r", candidate
+            )
+            continue
+        _append_planned_queries(queries, candidate, limit)
+        if len(queries) >= limit:
+            return queries
+    return queries
+
+
+def _append_planned_queries(queries: list[str], raw_query: str, limit: int) -> None:
+    for planned_query in plan_search_queries(raw_query):
+        query = planned_query.strip()
         if query and query not in queries:
             queries.append(query)
         if len(queries) >= limit:
-            break
-    return queries
+            return
+
+
+def _state_original_question(state: dict[str, Any]) -> str:
+    current = str(state.get("current_question") or "").strip()
+    if current:
+        return current
+    messages = state.get("messages") or []
+    for message in reversed(list(messages)):
+        role = str(getattr(message, "type", "") or "").lower()
+        if role not in {"human", "user"}:
+            continue
+        content = getattr(message, "content", "")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    return ""
 
 
 def _current_search_tool_call(state: dict[str, Any]) -> dict[str, Any] | None:

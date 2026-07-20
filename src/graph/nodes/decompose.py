@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from ...config import Settings
 from ...utils.retry import invoke_with_retry
+from ...web_search.query_constraints import validate_query_candidate
 from .common import new_structured_chat_model, qa_question_resolver
 
 logger = logging.getLogger(__name__)
@@ -29,15 +30,24 @@ DECOMPOSE_MAX_SUBQUESTIONS = 3
 _COMPARISON_RE = re.compile(
     r"\b(?:compare|comparison|versus|vs\.?|difference|differences|differ)\b"
     r"|\bpros\s+and\s+cons\b"
-    r"|\badvantages\s+and\s+disadvantages\b",
+    r"|\badvantages\s+and\s+disadvantages\b"
+    r"|(?:比较|对比|相比|区别|差异|不同(?!意)|优缺点|利弊|哪个好|孰优孰劣)",
     re.IGNORECASE,
 )
-_INTERROGATIVE_RE = re.compile(r"\b(?:what|when|where|who|whom|whose|why|how|which)\b")
+_INTERROGATIVE_RE = re.compile(
+    r"\b(?:what|when|where|who|whom|whose|why|how|which)\b"
+    r"|(?:什么时候|什么|何时|哪里|哪儿|谁|为何|为什么|怎么|如何|"
+    r"哪(?:个|些|种)?|多少|几(?:个|条|次|年|岁)?)",
+    re.IGNORECASE,
+)
 _REQUEST_VERB_RE = re.compile(
-    r"\b(?:analyze|compare|describe|evaluate|explain|identify|list|summarize)\b",
+    r"\b(?:analyze|compare|describe|evaluate|explain|identify|list|summarize)\b"
+    r"|(?:分析|比较|对比|说明|描述|评估|解释|列出|总结|介绍|查询|查找)",
     re.IGNORECASE,
 )
-_CLAUSE_CONNECTOR_RE = re.compile(r"\b(?:also|and|then)\b|[?;]")
+_CLAUSE_CONNECTOR_RE = re.compile(
+    r"\b(?:also|and|then)\b|(?:以及|并且|而且|然后|同时|另外|还|并|和|与|及|分别)|[?？;；]"
+)
 
 
 class _DecomposeResult(BaseModel):
@@ -72,11 +82,14 @@ def decompose_factory(
     def decompose(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("DECOMPOSE QUESTION")
         try:
-            question = _search_tool_query(state) or question_resolver(state).strip()
+            resolved_question = question_resolver(state).strip()
         except Exception:  # noqa: BLE001 - defensive passthrough by design
-            question = ""
+            resolved_question = ""
+        preserved_question = str(state.get("current_question") or "").strip()
+        question = preserved_question or _search_tool_query(state) or resolved_question
         if not question:
             return {
+                "current_question": "",
                 "sub_questions": [],
                 "expanded_queries": [],
                 "search_queries": [],
@@ -85,6 +98,7 @@ def decompose_factory(
             }
         if not _is_likely_compound(question):
             return {
+                "current_question": question,
                 "sub_questions": [question],
                 "expanded_queries": [],
                 "search_queries": [question],
@@ -108,7 +122,11 @@ def decompose_factory(
             "together cover every distinct fact the original asks for. "
             "Each sub-question must stand alone (no pronouns like 'it' "
             "or 'they' referring to earlier parts).\n"
-            '- Return only one JSON object with this exact shape: '
+            "- Preserve the input language. Never translate a Chinese question "
+            "into English or an English question into Chinese.\n"
+            "- Preserve explicit years, quoted names, model identifiers, product "
+            "codes, and numbered lines exactly. Never invent a year.\n"
+            "- Return only one JSON object with this exact shape: "
             '{"sub_questions":["question 1","question 2"]}.\n'
         )
 
@@ -119,14 +137,16 @@ def decompose_factory(
                 [HumanMessage(content=prompt)],
                 max_retries=settings.dashscope_max_retries,
             )
-            sub_questions = _clamp_sub_questions(
-                getattr(result, "sub_questions", None), question
-            )
+            sub_questions = _clamp_sub_questions(getattr(result, "sub_questions", None), question)
         except Exception as exc:  # noqa: BLE001 - passthrough fallback by design
             logger.warning("Decompose LLM call failed; using atomic passthrough: %s", exc)
             sub_questions = [question]
 
         return {
+            # Preserve the contextualized live-search query across both
+            # web-answer attempts. Intermediate refusal messages are appended
+            # to chat history and must never become the grounding question.
+            "current_question": question,
             "sub_questions": sub_questions,
             "expanded_queries": [],
             "search_queries": list(sub_questions),
@@ -168,7 +188,11 @@ def _clamp_sub_questions(raw: Any, original: str) -> list[str]:
             if not isinstance(item, str):
                 continue
             value = item.strip()
-            if value and value not in cleaned:
+            if (
+                value
+                and value not in cleaned
+                and validate_query_candidate(original, value, allow_partial=True)
+            ):
                 cleaned.append(value)
             if len(cleaned) >= DECOMPOSE_MAX_SUBQUESTIONS:
                 break
@@ -185,7 +209,7 @@ def _is_likely_compound(question: str) -> bool:
         return False
     if _COMPARISON_RE.search(normalized):
         return True
-    if normalized.count("?") >= 2:
+    if normalized.count("?") + normalized.count("？") >= 2:
         return True
 
     interrogatives = list(_INTERROGATIVE_RE.finditer(normalized.lower()))

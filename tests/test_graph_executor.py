@@ -94,6 +94,31 @@ def test_graph_executor_streams_tokens_from_answer_nodes_only():
     assert events[-1].answer == "Hello"
 
 
+class FallbackTerminalGraph:
+    def invoke(self, inputs, config=None):
+        return {"messages": ["fallback"]}
+
+    def stream(self, inputs, config=None, *, stream_mode=None):
+        yield (
+            "updates",
+            {"fallback_answer": {"messages": [AIMessage(content="fallback")]}},
+        )
+        raise AssertionError("terminal fallback update must close the stream")
+
+
+def test_graph_executor_closes_token_stream_after_terminal_fallback_update():
+    events = list(
+        GraphExecutor(FallbackTerminalGraph()).stream(
+            {"question": "hi"},
+            stream_tokens=True,
+        )
+    )
+
+    assert not any(isinstance(event, ErrorEvent) for event in events)
+    assert isinstance(events[-1], DoneEvent)
+    assert events[-1].answer == "fallback"
+
+
 class SummaryGraph:
     def invoke(self, inputs, config=None):
         return {"inputs": inputs, "config": config}

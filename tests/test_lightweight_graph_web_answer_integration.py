@@ -14,7 +14,7 @@ from src.graph.builder import (
     build_memory_saver,
 )
 from src.graph.nodes import web_answer as web_answer_module
-from src.web_search.content_fetcher import is_readable_text
+from src.web_search.content_fetcher import is_readable_page, is_readable_text
 
 
 def _readable_text() -> str:
@@ -25,6 +25,7 @@ def _install_lightweight_web_modules(monkeypatch, fetch_pages, build_prompt) -> 
     content_fetcher = ModuleType("src.web_search.content_fetcher")
     content_fetcher.FetchedPage = SimpleNamespace
     content_fetcher.fetch_pages = fetch_pages
+    content_fetcher.is_readable_page = is_readable_page
     content_fetcher.is_readable_text = is_readable_text
 
     prompt_builder = ModuleType("src.web_search.prompt_builder")
@@ -79,6 +80,7 @@ def test_web_answer_fetches_state_urls_and_invokes_llm(monkeypatch, isolated_set
             "max_concurrent_loads": 4,
             "min_readable_chars": 200,
             "min_readable_tokens": 50,
+            "relevance_query": "What changed?",
             "js_fallback_enabled": False,
             "js_fallback_domains": [
                 "baike.baidu.com",
@@ -92,6 +94,162 @@ def test_web_answer_fetches_state_urls_and_invokes_llm(monkeypatch, isolated_set
     assert calls["prompt"] == ("What changed?", pages)
     assert calls["llm"][1][0].content == "assembled prompt"
     assert calls["llm"][2] == 1
+
+
+def test_web_answer_removes_near_duplicate_syndicated_pages(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(source_urls=[])
+    common_body = " ".join(["南京住房政策于2026年8月1日生效，申请条件和办理流程已经公布。"] * 20)
+    distinct_body = " ".join(
+        ["南京市政府公布配套问答，说明政策自2026年8月1日生效，并解释适用对象。"] * 20
+    )
+    pages = [
+        SimpleNamespace(
+            url="https://www.nanjing.gov.cn/policy/original",
+            title="南京住房政策生效日期",
+            text=common_body,
+        ),
+        SimpleNamespace(
+            url="https://news.example.test/syndicated-copy",
+            title="南京住房政策生效日期转载",
+            text=common_body,
+        ),
+        SimpleNamespace(
+            url="https://www.nanjing.gov.cn/policy/faq",
+            title="南京住房政策配套问答",
+            text=distinct_body,
+        ),
+    ]
+    captured: dict[str, object] = {}
+
+    def fake_fetch_pages(_urls, **_kwargs):
+        return pages
+
+    def fake_build_prompt(_question, resolved_pages):
+        captured["pages"] = resolved_pages
+        return "prompt"
+
+    _install_lightweight_web_modules(monkeypatch, fake_fetch_pages, fake_build_prompt)
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "model")
+    monkeypatch.setattr(
+        web_answer_module,
+        "invoke_with_retry",
+        lambda *_args, **_kwargs: AIMessage(content="grounded answer"),
+    )
+
+    result = web_answer_module.web_answer_factory(settings)(
+        {
+            "messages": [HumanMessage(content="南京住房政策什么时候生效？")],
+            "source_urls": [page.url for page in pages],
+        }
+    )
+
+    assert result["source_urls"] == [
+        "https://www.nanjing.gov.cn/policy/original",
+        "https://www.nanjing.gov.cn/policy/faq",
+    ]
+    assert [page.url for page in captured["pages"]] == result["source_urls"]
+
+
+def test_web_answer_requires_evidence_for_each_requested_year(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(source_urls=[])
+    pages = [
+        SimpleNamespace(
+            url="https://jtj.nanjing.gov.cn/2025-count",
+            title="2025年南京地铁运营线路总数",
+            text="截至2025年，南京地铁共有14条运营线路。" * 15,
+        ),
+        SimpleNamespace(
+            url="https://example.test/2026-progress",
+            title="2026年南京地铁建设进展",
+            text="2026年南京地铁新线建设按计划推进，相关工程进展顺利。" * 15,
+        ),
+    ]
+
+    def fake_build_prompt(_question, _pages):  # pragma: no cover - must not run
+        raise AssertionError("incomplete year coverage must not reach the prompt")
+
+    _install_lightweight_web_modules(
+        monkeypatch,
+        lambda _urls, **_kwargs: pages,
+        fake_build_prompt,
+    )
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "model")
+    monkeypatch.setattr(
+        web_answer_module,
+        "invoke_with_retry",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("incomplete year coverage must not reach the model")
+        ),
+    )
+
+    result = web_answer_module.web_answer_factory(settings)(
+        {
+            "messages": [HumanMessage(content="南京地铁线路数量 2025 2026 分别有几条线？")],
+            "source_urls": [page.url for page in pages],
+        }
+    )
+
+    assert result["source_urls"] == []
+    assert result["web_answer_no_readable_content"] is True
+
+
+def test_web_answer_passes_status_conflict_constraint_to_prompt(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(
+        source_urls=[],
+        web_search_min_page_chars=1,
+        web_search_min_page_tokens=1,
+    )
+    pages = [
+        SimpleNamespace(
+            url="https://news-a.example/status",
+            title="线路状态",
+            text="某线路已经正式开通运营。" * 20,
+        ),
+        SimpleNamespace(
+            url="https://news-b.test/status",
+            title="线路进展",
+            text="某线路尚未开通，预计年底投入运营。" * 20,
+        ),
+    ]
+    captured: dict[str, object] = {}
+
+    def fake_build_prompt(question, resolved_pages, *, grounding_note=""):
+        captured["prompt"] = (question, resolved_pages, grounding_note)
+        return "status conflict prompt"
+
+    _install_lightweight_web_modules(
+        monkeypatch,
+        lambda _urls, **_kwargs: pages,
+        fake_build_prompt,
+    )
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "model")
+    monkeypatch.setattr(
+        web_answer_module,
+        "invoke_with_retry",
+        lambda *_args, **_kwargs: AIMessage(content="The sources conflict."),
+    )
+
+    result = web_answer_module.web_answer_factory(settings)(
+        {
+            "messages": [HumanMessage(content="某线路现在开通了吗？")],
+            "source_urls": [page.url for page in pages],
+        }
+    )
+
+    question, resolved_pages, grounding_note = captured["prompt"]
+    assert question == "某线路现在开通了吗？"
+    assert resolved_pages == pages
+    assert "conflict" in grounding_note
+    assert result["source_urls"] == [page.url for page in pages]
 
 
 def test_web_answer_extracts_urls_from_web_search_tool_messages(
@@ -274,7 +432,7 @@ def test_web_answer_filters_readable_pages_by_chinese_query_relevance(
         SimpleNamespace(
             url="https://relevant.test/b",
             title="南京地铁线路",
-            text="目前共运营14条线路。",
+            text="截至2026年，目前共运营14条线路。",
         ),
     ]
     calls: dict[str, object] = {}
@@ -295,18 +453,64 @@ def test_web_answer_filters_readable_pages_by_chinese_query_relevance(
     )
 
     node = web_answer_module.web_answer_factory(settings)
-    result = node(
-        {"messages": [HumanMessage(content="南京地铁线路数量 2025 2026 几条线")]}
-    )
+    result = node({"messages": [HumanMessage(content="南京地铁线路数量 2026 几条线")]})
 
     assert calls["prompt"] == (
-        "南京地铁线路数量 2025 2026 几条线",
+        "南京地铁线路数量 2026 几条线",
         [pages[1]],
     )
     assert result["messages"][0].content == "14条线路"
 
-
     assert result["source_urls"] == ["https://relevant.test/b"]
+
+
+def test_web_answer_retry_uses_preserved_question_instead_of_latest_refusal(
+    monkeypatch,
+    isolated_settings,
+):
+    question = "DeepSeek V4 July 2026 release"
+    page = SimpleNamespace(
+        url="https://relevant.test/deepseek-v4",
+        title="DeepSeek V4 July 2026 release",
+        text="DeepSeek V4 official release details for July 2026. " * 20,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_fetch_pages(_urls, **_kwargs):
+        return [page]
+
+    def fake_build_prompt(resolved_question, resolved_pages):
+        captured["question"] = resolved_question
+        captured["pages"] = resolved_pages
+        return "grounded prompt"
+
+    _install_lightweight_web_modules(monkeypatch, fake_fetch_pages, fake_build_prompt)
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "model")
+    monkeypatch.setattr(
+        web_answer_module,
+        "invoke_with_retry",
+        lambda *_args, **_kwargs: AIMessage(content="grounded answer"),
+    )
+
+    result = web_answer_module.web_answer_factory(
+        isolated_settings(
+            source_urls=[page.url],
+            web_search_min_page_chars=1,
+            web_search_min_page_tokens=1,
+        ),
+        graph_nodes.chat_question_resolver,
+    )(
+        {
+            "current_question": question,
+            "messages": [
+                HumanMessage(content="What is the latest model?"),
+                AIMessage(content="I couldn't retrieve readable content."),
+            ],
+        }
+    )
+
+    assert captured == {"question": question, "pages": [page]}
+    assert result["messages"][-1].content == "grounded answer"
 
 
 @tool
@@ -381,9 +585,7 @@ def test_build_lightweight_graph_routes_non_web_search_tools_back_to_agent(
         if getattr(last, "type", "") == "tool":
             invocations.append("synthesize")
             return {
-                "messages": [
-                    AIMessage(content=f"final synthesized answer from {last.content}")
-                ]
+                "messages": [AIMessage(content=f"final synthesized answer from {last.content}")]
             }
         invocations.append("call_tool")
         return {
@@ -415,9 +617,7 @@ def test_build_lightweight_graph_routes_non_web_search_tools_back_to_agent(
         ),
     )
 
-    state = graph.invoke(
-        {"messages": [HumanMessage(content="What is the weather in Shanghai?")]}
-    )
+    state = graph.invoke({"messages": [HumanMessage(content="What is the weather in Shanghai?")]})
 
     assert invocations == ["call_tool", "synthesize"]
     final = state["messages"][-1].content
@@ -579,9 +779,7 @@ def test_web_answer_success_clears_fallback_state(monkeypatch, isolated_settings
     assert result["messages"][-1].content == "grounded answer"
 
 
-def test_web_answer_increments_attempts_from_existing_counter(
-    monkeypatch, isolated_settings
-):
+def test_web_answer_increments_attempts_from_existing_counter(monkeypatch, isolated_settings):
     # Regression guard: the attempt counter must be derived from the current
     # state, not always reset to 1, so a second invocation in the same
     # session reports the correct cumulative count.
@@ -590,9 +788,7 @@ def test_web_answer_increments_attempts_from_existing_counter(
     def fake_fetch_pages(urls, **_kwargs):
         return [SimpleNamespace(url=urls[0], title="T", text=_readable_text())]
 
-    _install_lightweight_web_modules(
-        monkeypatch, fake_fetch_pages, lambda *_: "prompt"
-    )
+    _install_lightweight_web_modules(monkeypatch, fake_fetch_pages, lambda *_: "prompt")
     monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "fake-model")
     monkeypatch.setattr(
         web_answer_module,
@@ -629,9 +825,9 @@ def test_route_after_web_answer_routes_to_expand_on_first_failure():
     assert route_after_web_answer(state) == "expand"
 
 
-def test_route_after_web_answer_routes_to_tool_free_fallback_after_expansion():
-    # The general agent still has live_web_search bound, so it must never be
-    # used for the final training-data fallback.
+def test_route_after_web_answer_terminates_after_expansion_without_grounding():
+    # A failed expanded search must preserve the grounded refusal instead of
+    # invoking a model-knowledge fallback.
     from src.graph.edges import route_after_web_answer
 
     state = {
@@ -639,7 +835,7 @@ def test_route_after_web_answer_routes_to_tool_free_fallback_after_expansion():
         "web_answer_attempts": 1,
         "expansion_attempted": True,
     }
-    assert route_after_web_answer(state) == "fallback_answer"
+    assert route_after_web_answer(state) == "__end__"
 
 
 def test_route_after_web_answer_terminates_above_attempt_ceiling():
@@ -671,13 +867,13 @@ def test_route_after_web_answer_terminates_on_success():
     assert route_after_web_answer(state) == "__end__"
 
 
-def test_build_lightweight_graph_uses_tool_free_fallback_when_no_readable_content(
+def test_build_lightweight_graph_keeps_grounded_refusal_when_no_readable_content(
     monkeypatch, isolated_settings
 ):
     # End-to-end regression guard for the failure mode that motivated the
-    # fallback: an over-eager web search returns pages that don't contain
-    # the answer to a stable historical question. The lightweight graph uses
-    # a separate no-tools node instead of re-entering the search-capable agent.
+    # failure: an over-eager web search returns pages that don't contain the
+    # answer. After one expanded search, the graph must keep the grounded
+    # refusal rather than answer from model training data.
     import src.web_search.content_fetcher as content_fetcher_module
     import src.web_search.prompt_builder as prompt_builder_module
     from src.web_search.tool import build_web_search_tool
@@ -698,9 +894,7 @@ def test_build_lightweight_graph_uses_tool_free_fallback_when_no_readable_conten
 
     tool = build_web_search_tool(settings, discovery=fake_discover)
     monkeypatch.setattr(content_fetcher_module, "fetch_pages", fake_fetch_pages)
-    monkeypatch.setattr(
-        prompt_builder_module, "build_web_search_prompt", fake_build_prompt
-    )
+    monkeypatch.setattr(prompt_builder_module, "build_web_search_prompt", fake_build_prompt)
     monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _s: "fake-model")
     monkeypatch.setattr(
         web_answer_module,
@@ -709,7 +903,7 @@ def test_build_lightweight_graph_uses_tool_free_fallback_when_no_readable_conten
     )
 
     seen: list[str] = []
-    call_count = {"agent": 0, "fallback": 0}
+    call_count = {"agent": 0}
 
     def agent(state):
         call_count["agent"] += 1
@@ -729,25 +923,10 @@ def test_build_lightweight_graph_uses_tool_free_fallback_when_no_readable_conten
             ]
         }
 
-    def fallback_answer(state):
-        call_count["fallback"] += 1
-        assert "couldn't retrieve readable content" in state["messages"][-1].content
-        return {
-            "messages": [
-                AIMessage(
-                    content=(
-                        "I couldn't verify against the live web, but the "
-                        "University of Melbourne was founded in 1853."
-                    )
-                )
-            ]
-        }
-
     # REFACTOR: Inject deterministic decompose/expand/merge nodes so the
     # test does not need a live LLM for the conditional-expansion path.
     # The expand node also sets ``expansion_attempted`` to True so the
-    # post-web-answer edge falls through to the agent fallback on the
-    # 2nd web_answer failure.
+    # second web-answer failure terminates with the refusal.
     def fake_decompose(state):
         return {"sub_questions": ["University of Melbourne founded"]}
 
@@ -766,7 +945,6 @@ def test_build_lightweight_graph_uses_tool_free_fallback_when_no_readable_conten
             tools=[tool],
             nodes=GraphNodeOverrides(
                 agent=agent,
-                fallback_answer=fallback_answer,
                 decompose=fake_decompose,
                 expand=fake_expand,
                 merge=fake_merge,
@@ -779,17 +957,17 @@ def test_build_lightweight_graph_uses_tool_free_fallback_when_no_readable_conten
     )
 
     assert seen == ["agent-run-1"]
-    assert call_count == {"agent": 1, "fallback": 1}
+    assert call_count == {"agent": 1}
     final = state["messages"][-1].content
-    assert "1853" in final
-    assert "couldn't retrieve readable content" not in final
+    assert "don't have grounded information" in final
+    assert "1853" not in final
 
 
-def test_build_lightweight_graph_fallback_cannot_start_a_third_search(
+def test_build_lightweight_graph_grounded_refusal_cannot_start_a_third_search(
     monkeypatch, isolated_settings
 ):
     # End-to-end regression guard: after two failed web-answer attempts, the
-    # fixed fallback edge must terminate without re-entering the agent.
+    # refusal must terminate without re-entering the agent.
     import src.web_search.content_fetcher as content_fetcher_module
     import src.web_search.prompt_builder as prompt_builder_module
     from src.web_search.tool import build_web_search_tool
@@ -807,9 +985,7 @@ def test_build_lightweight_graph_fallback_cannot_start_a_third_search(
 
     tool = build_web_search_tool(settings, discovery=fake_discover)
     monkeypatch.setattr(content_fetcher_module, "fetch_pages", fake_fetch_pages)
-    monkeypatch.setattr(
-        prompt_builder_module, "build_web_search_prompt", fake_build_prompt
-    )
+    monkeypatch.setattr(prompt_builder_module, "build_web_search_prompt", fake_build_prompt)
     monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _s: "fake-model")
     monkeypatch.setattr(
         web_answer_module,
@@ -817,7 +993,7 @@ def test_build_lightweight_graph_fallback_cannot_start_a_third_search(
         lambda *_a, **_k: AIMessage(content="must not run"),
     )
 
-    call_count = {"agent": 0, "web_answer": 0, "fallback": 0}
+    call_count = {"agent": 0, "web_answer": 0}
 
     def agent(state):
         call_count["agent"] += 1
@@ -854,21 +1030,10 @@ def test_build_lightweight_graph_fallback_cannot_start_a_third_search(
             "web_answer_attempts": call_count["web_answer"],
         }
 
-    def fallback_answer(state):
-        call_count["fallback"] += 1
-        return {
-            "messages": [
-                AIMessage(
-                    content="I couldn't verify this against readable live web sources."
-                )
-            ]
-        }
-
     # REFACTOR: Inject deterministic decompose/expand/merge nodes so the
     # test does not need a live LLM for the conditional-expansion path.
     # The expand node sets ``expansion_attempted`` to True so the
-    # post-web_answer edge falls through to the agent fallback on the
-    # 2nd web_answer failure (since attempts=2 < WEB_ANSWER_FALLBACK_MAX_ATTEMPTS=3).
+    # second web-answer failure terminates.
     def fake_decompose(state):
         return {"sub_questions": ["Q"]}
 
@@ -887,7 +1052,6 @@ def test_build_lightweight_graph_fallback_cannot_start_a_third_search(
             tools=[tool],
             nodes=GraphNodeOverrides(
                 agent=agent,
-                fallback_answer=fallback_answer,
                 web_answer=web_answer,
                 decompose=fake_decompose,
                 expand=fake_expand,
@@ -898,7 +1062,7 @@ def test_build_lightweight_graph_fallback_cannot_start_a_third_search(
 
     state = graph.invoke({"messages": [HumanMessage(content="Q?")]})
 
-    assert call_count == {"agent": 1, "web_answer": 2, "fallback": 1}
+    assert call_count == {"agent": 1, "web_answer": 2}
     final = state["messages"][-1].content
-    assert "couldn't verify" in final
+    assert "call #2" in final
     assert "call #3" not in final

@@ -13,6 +13,11 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from ...config import Settings
+from ...web_search.common import (
+    host_quality_score,
+    registrable_domain,
+    text_relevance_delta,
+)
 from .common import qa_question_resolver
 
 logger = logging.getLogger(__name__)
@@ -24,14 +29,12 @@ QuestionResolver = Callable[[dict[str, Any]], str]
 # exactly. Without the unicode ranges, a URL written inline in Chinese
 # prose would greedily swallow the surrounding sentence and produce an
 # unreachable garbage URL.
-_URL_RE = re.compile(
-    r"https?://[^\s<>()\[\]{}　-〿＀-￯一-鿿]+"
-)
+_URL_RE = re.compile(r"https?://[^\s<>()\[\]{}　-〿＀-￯一-鿿]+")
 
 
 def merge_factory(
     settings: Settings,
-    question_resolver: QuestionResolver = qa_question_resolver,  # noqa: ARG001
+    question_resolver: QuestionResolver = qa_question_resolver,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Return a node that combines and ranks search URL candidates.
 
@@ -61,23 +64,26 @@ def merge_factory(
         message_result_sets = _url_sets_from_tool_messages(current_turn_messages)
         state_result_sets = _clean_url_sets(state.get("web_search_results"))
         result_sets = state_result_sets or message_result_sets
-        metadata_sets = _clean_result_metadata_sets(
-            state.get("web_search_result_metadata")
-        )
+        metadata_sets = _clean_result_metadata_sets(state.get("web_search_result_metadata"))
+        original_question = str(state.get("current_question") or "").strip()
+        if not original_question:
+            try:
+                original_question = question_resolver(state).strip()
+            except (IndexError, KeyError, TypeError):
+                original_question = ""
         combined = _combine_and_rank_sets(
             first_attempt=explicit,
             result_sets=result_sets,
             metadata_sets=metadata_sets,
             top_k=int(getattr(settings, "web_search_top_k", 0) or 0),
+            original_question=original_question,
         )
         return {"source_urls": combined}
 
     return merge
 
 
-def _combine_and_rank(
-    first_attempt: list[str], expanded: list[str], top_k: int
-) -> list[str]:
+def _combine_and_rank(first_attempt: list[str], expanded: list[str], top_k: int) -> list[str]:
     """Combine first-attempt and expanded URLs, then rank and clamp.
 
     Ranking uses semantic relevance, overall quality, overlap, provider rank,
@@ -104,8 +110,9 @@ def _combine_and_rank_sets(
     result_sets: list[list[str]],
     top_k: int,
     metadata_sets: list[list[dict[str, Any]]] | None = None,
+    original_question: str = "",
 ) -> list[str]:
-    """Rank candidates, prioritizing semantic relevance before overlap."""
+    """Rank against the original question, then diversify selected domains."""
 
     canonical_to_records: dict[str, dict[str, Any]] = {}
 
@@ -114,6 +121,7 @@ def _combine_and_rank_sets(
         provider_rank: int,
         *,
         relevance_score: int = 0,
+        original_relevance_score: int = 0,
         quality_score: int = 0,
         has_score: bool = False,
         count_hit: bool = True,
@@ -129,7 +137,9 @@ def _combine_and_rank_sets(
                 "hit_count": 0,
                 "best_provider_rank": provider_rank,
                 "best_relevance_score": relevance_score,
+                "best_original_relevance_score": original_relevance_score,
                 "best_quality_score": quality_score,
+                "host_quality_score": host_quality_score(url),
                 "has_score": has_score,
                 "first_seen": len(canonical_to_records),
             }
@@ -140,14 +150,15 @@ def _combine_and_rank_sets(
             entry["best_provider_rank"] = provider_rank
         if has_score and not entry["has_score"]:
             entry["best_relevance_score"] = relevance_score
+            entry["best_original_relevance_score"] = original_relevance_score
             entry["best_quality_score"] = quality_score
             entry["has_score"] = True
         elif has_score:
-            entry["best_relevance_score"] = max(
-                entry["best_relevance_score"], relevance_score
-            )
-            entry["best_quality_score"] = max(
-                entry["best_quality_score"], quality_score
+            entry["best_relevance_score"] = max(entry["best_relevance_score"], relevance_score)
+            entry["best_quality_score"] = max(entry["best_quality_score"], quality_score)
+            entry["best_original_relevance_score"] = max(
+                entry["best_original_relevance_score"],
+                original_relevance_score,
             )
 
     # REFACTOR: Rank both sets by their OWN provider position (no offset).
@@ -182,10 +193,23 @@ def _combine_and_rank_sets(
                 if not url:
                     continue
                 canonical = _canonical_url(url)
+                result_text = " ".join(
+                    part
+                    for part in (
+                        str(item.get("title") or "").strip(),
+                        str(item.get("snippet") or "").strip(),
+                    )
+                    if part
+                )
                 record(
                     url,
                     provider_rank=_safe_int(item.get("provider_rank"), index),
                     relevance_score=_safe_int(item.get("relevance_score"), 0),
+                    original_relevance_score=(
+                        text_relevance_delta(result_text, original_question)
+                        if result_text and original_question
+                        else 0
+                    ),
                     quality_score=_safe_int(item.get("quality_score"), 0),
                     has_score=True,
                     # Usually metadata enriches a URL already counted above.
@@ -197,6 +221,9 @@ def _combine_and_rank_sets(
     ranked = sorted(
         canonical_to_records.values(),
         key=lambda item: (
+            -(item["best_original_relevance_score"] + item["host_quality_score"]),
+            -item["best_original_relevance_score"],
+            -item["host_quality_score"],
             -item["best_relevance_score"],
             -item["best_quality_score"],
             -item["hit_count"],
@@ -204,8 +231,37 @@ def _combine_and_rank_sets(
             item["first_seen"],
         ),
     )
-    chosen = ranked if top_k <= 0 else ranked[:top_k]
+    chosen = _select_domain_diverse(ranked, top_k=top_k)
     return [item["display_url"] for item in chosen]
+
+
+def _select_domain_diverse(
+    ranked: list[dict[str, Any]],
+    *,
+    top_k: int,
+    preferred_per_domain: int = 2,
+) -> list[dict[str, Any]]:
+    """Prefer domain diversity, then backfill when too few alternatives exist."""
+
+    if top_k <= 0:
+        return ranked
+
+    selected: list[dict[str, Any]] = []
+    deferred: list[dict[str, Any]] = []
+    domain_counts: dict[str, int] = {}
+    for item in ranked:
+        domain = registrable_domain(str(item.get("display_url") or ""))
+        if not domain or domain_counts.get(domain, 0) < preferred_per_domain:
+            selected.append(item)
+            if domain:
+                domain_counts[domain] = domain_counts.get(domain, 0) + 1
+        else:
+            deferred.append(item)
+        if len(selected) >= top_k:
+            return selected[:top_k]
+
+    selected.extend(deferred[: max(0, top_k - len(selected))])
+    return selected[:top_k]
 
 
 def _urls_from_tool_messages(messages: Any) -> list[str]:

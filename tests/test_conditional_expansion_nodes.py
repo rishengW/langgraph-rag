@@ -57,6 +57,7 @@ def test_decompose_passthrough_for_unresolvable_question(isolated_settings, monk
     node = decompose_module.decompose_factory(settings)
     result = node({})
     assert result == {
+        "current_question": "",
         "sub_questions": [],
         "expanded_queries": [],
         "search_queries": [],
@@ -74,9 +75,7 @@ def test_decompose_passthrough_for_unresolvable_question(isolated_settings, monk
         "What is the restaurant where the agreement was signed?",
     ],
 )
-def test_decompose_bypasses_llm_for_atomic_questions(
-    question, isolated_settings, monkeypatch
-):
+def test_decompose_bypasses_llm_for_atomic_questions(question, isolated_settings, monkeypatch):
     settings = isolated_settings()
     monkeypatch.setattr(
         decompose_module,
@@ -92,6 +91,7 @@ def test_decompose_bypasses_llm_for_atomic_questions(
     node = decompose_module.decompose_factory(settings)
     result = node({"messages": [HumanMessage(content=question)]})
     assert result == {
+        "current_question": question,
         "sub_questions": [question],
         "expanded_queries": [],
         "search_queries": [question],
@@ -100,9 +100,7 @@ def test_decompose_bypasses_llm_for_atomic_questions(
     }
 
 
-def test_decompose_prefers_contextual_search_query_from_agent(
-    isolated_settings, monkeypatch
-):
+def test_decompose_prefers_contextual_search_query_from_agent(isolated_settings, monkeypatch):
     monkeypatch.setattr(
         decompose_module,
         "new_structured_chat_model",
@@ -126,6 +124,7 @@ def test_decompose_prefers_contextual_search_query_from_agent(
 
     result = decompose_module.decompose_factory(isolated_settings())(state)
 
+    assert result["current_question"] == "LangGraph Platform pricing 2026"
     assert result["search_queries"] == ["LangGraph Platform pricing 2026"]
 
 
@@ -144,7 +143,8 @@ def test_decompose_calls_llm_for_likely_compound_questions(
     question, isolated_settings, monkeypatch
 ):
     settings = isolated_settings()
-    fake_result = type("R", (), {"sub_questions": ["Part A", "Part B"]})()
+    expected = [question, f"{question} Details"]
+    fake_result = type("R", (), {"sub_questions": expected})()
     calls = []
     monkeypatch.setattr(
         decompose_module,
@@ -157,9 +157,43 @@ def test_decompose_calls_llm_for_likely_compound_questions(
         {"messages": [HumanMessage(content=question)]}
     )
 
-    assert result["sub_questions"] == ["Part A", "Part B"]
+    assert result["sub_questions"] == expected
+    assert result["current_question"] == question
     assert result["web_search_result_metadata"] == []
     assert len(calls) == 1
+
+
+def test_decompose_rejects_language_changing_subquestions(
+    isolated_settings,
+    monkeypatch,
+):
+    original = "DeepSeek V3.2 和 V3.1 有什么区别？"
+    fake_result = type(
+        "R",
+        (),
+        {
+            "sub_questions": [
+                "What are the features of DeepSeek V3.2?",
+                "What are the features of DeepSeek V3.1?",
+            ]
+        },
+    )()
+    monkeypatch.setattr(
+        decompose_module,
+        "invoke_with_retry",
+        lambda *_args, **_kwargs: fake_result,
+    )
+    _patch_structured_model(monkeypatch, decompose_module, lambda: fake_result)
+
+    result = decompose_module.decompose_factory(isolated_settings())(
+        {
+            "messages": [HumanMessage(content=original)],
+            "current_question": original,
+        }
+    )
+
+    assert result["current_question"] == original
+    assert result["sub_questions"] == [original]
 
 
 def test_decompose_clamps_llm_output_to_max_subquestions(isolated_settings, monkeypatch):
@@ -227,7 +261,9 @@ def test_expand_passthrough_when_no_sub_questions(isolated_settings, monkeypatch
 def test_expand_returns_k1_passthrough_when_llm_fails(isolated_settings, monkeypatch):
     settings = isolated_settings()
     monkeypatch.setattr(
-        expand_module, "invoke_with_retry", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+        expand_module,
+        "invoke_with_retry",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     _patch_structured_model(monkeypatch, expand_module, lambda: None)
 
@@ -242,13 +278,19 @@ def test_expand_returns_k1_passthrough_when_llm_fails(isolated_settings, monkeyp
 
 def test_expand_clamps_paraphrases_to_max(isolated_settings, monkeypatch):
     settings = isolated_settings()
-    fake_result = type("R", (), {"paraphrases": [
-        "Original question",
-        "Paraphrase one",
-        "Paraphrase two",
-        "Paraphrase three",
-        "Paraphrase four",
-    ]})()
+    fake_result = type(
+        "R",
+        (),
+        {
+            "paraphrases": [
+                "Original question",
+                "Paraphrase one",
+                "Paraphrase two",
+                "Paraphrase three",
+                "Paraphrase four",
+            ]
+        },
+    )()
     monkeypatch.setattr(expand_module, "invoke_with_retry", lambda *a, **k: fake_result)
     _patch_structured_model(monkeypatch, expand_module, lambda: fake_result)
 
@@ -511,6 +553,123 @@ def test_merge_prioritizes_relevance_over_repeated_generic_result(isolated_setti
         "https://example.com/relevant",
         "https://example.com/generic",
     ]
+
+
+def test_merge_reranks_subquery_results_against_original_question(isolated_settings):
+    settings = replace(isolated_settings(), web_search_top_k=0)
+    node = merge_module.merge_factory(settings)
+
+    result = node(
+        {
+            "current_question": "Nanjing Metro operating line total 2026",
+            "source_urls": [],
+            "messages": [],
+            "web_search_results": [
+                [
+                    "https://broad.example.com/2026/nanjing",
+                    "https://focused.example.com/2026/metro-lines",
+                ]
+            ],
+            "web_search_result_metadata": [
+                [
+                    {
+                        "url": "https://broad.example.com/2026/nanjing",
+                        "title": "Nanjing attractions total 10 in 2026",
+                        "snippet": "A travel guide to ten popular attractions.",
+                        "provider_rank": 0,
+                        "relevance_score": 45,
+                        "quality_score": 110,
+                    },
+                    {
+                        "url": "https://focused.example.com/2026/metro-lines",
+                        "title": "Nanjing Metro operating line total in 2026",
+                        "snippet": "There are 15 Metro lines in operation in 2026.",
+                        "provider_rank": 1,
+                        "relevance_score": 25,
+                        "quality_score": 90,
+                    },
+                ]
+            ],
+        }
+    )
+
+    assert result["source_urls"][0] == ("https://focused.example.com/2026/metro-lines")
+
+
+def test_merge_applies_controlled_official_source_advantage(isolated_settings):
+    settings = replace(isolated_settings(), web_search_top_k=0)
+    node = merge_module.merge_factory(settings)
+    common = {
+        "title": "南京地铁2026年运营线路总数",
+        "snippet": "截至2026年，南京地铁共有15条运营线路。",
+        "relevance_score": 40,
+    }
+
+    result = node(
+        {
+            "current_question": "南京地铁2026年运营线路总数",
+            "source_urls": [],
+            "messages": [],
+            "web_search_results": [
+                [
+                    "https://aggregator.example.com/metro",
+                    "https://www.nanjing.gov.cn/metro/answer",
+                ]
+            ],
+            "web_search_result_metadata": [
+                [
+                    {
+                        **common,
+                        "url": "https://aggregator.example.com/metro",
+                        "provider_rank": 0,
+                        "quality_score": 105,
+                    },
+                    {
+                        **common,
+                        "url": "https://www.nanjing.gov.cn/metro/answer",
+                        "provider_rank": 1,
+                        "quality_score": 90,
+                    },
+                ]
+            ],
+        }
+    )
+
+    assert result["source_urls"][0] == "https://www.nanjing.gov.cn/metro/answer"
+
+
+def test_merge_prefers_domain_diversity_within_top_k(isolated_settings):
+    settings = replace(isolated_settings(), web_search_top_k=3)
+    node = merge_module.merge_factory(settings)
+    urls = [
+        "https://same.example.com/a",
+        "https://same.example.com/b",
+        "https://same.example.com/c",
+        "https://other.example.net/d",
+    ]
+    metadata = [
+        {
+            "url": url,
+            "title": "南京地铁运营线路",
+            "snippet": "南京地铁线路信息。",
+            "provider_rank": index,
+            "relevance_score": 20,
+            "quality_score": 80,
+        }
+        for index, url in enumerate(urls)
+    ]
+
+    result = node(
+        {
+            "current_question": "南京地铁运营线路",
+            "source_urls": [],
+            "messages": [],
+            "web_search_results": [urls],
+            "web_search_result_metadata": [metadata],
+        }
+    )
+
+    assert result["source_urls"] == [urls[0], urls[1], urls[3]]
 
 
 def test_merge_keeps_url_only_results_when_metadata_is_partial(isolated_settings):

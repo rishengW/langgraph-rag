@@ -45,7 +45,12 @@ SETTING_ENV_NAMES = {
     "web_search_enabled": "WEB_SEARCH_ENABLED",
     "web_search_llm_query_rewrite_enabled": "WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED",
     "web_search_provider": "WEB_SEARCH_PROVIDER",
+    "web_search_providers": "WEB_SEARCH_PROVIDERS",
+    "web_search_provider_fanout": "WEB_SEARCH_PROVIDER_FANOUT",
     "web_search_max_results": "WEB_SEARCH_MAX_RESULTS",
+    "web_search_provider_timeout_seconds": "WEB_SEARCH_PROVIDER_TIMEOUT_SECONDS",
+    "web_search_api_timeout_seconds": "WEB_SEARCH_API_TIMEOUT_SECONDS",
+    "web_search_deadline_seconds": "WEB_SEARCH_DEADLINE_SECONDS",
     "web_search_top_k": "WEB_SEARCH_TOP_K",
     "web_search_min_url_score": "WEB_SEARCH_MIN_URL_SCORE",
     "web_search_region": "WEB_SEARCH_REGION",
@@ -58,6 +63,11 @@ SETTING_ENV_NAMES = {
     "web_search_js_fallback_enabled": "WEB_SEARCH_JS_FALLBACK_ENABLED",
     "web_search_js_fallback_domains": "WEB_SEARCH_JS_FALLBACK_DOMAINS",
     "web_search_js_force_domains": "WEB_SEARCH_JS_FORCE_DOMAINS",
+    "serper_api_key": "SERPER_API_KEY",
+    "brave_search_api_key": "BRAVE_SEARCH_API_KEY",
+    "tavily_api_key": "TAVILY_API_KEY",
+    "bing_search_api_key": "BING_SEARCH_API_KEY",
+    "bing_search_endpoint": "BING_SEARCH_ENDPOINT",
     "weather_enabled": "WEATHER_ENABLED",
     "stock_enabled": "STOCK_ENABLED",
     "currency_enabled": "CURRENCY_ENABLED",
@@ -228,13 +238,17 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         if value is None:
             return list(default or [])
         return [url.strip() for url in str(value).split(",") if url.strip()]
-    if name in ("web_search_js_fallback_domains", "web_search_js_force_domains"):
+    if name in (
+        "web_search_js_fallback_domains",
+        "web_search_js_force_domains",
+        "web_search_providers",
+    ):
         if isinstance(value, list):
-            return [str(domain).strip().lower() for domain in value if str(domain).strip()]
+            return [str(item).strip().lower() for item in value if str(item).strip()]
         if value is None:
             return list(default or [])
-        domains = [domain.lower() for domain in parse_csv_list(str(value))]
-        return domains if domains else list(default or [])
+        items = [item.lower() for item in parse_csv_list(str(value))]
+        return items if items else list(default or [])
     if name in ("chroma_dir",):
         return Path(str(value)).expanduser()
     if name in (
@@ -248,6 +262,10 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "chat_context_max_turns",
         "chat_context_max_chars",
         "web_search_max_results",
+        "web_search_provider_fanout",
+        "web_search_provider_timeout_seconds",
+        "web_search_api_timeout_seconds",
+        "web_search_deadline_seconds",
         "web_search_top_k",
         "web_search_min_url_score",
         "web_search_max_page_tokens",
@@ -287,6 +305,10 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         if name in (
             "page_load_timeout",
             "page_load_max_concurrency",
+            "web_search_provider_fanout",
+            "web_search_provider_timeout_seconds",
+            "web_search_api_timeout_seconds",
+            "web_search_deadline_seconds",
             "dashscope_max_retries",
             "file_read_max_bytes",
         ):
@@ -324,9 +346,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
     if name == "rerank_strategy":
         strategy = str(value).strip().lower() or str(default or "lexical")
         if strategy not in ("lexical", "embedding", "hybrid"):
-            raise ValueError(
-                "rerank_strategy must be one of: lexical, embedding, hybrid"
-            )
+            raise ValueError("rerank_strategy must be one of: lexical, embedding, hybrid")
         return strategy
     if name in ("web_search_timelimit",):
         text = "" if value is None else str(value).strip()

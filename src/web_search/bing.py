@@ -92,6 +92,7 @@ class BingWebSearch:
     # REFACTOR: Optional shared timelimit used for Bing recency filtering.
     timelimit: str | None = None
     verify_ssl: bool = True
+    timeout: float = 8.0
 
     @property
     def provider_name(self) -> str:
@@ -110,7 +111,7 @@ class BingWebSearch:
 
         with urlopen(
             search_request(search_url),
-            timeout=15,
+            timeout=self.timeout,
             context=urlopen_context(self.verify_ssl),
         ) as response:
             final_url = response.geturl()

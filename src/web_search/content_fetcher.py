@@ -1,11 +1,13 @@
 # REFACTOR: Lightweight web-search page fetching and extraction helpers.
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from datetime import date
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -18,6 +20,8 @@ from ..rag.document_loader import (
     default_loader_factory,
     load_source_documents,
 )
+from .common import host_authority_class, is_page_text_relevant, page_relevance_score
+from .date_extractor import extract_publication_date
 from .fetch_policy import FetchPolicy, resolve_fetch_policy
 from .playwright_loader import playwright_loader_factory
 
@@ -25,6 +29,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MIN_READABLE_CHARS = 200
 DEFAULT_MIN_READABLE_TOKENS = 50
+SHORT_OFFICIAL_MIN_CHARS = 40
+SHORT_OFFICIAL_LEAD_MAX_CHARS = 600
+SHORT_OFFICIAL_MIN_RELEVANCE_SCORE = 15
 
 
 @dataclass(frozen=True)
@@ -39,6 +46,7 @@ class FetchedPage:
     extracted_chars: int = 0
     extracted_tokens: int = 0
     fetch_method: str = "http"
+    publication_date: date | None = None
 
 
 class WebPageFetchError(RuntimeError):
@@ -54,6 +62,7 @@ def fetch_pages(
     max_concurrent_loads: int = 4,
     min_readable_chars: int = DEFAULT_MIN_READABLE_CHARS,
     min_readable_tokens: int = DEFAULT_MIN_READABLE_TOKENS,
+    relevance_query: str = "",
     document_cache: SourceDocumentCache | None = None,
     loader_factory: LoaderFactory = default_loader_factory,
     js_fallback_enabled: bool = False,
@@ -71,6 +80,8 @@ def fetch_pages(
         max_concurrent_loads: Existing loader concurrency limit.
         min_readable_chars: Minimum normalized characters required.
         min_readable_tokens: Minimum estimated tokens required.
+        relevance_query: Original question used to retain concise, strongly relevant
+            official pages. Empty queries use the standard length gate only.
         document_cache: Optional cache override for tests or callers.
         loader_factory: Optional loader factory override.
         js_fallback_enabled: Enables optional browser fallback for policy domains.
@@ -126,6 +137,7 @@ def fetch_pages(
             max_tokens_per_page=max_tokens_per_page,
             min_readable_chars=min_readable_chars,
             min_readable_tokens=min_readable_tokens,
+            relevance_query=relevance_query,
             load_error=js_load_error if policies[url].force_js else load_error,
             fetch_method="js" if policies[url].force_js else "http",
         )
@@ -138,13 +150,14 @@ def fetch_pages(
         max_tokens_per_page=max_tokens_per_page,
         min_readable_chars=min_readable_chars,
         min_readable_tokens=min_readable_tokens,
+        relevance_query=relevance_query,
         js_loader_factory=js_factory,
     )
     for page in pages:
         logger.info(
             "Fetched web page content: url=%s extracted_chars=%d "
             "extracted_tokens=%d prompt_chars=%d prompt_tokens=%d error=%s "
-            "fetch_method=%s",
+            "fetch_method=%s publication_date=%s",
             page.url,
             page.extracted_chars,
             page.extracted_tokens,
@@ -152,6 +165,7 @@ def fetch_pages(
             estimate_tokens(page.text),
             page.error,
             page.fetch_method,
+            page.publication_date.isoformat() if page.publication_date else None,
         )
     return pages
 
@@ -160,25 +174,72 @@ def extract_text(html: str) -> str:
     """Extract readable article-style text from HTML or raw page text."""
 
     soup = BeautifulSoup(html or "", "html.parser")
+    structured_texts = _json_ld_text_candidates(soup)
     for element in soup(
         ["script", "style", "noscript", "nav", "header", "footer", "aside", "form"]
     ):
         element.decompose()
 
-    candidates = [
-        soup.find("article"),
-        soup.find("main"),
-        soup.find(attrs={"role": "main"}),  # type: ignore[call-overload]
-        soup.body,
-        soup,
-    ]
-    for candidate in candidates:
-        if candidate is None:
+    selectors = (
+        "article",
+        "main",
+        '[role="main"]',
+        '[itemprop="articleBody"]',
+        ".article-content",
+        ".article-body",
+        ".content-body",
+        ".TRS_Editor",
+    )
+    semantic_texts: list[str] = []
+    for selector in selectors:
+        for candidate in soup.select(selector):
+            text = normalize_whitespace(candidate.get_text(" ", strip=True))
+            if text and text not in semantic_texts:
+                semantic_texts.append(text)
+    preferred = [*structured_texts, *semantic_texts]
+    if preferred:
+        return max(preferred, key=len)
+
+    for fallback_candidate in (soup.body, soup):
+        if fallback_candidate is None:
             continue
-        text = normalize_whitespace(candidate.get_text(" ", strip=True))
+        text = normalize_whitespace(fallback_candidate.get_text(" ", strip=True))
         if text:
             return text
     return ""
+
+
+def _json_ld_text_candidates(soup: BeautifulSoup) -> list[str]:
+    candidates: list[str] = []
+    for element in soup.select('script[type="application/ld+json"]'):
+        raw = element.string or element.get_text(" ", strip=True)
+        if not raw:
+            continue
+        try:
+            value = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        for text in _walk_json_ld_text(value):
+            normalized = normalize_whitespace(text)
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+    return candidates
+
+
+def _walk_json_ld_text(value: Any) -> list[str]:
+    texts: list[str] = []
+    if isinstance(value, dict):
+        for key in ("articleBody", "text", "description"):
+            text = value.get(key)
+            if isinstance(text, str) and len(normalize_whitespace(text)) >= 40:
+                texts.append(text)
+        for nested in value.values():
+            if isinstance(nested, (dict, list)):
+                texts.extend(_walk_json_ld_text(nested))
+    elif isinstance(value, list):
+        for nested in value:
+            texts.extend(_walk_json_ld_text(nested))
+    return texts
 
 
 def estimate_tokens(text: str) -> int:
@@ -219,6 +280,37 @@ def is_readable_text(
     if min_tokens > 0:
         checks.append(estimate_tokens(normalized) >= min_tokens)
     return any(checks) if checks else True
+
+
+def is_readable_page(
+    text: str,
+    *,
+    url: str = "",
+    title: str = "",
+    query: str = "",
+    min_chars: int = DEFAULT_MIN_READABLE_CHARS,
+    min_tokens: int = DEFAULT_MIN_READABLE_TOKENS,
+) -> bool:
+    """Accept long text normally or a concise, evidence-rich official page.
+
+    The short-page exception requires a formally controlled or recognized
+    first-party host, a non-trivial body, and concentrated relevance in the
+    title and lead. ``is_page_text_relevant`` retains the strict requested-year
+    and quantity-answer checks used by the fetched-page relevance gate.
+    """
+
+    normalized = normalize_whitespace(text)
+    if is_readable_text(normalized, min_chars=min_chars, min_tokens=min_tokens):
+        return True
+    if not query.strip() or len(normalized) < SHORT_OFFICIAL_MIN_CHARS:
+        return False
+    if host_authority_class(url) == "standard":
+        return False
+
+    lead = normalized[:SHORT_OFFICIAL_LEAD_MAX_CHARS]
+    if not is_page_text_relevant(lead, query, title=title):
+        return False
+    return page_relevance_score(lead, query, title=title) >= SHORT_OFFICIAL_MIN_RELEVANCE_SCORE
 
 
 def normalize_whitespace(text: str) -> str:
@@ -327,6 +419,7 @@ def _retry_pages_with_js_fallback(
     max_tokens_per_page: int,
     min_readable_chars: int,
     min_readable_tokens: int,
+    relevance_query: str,
     js_loader_factory: LoaderFactory,
 ) -> list[FetchedPage]:
     retried_pages: list[FetchedPage] = []
@@ -342,6 +435,7 @@ def _retry_pages_with_js_fallback(
                 max_tokens_per_page=max_tokens_per_page,
                 min_readable_chars=min_readable_chars,
                 min_readable_tokens=min_readable_tokens,
+                relevance_query=relevance_query,
                 loader_factory=js_loader_factory,
             )
         )
@@ -364,6 +458,7 @@ def _fetch_js_fallback_page(
     max_tokens_per_page: int,
     min_readable_chars: int,
     min_readable_tokens: int,
+    relevance_query: str,
     loader_factory: LoaderFactory,
 ) -> FetchedPage:
     started_at = time.monotonic()
@@ -380,6 +475,7 @@ def _fetch_js_fallback_page(
         max_tokens_per_page=max_tokens_per_page,
         min_readable_chars=min_readable_chars,
         min_readable_tokens=min_readable_tokens,
+        relevance_query=relevance_query,
         load_error=load_error,
         fetch_method="js_fallback",
     )
@@ -417,6 +513,7 @@ def _page_from_documents(
     max_tokens_per_page: int,
     min_readable_chars: int,
     min_readable_tokens: int,
+    relevance_query: str,
     load_error: str | None,
     fetch_method: str = "http",
 ) -> FetchedPage:
@@ -432,6 +529,7 @@ def _page_from_documents(
         )
 
     title = _document_title(documents[0])
+    publication_date = _document_publication_date(documents)
     extracted_text = normalize_whitespace(
         "\n\n".join(extract_text(document.page_content) for document in documents)
     )
@@ -447,9 +545,13 @@ def _page_from_documents(
             extracted_chars=extracted_chars,
             extracted_tokens=extracted_tokens,
             fetch_method=fetch_method,
+            publication_date=publication_date,
         )
-    if not is_readable_text(
+    if not is_readable_page(
         extracted_text,
+        url=url,
+        title=title,
+        query=relevance_query,
         min_chars=min_readable_chars,
         min_tokens=min_readable_tokens,
     ):
@@ -466,6 +568,7 @@ def _page_from_documents(
             extracted_chars=extracted_chars,
             extracted_tokens=extracted_tokens,
             fetch_method=fetch_method,
+            publication_date=publication_date,
         )
 
     text = truncate_to_token_budget(extracted_text, max_tokens_per_page)
@@ -479,6 +582,7 @@ def _page_from_documents(
         extracted_chars=extracted_chars,
         extracted_tokens=extracted_tokens,
         fetch_method=fetch_method,
+        publication_date=publication_date,
     )
 
 
@@ -507,6 +611,15 @@ def _document_title(document: Document) -> str:
     return normalize_whitespace(soup.title.string)
 
 
+def _document_publication_date(documents: Sequence[Document]) -> date | None:
+    for document in documents:
+        metadata: dict[str, Any] = dict(document.metadata or {})
+        published_on = extract_publication_date(document.page_content or "", metadata)
+        if published_on is not None:
+            return published_on
+    return None
+
+
 __all__ = [
     "FetchedPage",
     "DEFAULT_MIN_READABLE_CHARS",
@@ -515,6 +628,7 @@ __all__ = [
     "estimate_tokens",
     "extract_text",
     "fetch_pages",
+    "is_readable_page",
     "is_readable_text",
     "normalize_whitespace",
     "truncate_to_token_budget",

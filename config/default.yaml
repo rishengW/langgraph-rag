@@ -35,7 +35,14 @@ web_search_enabled: true
 # Optional compatibility mode. The normal path uses deterministic query cleanup.
 web_search_llm_query_rewrite_enabled: false
 web_search_provider: bing
+# Optional provider priority list. Key-backed providers configured in the
+# environment are automatically prioritized for Mandarin queries.
+web_search_providers: []
+web_search_provider_fanout: 2
 web_search_max_results: 20
+web_search_provider_timeout_seconds: 8
+web_search_api_timeout_seconds: 20
+web_search_deadline_seconds: 30
 # REFACTOR: Canonical top-ranked search URLs to fetch before indexing.
 web_search_top_k: 6
 web_search_min_url_score: 45

@@ -1,0 +1,95 @@
+[0717/135849.334:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x5824001cda00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0717/135912.380:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x729c001bda00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0717/140428.418:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x4394001bec00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/151508.590:INFO:third_party\blink\renderer\modules\peerconnection\peer_connection_dependency_factory.cc:941] Running WebRTC with a combined Network and Worker thread.
+[0720/151508.712:WARNING:third_party\webrtc\pc\sdp_munging_detector.cc:487] SDP munging: mid does not match last created description.
+[0720/151508.720:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:4145] The order of m-lines in subsequent offer doesn't match order from previous offer/answer. (INVALID_PARAMETER)
+[0720/151508.720:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:2728] Failed to set local offer sdp: The order of m-lines in subsequent offer doesn't match order from previous offer/answer.
+[0720/151508.966:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/151508.968:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/151509.184:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[377ca80:0:1:0:host:Net[any:0:0:0:x:x:x:x:x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/151509.221:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[377d180:0:1:0:host:Net[any:0.0.0.x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/151547.190:INFO:third_party\blink\renderer\modules\peerconnection\peer_connection_dependency_factory.cc:941] Running WebRTC with a combined Network and Worker thread.
+[0720/151547.242:WARNING:third_party\webrtc\pc\sdp_munging_detector.cc:487] SDP munging: mid does not match last created description.
+[0720/151547.243:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:4145] The order of m-lines in subsequent offer doesn't match order from previous offer/answer. (INVALID_PARAMETER)
+[0720/151547.243:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:2728] Failed to set local offer sdp: The order of m-lines in subsequent offer doesn't match order from previous offer/answer.
+[0720/151547.603:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/151547.604:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/151547.736:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[1d67f00:0:1:0:host:Net[any:0.0.0.x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/151547.741:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[1d67b80:0:1:0:host:Net[any:0:0:0:x:x:x:x:x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/152146.168:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x1da4001ba800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/152146.512:INFO:third_party\blink\renderer\modules\peerconnection\peer_connection_dependency_factory.cc:941] Running WebRTC with a combined Network and Worker thread.
+[0720/152146.525:WARNING:third_party\webrtc\pc\sdp_munging_detector.cc:487] SDP munging: mid does not match last created description.
+[0720/152146.526:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:4145] The order of m-lines in subsequent offer doesn't match order from previous offer/answer. (INVALID_PARAMETER)
+[0720/152146.526:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:2728] Failed to set local offer sdp: The order of m-lines in subsequent offer doesn't match order from previous offer/answer.
+[0720/152146.707:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/152146.709:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/152146.709:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[360a900:0:1:0:host:Net[any:0.0.0.x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/152146.709:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[360a580:0:1:0:host:Net[any:0:0:0:x:x:x:x:x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/152228.866:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x684c001c1a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/152233.249:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x651c001bb800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/152741.453:INFO:third_party\blink\renderer\modules\peerconnection\peer_connection_dependency_factory.cc:941] Running WebRTC with a combined Network and Worker thread.
+[0720/152741.480:WARNING:third_party\webrtc\pc\sdp_munging_detector.cc:487] SDP munging: mid does not match last created description.
+[0720/152741.480:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:4145] The order of m-lines in subsequent offer doesn't match order from previous offer/answer. (INVALID_PARAMETER)
+[0720/152741.480:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:2728] Failed to set local offer sdp: The order of m-lines in subsequent offer doesn't match order from previous offer/answer.
+[0720/152741.621:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/152741.622:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/152741.630:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[3dc9780:0:1:0:host:Net[any:0:0:0:x:x:x:x:x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/152741.694:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[3dca200:0:1:0:host:Net[any:0.0.0.x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/152840.811:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x4f3c001b2600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/152843.973:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x536c00184e00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/152844.317:INFO:third_party\blink\renderer\modules\peerconnection\peer_connection_dependency_factory.cc:941] Running WebRTC with a combined Network and Worker thread.
+[0720/152844.324:WARNING:third_party\webrtc\pc\sdp_munging_detector.cc:487] SDP munging: mid does not match last created description.
+[0720/152844.325:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:4145] The order of m-lines in subsequent offer doesn't match order from previous offer/answer. (INVALID_PARAMETER)
+[0720/152844.325:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:2728] Failed to set local offer sdp: The order of m-lines in subsequent offer doesn't match order from previous offer/answer.
+[0720/152844.612:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/152844.613:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[6c8700:0:1:0:host:Net[any:0.0.0.x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/152844.614:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/152844.614:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[7c0000:0:1:0:host:Net[any:0:0:0:x:x:x:x:x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/153023.315:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x61bc001b6c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153027.551:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x4e24001ada00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153412.524:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x68c001ada00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153454.194:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x143c001b5a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153457.344:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x124001b4e00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153743.557:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x182c001b2600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153747.254:INFO:third_party\blink\renderer\modules\peerconnection\peer_connection_dependency_factory.cc:941] Running WebRTC with a combined Network and Worker thread.
+[0720/153747.275:WARNING:third_party\webrtc\pc\sdp_munging_detector.cc:487] SDP munging: mid does not match last created description.
+[0720/153747.276:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:4145] The order of m-lines in subsequent offer doesn't match order from previous offer/answer. (INVALID_PARAMETER)
+[0720/153747.276:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:2728] Failed to set local offer sdp: The order of m-lines in subsequent offer doesn't match order from previous offer/answer.
+[0720/153747.340:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/153747.341:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/153747.421:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[45f2300:0:1:0:host:Net[any:0.0.0.x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/153747.435:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[45f1f80:0:1:0:host:Net[any:0:0:0:x:x:x:x:x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/153752.399:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x3924001b9a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153811.329:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x5b84001bac00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153814.841:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0xafc001b8e00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153818.449:INFO:third_party\blink\renderer\modules\peerconnection\peer_connection_dependency_factory.cc:941] Running WebRTC with a combined Network and Worker thread.
+[0720/153818.516:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x714c001ba200]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153818.840:WARNING:third_party\webrtc\pc\sdp_munging_detector.cc:487] SDP munging: mid does not match last created description.
+[0720/153818.841:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:4145] The order of m-lines in subsequent offer doesn't match order from previous offer/answer. (INVALID_PARAMETER)
+[0720/153818.841:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:2728] Failed to set local offer sdp: The order of m-lines in subsequent offer doesn't match order from previous offer/answer.
+[0720/153818.951:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/153818.952:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[2e40980:0:1:0:host:Net[any:0:0:0:x:x:x:x:x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/153818.952:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/153818.952:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[2e40d00:0:1:0:host:Net[any:0.0.0.x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/153822.738:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x1bfc001bac00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153826.820:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x1614001c1a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153830.261:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0xb4c001b5400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153834.877:INFO:third_party\blink\renderer\modules\peerconnection\peer_connection_dependency_factory.cc:941] Running WebRTC with a combined Network and Worker thread.
+[0720/153834.920:WARNING:third_party\webrtc\pc\sdp_munging_detector.cc:487] SDP munging: mid does not match last created description.
+[0720/153834.924:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:4145] The order of m-lines in subsequent offer doesn't match order from previous offer/answer. (INVALID_PARAMETER)
+[0720/153834.924:ERROR:third_party\webrtc\pc\sdp_offer_answer.cc:2728] Failed to set local offer sdp: The order of m-lines in subsequent offer doesn't match order from previous offer/answer.
+[0720/153835.105:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/153835.170:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[38f2580:0:1:0:host:Net[any:0:0:0:x:x:x:x:x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/153836.137:ERROR:services\network\p2p\socket_manager.cc:137] Failed to resolve address for stun.services.mozilla.com., errorcode: -105
+[0720/153836.137:WARNING:third_party\webrtc\p2p\base\stun_port.cc:470] Port[38ef100:0:1:0:host:Net[any:0.0.0.x/0:Wildcard:id=0]]: StunPort: stun host lookup received error -1
+[0720/153851.709:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x60dc001c1400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153856.721:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x315c001c2c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153901.220:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x1984001c1400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/153905.207:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x131c001bac00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/154248.116:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x484001b4e00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/154250.682:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0xedc001b4e00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/154253.336:ERROR:gpu\ipc\client\command_buffer_proxy_impl.cc:285] ContextResult::kTransientFailure: Failed to send GpuControl.CreateCommandBuffer.
+[0720/154254.121:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x5dfc00185a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/154508.315:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x204001b1a00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[0720/154512.487:ERROR:gpu\command_buffer\service\gl_utils.cc:430] [.WebGL-0x1cc4001b9400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import threading
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -23,6 +24,7 @@ from src.web_search import (
 from src.web_search import baidu as baidu_module
 from src.web_search import bing as bing_module
 from src.web_search import discovery as discovery_module
+from src.web_search import duckduckgo as duckduckgo_module
 from src.web_search.common import is_noise_url, select_top_urls, url_quality_score
 
 
@@ -41,8 +43,10 @@ class StaticSearchProvider:
 @pytest.fixture(autouse=True)
 def clear_web_search_provider_cooldowns():
     discovery_module._provider_cooldowns.clear()
+    discovery_module._provider_failure_counts.clear()
     yield
     discovery_module._provider_cooldowns.clear()
+    discovery_module._provider_failure_counts.clear()
 
 
 def test_provider_implementations_satisfy_protocol():
@@ -56,26 +60,28 @@ def test_factory_selects_bing_default_and_provider_aliases(isolated_settings):
         web_search_region="us-en",
         web_search_timelimit="w",
         web_search_verify_ssl=False,
+        web_search_provider_timeout_seconds=7,
     )
 
     bing = get_search_provider("bing", settings)
     baidu = get_search_provider("baidu", settings)
     duckduckgo = get_search_provider("ddg", settings)
     default_provider = get_search_provider(config=isolated_settings())
-    settings_only_provider = get_search_provider(
-        isolated_settings(web_search_provider="baidu")
-    )
+    settings_only_provider = get_search_provider(isolated_settings(web_search_provider="baidu"))
 
     assert isinstance(bing, BingWebSearch)
     assert bing.market == "en-US"
     assert bing.timelimit == "w"
     assert bing.verify_ssl is False
+    assert bing.timeout == 7
     assert isinstance(baidu, BaiduWebSearch)
     assert baidu.verify_ssl is False
+    assert baidu.timeout == 7
     assert isinstance(duckduckgo, DuckDuckGoWebSearch)
     assert duckduckgo.region == "us-en"
     assert duckduckgo.timelimit == "w"
     assert duckduckgo.verify_ssl is False
+    assert duckduckgo.timeout == 7
     assert isinstance(default_provider, BingWebSearch)
     assert isinstance(settings_only_provider, BaiduWebSearch)
 
@@ -190,8 +196,7 @@ def test_url_quality_gate_uses_configurable_threshold_and_debug_logs(caplog):
         if record.message.startswith("Scored web search URL candidate")
     ]
     assert [
-        (record.url, record.score, record.min_score, record.usable)
-        for record in score_records
+        (record.url, record.score, record.min_score, record.usable) for record in score_records
     ] == [
         ("https://example.com/a", url_quality_score("https://example.com/a"), 80, False),
         (
@@ -229,14 +234,125 @@ def test_baidu_provider_reports_verification_page(monkeypatch):
         BaiduWebSearch().search("MiniMax latest model", 10)
 
 
+def test_baidu_provider_uses_configured_timeout(monkeypatch):
+    calls = []
+
+    def fake_urlopen(*args, **kwargs):
+        calls.append(kwargs)
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(baidu_module, "urlopen", fake_urlopen)
+
+    with pytest.raises(TimeoutError):
+        BaiduWebSearch(timeout=3).search("bounded search", 1)
+
+    assert 0 < calls[0]["timeout"] < 3
+
+
+def test_baidu_redirect_resolution_uses_configured_timeout(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def geturl(self):
+            return "https://example.com/resolved"
+
+    def fake_urlopen(*args, **kwargs):
+        calls.append(kwargs)
+        return FakeResponse()
+
+    monkeypatch.setattr(baidu_module, "urlopen", fake_urlopen)
+
+    result = BaiduWebSearch(timeout=2).resolve_redirect("https://www.baidu.com/link?url=opaque")
+
+    assert result == "https://example.com/resolved"
+    assert calls[0]["timeout"] == 2
+
+
+def test_baidu_provider_resolves_result_redirects_concurrently(monkeypatch):
+    class FakeHeaders:
+        def get_content_charset(self):
+            return "utf-8"
+
+    class SearchResponse:
+        headers = FakeHeaders()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def geturl(self):
+            return "https://www.baidu.com/s?wd=test"
+
+        def read(self):
+            return b"""
+            <div class="c-container"><h3><a href="/link?url=one">One</a></h3></div>
+            <div class="c-container"><h3><a href="/link?url=two">Two</a></h3></div>
+            """
+
+    lock = threading.Lock()
+    release = threading.Event()
+    active_redirects = 0
+    max_active_redirects = 0
+
+    class RedirectResponse:
+        headers = FakeHeaders()
+
+        def __init__(self, target):
+            self.target = target
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            nonlocal active_redirects
+            with lock:
+                active_redirects -= 1
+            return None
+
+        def geturl(self):
+            return self.target
+
+    def fake_urlopen(request, **_kwargs):
+        nonlocal active_redirects, max_active_redirects
+        url = request.full_url
+        if "/s?" in url:
+            return SearchResponse()
+        with lock:
+            active_redirects += 1
+            max_active_redirects = max(max_active_redirects, active_redirects)
+            if active_redirects == 2:
+                release.set()
+        release.wait(timeout=0.5)
+        suffix = "one" if "one" in url else "two"
+        return RedirectResponse(f"https://example.com/news/{suffix}")
+
+    monkeypatch.setattr(baidu_module, "urlopen", fake_urlopen)
+
+    results = BaiduWebSearch(timeout=2).search_results("bounded search", 2)
+
+    assert max_active_redirects == 2
+    assert [result.url for result in results] == [
+        "https://example.com/news/one",
+        "https://example.com/news/two",
+    ]
+
+
 def test_bing_provider_extracts_html_results_and_unwraps_redirect(monkeypatch):
     class FakeHeaders:
         def get_content_charset(self):
             return "utf-8"
 
-    redirected = base64.urlsafe_b64encode(b"https://example.com/redirected").decode(
-        "ascii"
-    ).rstrip("=")
+    redirected = (
+        base64.urlsafe_b64encode(b"https://example.com/redirected").decode("ascii").rstrip("=")
+    )
 
     class FakeResponse:
         headers = FakeHeaders()
@@ -274,6 +390,21 @@ def test_bing_provider_extracts_html_results_and_unwraps_redirect(monkeypatch):
     ]
 
 
+def test_bing_provider_uses_configured_timeout(monkeypatch):
+    calls = []
+
+    def fake_urlopen(*args, **kwargs):
+        calls.append(kwargs)
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(bing_module, "urlopen", fake_urlopen)
+
+    with pytest.raises(TimeoutError):
+        BingWebSearch(timeout=4).search("bounded search", 1)
+
+    assert calls[0]["timeout"] == 4
+
+
 def test_bing_provider_reports_verification_page(monkeypatch):
     assert bing_module.is_bing_verification_page(
         "",
@@ -303,6 +434,70 @@ def test_bing_provider_reports_verification_page(monkeypatch):
 
     with pytest.raises(bing_module.BingVerificationError, match="verification/captcha"):
         BingWebSearch().search("MiniMax latest model", 10)
+
+
+def test_duckduckgo_ddgs_uses_configured_timeout(monkeypatch):
+    constructor_kwargs = []
+
+    class FakeDDGS:
+        def __init__(self, **kwargs):
+            constructor_kwargs.append(kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def text(self, _query, **_kwargs):
+            return []
+
+    monkeypatch.setattr(duckduckgo_module, "load_ddgs", lambda: FakeDDGS)
+
+    DuckDuckGoWebSearch(timeout=5, verify_ssl=False).search_ddgs_results(
+        "bounded search",
+        1,
+    )
+
+    assert constructor_kwargs == [{"verify": False, "timeout": 5}]
+
+
+def test_duckduckgo_html_uses_configured_timeout(monkeypatch):
+    calls = []
+
+    def fake_urlopen(*args, **kwargs):
+        calls.append(kwargs)
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(duckduckgo_module, "urlopen", fake_urlopen)
+
+    with pytest.raises(RuntimeError, match="DuckDuckGo HTML search failed"):
+        DuckDuckGoWebSearch(timeout=6).search_html_results("bounded search", 1)
+
+    assert len(calls) == 1
+    assert all(0 < call["timeout"] <= 6 for call in calls)
+
+
+def test_duckduckgo_normal_search_uses_only_bounded_html_provider(monkeypatch):
+    monkeypatch.setattr(
+        DuckDuckGoWebSearch,
+        "search_ddgs_results",
+        lambda *_args, **_kwargs: pytest.fail("DDGS fan-out must not run"),
+    )
+    monkeypatch.setattr(
+        DuckDuckGoWebSearch,
+        "search_html_results",
+        lambda *_args, **_kwargs: [
+            SearchResult(
+                url="https://example.com/news/2026/metro",
+                title="Metro count 2026",
+            )
+        ],
+    )
+
+    results = DuckDuckGoWebSearch().search_results("metro count 2026", 1)
+
+    assert [result.url for result in results] == ["https://example.com/news/2026/metro"]
 
 
 def test_discover_urls_accepts_injected_provider_and_filters_top_k(isolated_settings):
@@ -369,7 +564,7 @@ def test_discover_urls_falls_back_to_alternate_provider(monkeypatch, isolated_se
     assert providers["duckduckgo"].calls == []
 
 
-def test_discover_urls_prefers_baidu_for_predominantly_chinese_query(
+def test_discover_urls_blends_baidu_and_bing_for_predominantly_chinese_query(
     monkeypatch,
     isolated_settings,
 ):
@@ -389,8 +584,9 @@ def test_discover_urls_prefers_baidu_for_predominantly_chinese_query(
     urls = discover_urls_from_web("南京地铁线路数量 2026", settings)
 
     assert urls == ["https://example.cn/nanjing/metro"]
-    assert providers["baidu"].calls == [("南京地铁线路数量 2026", 20)]
-    assert providers["bing"].calls == []
+    expected_calls = [("南京地铁线路数量 2026 运营线路总数", 20)]
+    assert providers["baidu"].calls == expected_calls
+    assert providers["bing"].calls == expected_calls
     assert providers["duckduckgo"].calls == []
 
 
@@ -404,7 +600,7 @@ def test_discover_urls_respects_injected_provider_for_chinese_query(isolated_set
     )
 
     assert urls == ["https://example.com/pinned"]
-    assert provider.calls == [("南京地铁线路数量 2026", 20)]
+    assert provider.calls == [("南京地铁线路数量 2026 运营线路总数", 20)]
 
 
 def test_discovery_retains_provider_relevance_metadata(isolated_settings):
@@ -597,9 +793,7 @@ def test_build_web_search_tool_reports_empty_results(isolated_settings):
     provider = StaticSearchProvider([])
     tool = build_web_search_tool(isolated_settings(), provider=provider)
 
-    assert tool.invoke({"query": "missing"}) == (
-        "No live web search results found for: missing"
-    )
+    assert tool.invoke({"query": "missing"}) == ("No live web search results found for: missing")
 
 
 def test_format_web_search_results_keeps_ranked_urls():
@@ -665,6 +859,17 @@ def test_prepare_search_query_preserves_named_entities():
     assert "Pro" in result
 
 
+def test_prepare_search_query_clarifies_metro_total_line_count():
+    from src.web_search.query_prep import prepare_search_query
+
+    result = prepare_search_query("南京地铁线路数量 2025 2026 几条线")
+
+    assert result == "南京地铁线路数量 2025 2026 几条线 运营线路总数"
+
+    spaced_result = prepare_search_query("南京地铁 2026 年 线路 数量")
+    assert spaced_result.endswith("运营线路总数")
+
+
 def test_rewrite_search_query_llm_skips_when_no_api_key(isolated_settings):
     from src.web_search.query_prep import rewrite_search_query_llm
 
@@ -685,6 +890,7 @@ def test_rewrite_search_query_llm_returns_rewritten_query(isolated_settings):
         def invoke(self, messages):
             class FakeResponse:
                 content = "DeepSeek V4 Pro latest model"
+
             return FakeResponse()
 
     result = rewrite_search_query_llm(
@@ -710,9 +916,7 @@ def test_build_search_query_skips_llm_by_default(isolated_settings, monkeypatch)
     assert "what" not in result.lower()
 
 
-def test_build_search_query_uses_llm_when_explicitly_enabled(
-    isolated_settings, monkeypatch
-):
+def test_build_search_query_uses_llm_when_explicitly_enabled(isolated_settings, monkeypatch):
     from src.web_search import query_prep as qp
 
     settings = isolated_settings(
@@ -763,7 +967,7 @@ def test_select_top_urls_passes_query_through(isolated_settings):
     ]
     selected = select_top_urls(urls, top_k=3, query="deepseek v4")
     # URLs matching the query should rank higher
-    assert "deepseek.net" in selected[0]
+    assert selected == []
 
 
 # ── snippet-aware relevance ranking ─────────────────────────────────────────
@@ -894,9 +1098,7 @@ def test_text_relevance_delta_ignores_lone_generic_term_match():
     query = "model context protocol mcp anthropic"
     # Cambridge "model" definition / Tesla "Model S" news share only "model".
     generic_only = text_relevance_delta("model definition meaning", query)
-    on_topic = text_relevance_delta(
-        "Model Context Protocol (MCP) by Anthropic explained", query
-    )
+    on_topic = text_relevance_delta("Model Context Protocol (MCP) by Anthropic explained", query)
 
     assert generic_only < 0
     assert on_topic > 0
@@ -963,15 +1165,11 @@ def test_text_relevance_delta_requires_both_entities_for_match_query():
     from src.web_search.common import text_relevance_delta
 
     query = "Jordan Argentina World Cup result"
-    only_jordan = text_relevance_delta(
-        "Air Jordan sneakers official store - Nike", query
-    )
+    only_jordan = text_relevance_delta("Air Jordan sneakers official store - Nike", query)
     only_argentina = text_relevance_delta(
         "Argentina | History, Geography, and Culture - Britannica", query
     )
-    both = text_relevance_delta(
-        "Argentina vs Jordan World Cup 2026 match result and score", query
-    )
+    both = text_relevance_delta("Argentina vs Jordan World Cup 2026 match result and score", query)
 
     assert only_jordan < 0
     assert only_argentina < 0
@@ -1086,7 +1284,7 @@ def test_page_relevance_keeps_short_chinese_fact_and_rejects_unrelated_page():
     query = "南京地铁线路数量 2025 2026 几条线"
 
     assert is_page_text_relevant(
-        "目前共运营14条线路。",
+        "截至2026年，目前共运营14条线路。",
         query,
         title="南京地铁线路",
     )

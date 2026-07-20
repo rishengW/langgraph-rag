@@ -5,6 +5,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
+from .common import host_authority_class
+
 DEFAULT_JS_FALLBACK_DOMAINS = [
     "baike.baidu.com",
     "zhuanlan.zhihu.com",
@@ -48,7 +50,8 @@ def resolve_fetch_policy(
     host = url_host(url)
     fallback_match = domain_matches(host, fallback_domains)
     force_match = domain_matches(host, force_domains)
-    browser_profile = fallback_match or force_match
+    authoritative_host = host_authority_class(url) != "standard"
+    browser_profile = fallback_match or force_match or authoritative_host
 
     return FetchPolicy(
         force_js=bool(js_fallback_enabled and force_match),

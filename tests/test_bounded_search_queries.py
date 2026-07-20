@@ -65,7 +65,12 @@ def test_search_queries_preserves_tool_result_metadata(isolated_settings):
 
     result = node({"messages": [_search_call("南京地铁线路数量 2026")]})
 
-    assert result["web_search_results"] == [["https://results.test/relevant"]]
+    assert len(result["search_queries"]) == 2
+    assert all("南京地铁线路数量 2026" in query for query in result["search_queries"])
+    assert result["web_search_results"] == [
+        ["https://results.test/relevant"],
+        ["https://results.test/relevant"],
+    ]
     assert result["web_search_result_metadata"] == [
         [
             {
@@ -77,8 +82,52 @@ def test_search_queries_preserves_tool_result_metadata(isolated_settings):
                 "relevance_score": 41,
                 "quality_score": 106,
             }
-        ]
+        ],
+        [
+            {
+                "url": "https://results.test/relevant",
+                "title": "Nanjing metro lines",
+                "snippet": "Nanjing operates 14 metro lines in 2026",
+                "provider": "baidu",
+                "provider_rank": 2,
+                "relevance_score": 41,
+                "quality_score": 106,
+            }
+        ],
     ]
+
+
+def test_search_queries_plans_mandarin_variants_within_global_limit(
+    isolated_settings,
+):
+    calls: list[str] = []
+
+    def discover(query, _settings, _provider):
+        calls.append(query)
+        return [f"https://results.test/{len(calls)}"]
+
+    tool = build_web_search_tool(isolated_settings(), discovery=discover)
+    node = search_queries_factory([tool])
+    raw_queries = [
+        "南京地铁线路数量 2026 几条线",
+        "小米 SU7 Ultra 2026 款价格是多少",
+        "新住房政策什么时候生效",
+        "比较两个方案目前的区别",
+    ]
+
+    result = node({"messages": [_search_call()], "search_queries": raw_queries})
+
+    expected = [
+        "南京地铁线路数量 2026 几条线 运营线路总数",
+        "南京地铁线路数量 2026 几条线 运营线路总数 官方 数据",
+        "小米 SU7 Ultra 2026 款价格是多少",
+        "小米 SU7 Ultra 2026 款价格是多少 官方",
+        "新住房政策什么时候生效 发布时间",
+        "新住房政策什么时候生效 发布时间 官方 原文 site:gov.cn",
+    ]
+    assert len(calls) == WEB_SEARCH_MAX_QUERIES
+    assert result["search_queries"] == expected
+    assert set(calls) == set(expected)
 
 
 def test_lightweight_graph_searches_each_decomposed_query(isolated_settings):
@@ -127,7 +176,7 @@ def test_lightweight_graph_searches_each_decomposed_query(isolated_settings):
 
     state = graph.invoke({"messages": [HumanMessage(content="Compare all three policies")]})
 
-    assert set(calls) == set(sub_questions)
+    assert set(calls) == {"Compare all three policies", *sub_questions}
     assert "unused original agent query" not in calls
     assert state["messages"][-1].content == "bounded fan-out answer"
 
@@ -179,8 +228,43 @@ def test_lightweight_graph_clamps_expanded_search_retry(isolated_settings):
 
     state = graph.invoke({"messages": [HumanMessage(content="A difficult comparison")]})
 
-    assert set(calls) == {"Initial query", *expanded[:WEB_SEARCH_MAX_QUERIES]}
+    assert set(calls) == {
+        "A difficult comparison",
+        "Initial query",
+        *expanded[: WEB_SEARCH_MAX_QUERIES - 1],
+    }
+    assert expanded[WEB_SEARCH_MAX_QUERIES - 1] not in calls
     assert expanded[-1] not in calls
     assert answer_calls == 2
     assert sum(message.type == "tool" for message in state["messages"]) == 1
     assert state["messages"][-1].content == "expanded answer"
+
+
+def test_search_queries_keeps_original_mandarin_and_rejects_english_translation(
+    isolated_settings,
+):
+    calls: list[str] = []
+
+    def discover(query, _settings, _provider):
+        calls.append(query)
+        return ["https://results.test/relevant"]
+
+    node = search_queries_factory([build_web_search_tool(isolated_settings(), discovery=discover)])
+    original = "DeepSeek V3.2 和 V3.1 有什么区别？"
+
+    result = node(
+        {
+            "messages": [HumanMessage(content=original), _search_call()],
+            "current_question": original,
+            "search_queries": [
+                "What are the key features of DeepSeek V3.2?",
+                "What are the key features of DeepSeek V3.1?",
+            ],
+        }
+    )
+
+    assert result["search_queries"] == [
+        "DeepSeek V3.2 和 V3.1 有什么区别 对比",
+        "DeepSeek V3.2 和 V3.1 有什么区别 对比 官方",
+    ]
+    assert set(calls) == set(result["search_queries"])

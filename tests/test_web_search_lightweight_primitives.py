@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from langchain_core.documents import Document
 
@@ -30,7 +31,11 @@ def test_fetch_pages_delegates_to_shared_document_loader(monkeypatch, caplog):
                 <html><head><title>Ignored</title></head>
                 <body><nav>Menu</nav><main>Alpha page content.</main></body></html>
                 """,
-                metadata={"source": "https://example.com/a", "title": "Alpha"},
+                metadata={
+                    "source": "https://example.com/a",
+                    "title": "Alpha",
+                    "publication_date": "2026-02-03",
+                },
             )
         ]
 
@@ -60,8 +65,10 @@ def test_fetch_pages_delegates_to_shared_document_loader(monkeypatch, caplog):
     assert pages[0].error is None
     assert pages[0].extracted_chars == len("Alpha page content.")
     assert pages[0].extracted_tokens == estimate_tokens("Alpha page content.")
+    assert pages[0].publication_date == date(2026, 2, 3)
     assert pages[1].url == "https://example.com/missing"
     assert pages[1].text == ""
+    assert pages[1].publication_date is None
     assert pages[1].error == "No document loaded for URL."
     assert (
         "Fetched web page content: url=https://example.com/a "
@@ -108,6 +115,17 @@ def test_extract_text_prefers_main_content_and_removes_boilerplate():
     )
 
     assert text == "Title Useful answer text."
+
+
+def test_extract_text_uses_json_ld_article_body_before_page_shell():
+    html = """
+    <html><body><div>Loading navigation shell</div>
+    <script type="application/ld+json">
+      {"@type":"NewsArticle","articleBody":"Official policy evidence with a concrete effective date and implementation details."}
+    </script></body></html>
+    """
+
+    assert extract_text(html).startswith("Official policy evidence")
 
 
 def test_fetch_pages_marks_tiny_shell_text_unreadable_and_logs_size(
@@ -212,7 +230,13 @@ def test_fetch_pages_force_js_domain_skips_http_loader(monkeypatch):
             calls.append("js")
             return [
                 Document(
-                    page_content="<main>" + " ".join(["forced render"] * 40) + "</main>",
+                    page_content=(
+                        '<script type="application/ld+json">'
+                        '{"@type":"Article","datePublished":"2026-07-18"}'
+                        "</script><main>"
+                        + " ".join(["forced render"] * 40)
+                        + "</main>"
+                    ),
                     metadata={"title": "JS"},
                 )
             ]
@@ -246,6 +270,7 @@ def test_fetch_pages_force_js_domain_skips_http_loader(monkeypatch):
     assert pages[0].text.startswith("forced render")
     assert pages[0].fetch_method == "js"
     assert pages[0].url == "https://force-js.test/page"
+    assert pages[0].publication_date == date(2026, 7, 18)
 
 
 def test_fetch_pages_rejects_js_loader_error_text(monkeypatch):
@@ -352,6 +377,19 @@ def test_resolve_fetch_policy_matches_domains_and_subdomains():
     assert policy.request_headers["Accept-Language"].startswith("zh-CN")
 
 
+def test_resolve_fetch_policy_retries_low_text_authoritative_pages():
+    policy = resolve_fetch_policy(
+        "https://agency.example.gov.cn/policy/1",
+        js_fallback_enabled=True,
+        js_fallback_domains=[],
+        js_force_domains=[],
+    )
+
+    assert policy.retry_js_on_low_text is True
+    assert policy.force_js is False
+    assert policy.request_headers["Accept-Language"].startswith("zh-CN")
+
+
 def test_is_readable_text_uses_configurable_thresholds():
     assert is_readable_text("DeepSeek loading menu") is False
     assert is_readable_text("x" * 200) is True
@@ -423,6 +461,44 @@ def test_build_web_search_prompt_respects_total_token_budget():
     # trimmed out.
     assert "https://example.com/b" not in prompt
     assert prompt.count("--- Source:") == 1
+
+
+def test_build_web_search_prompt_includes_publication_date():
+    prompt = build_web_search_prompt(
+        "What is current?",
+        [
+            FetchedPage(
+                url="https://example.com/current",
+                title="Current status",
+                text="Current status evidence from the source.",
+                fetch_time_ms=1.0,
+                publication_date=date(2026, 7, 18),
+            )
+        ],
+    )
+
+    assert (
+        "--- Source: https://example.com/current (Title: Current status) "
+        "(Published: 2026-07-18) ---"
+    ) in prompt
+
+
+def test_build_web_search_prompt_includes_status_consensus_constraint():
+    prompt = build_web_search_prompt(
+        "Is it open now?",
+        [
+            FetchedPage(
+                url="https://example.com/status",
+                title="Status",
+                text="One source says it is open.",
+                fetch_time_ms=1.0,
+            )
+        ],
+        grounding_note="Sources conflict; do not state a categorical status.",
+    )
+
+    assert "EVIDENCE CONSTRAINT" in prompt
+    assert "do not state a categorical status" in prompt
 
 
 def test_web_search_package_exports_lightweight_primitives():

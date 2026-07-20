@@ -1,241 +1,186 @@
 ---
 name: web-search-architect
 description: >
-  Use this skill whenever working on web search URL discovery — Baidu HTML scraping,
-  DuckDuckGo search, result normalization, noise filtering, redirect resolution,
-  or the WebSearchProvider Protocol abstraction. Covers the full query→search→
-  normalize→filter→rank pipeline that discovers source URLs for indexing. Trigger
-  on mentions of web_search, Baidu, DuckDuckGo, ddgs, discover_urls_from_web,
-  URL discovery, search provider, or URL filtering.
+  Use this skill when changing live web discovery, provider adapters, URL
+  filtering and ranking, page fetching, evidence gates, or lightweight
+  web-search answer generation under src/web_search and its graph callers.
 ---
 
-# Web Search Architect — src/web_search/
+# Web Search Architect
 
-Domain: web search URL discovery, provider implementations, URL normalization and filtering.
-Parent: `SKILL.md` (root). Siblings: `src/graph/SKILL.md`, `src/rag/SKILL.md`, `src/api/SKILL.md`, `src/sessions/SKILL.md`.
+Domain: live URL discovery, page fetching, evidence filtering, and grounded
+answer context for chat and QA. Parent: `SKILL.md`. Graph ownership lives in
+`src/graph/`; shared HTTP loading lives in `src/rag/document_loader.py`.
 
-## Quick Reference
+## Runtime Defaults
 
-| Fact | Value |
+| Setting | Default |
+|---|---:|
+| `web_search_enabled` | `True` |
+| `web_search_provider` | `bing` |
+| `web_search_provider_fanout` | `2` |
+| `web_search_max_results` | `20` |
+| `web_search_top_k` | `6` |
+| `web_search_min_url_score` | `45` |
+| `web_search_provider_timeout_seconds` | `8` |
+| `web_search_api_timeout_seconds` | `20` |
+| `web_search_deadline_seconds` | `30` |
+| `web_search_lightweight` | `True` |
+| `page_load_timeout` | `15` |
+| `page_load_max_concurrency` | `4` |
+| `web_search_js_fallback_enabled` | `False` |
+
+Environment and YAML configuration may override these values. LLM query
+rewriting is disabled by default; deterministic query preparation remains the
+normal path.
+
+## Supported Providers
+
+The provider IDs in this table must match
+`src.web_search.factory.SUPPORTED_PROVIDER_NAMES`.
+
+| Provider ID | Transport | Notes |
+|---|---|---|
+| `serper` | JSON API | Google results through Serper; API key required |
+| `brave` | JSON API | Brave Search API; API key required |
+| `tavily` | JSON API | Basic search without generated answers or raw content; API key required |
+| `bing_api` | JSON API | Configured Bing-compatible endpoint; API key required |
+| `bing` | HTML | Bing result parsing with CAPTCHA/shell detection |
+| `baidu` | HTML | Baidu parsing plus bounded redirect resolution and CAPTCHA detection |
+| `duckduckgo` | HTML | Bounded DuckDuckGo HTML endpoint; DDGS remains an explicit compatibility helper |
+
+All providers implement `WebSearchProvider` and return `SearchResult` values
+containing URL, title, and snippet. `RankedSearchResult` preserves provider,
+provider rank, relevance score, and quality score through the graph artifact.
+
+## File Map
+
+| File | Responsibility |
 |---|---|
-| Search providers | Baidu (HTML scraping), DuckDuckGo (ddgs library + HTML fallback) |
-| Config key | `web_search_provider` (default: "baidu") |
-| Max results | `web_search_max_results` (default: 20) |
-| Top-K after filtering | `web_search_top_k` (default: 3) |
-| Region | `web_search_region` (default: "wt-wt") |
-| Time limit | `web_search_timelimit` (optional: "d", "w", "m") |
-| SSL verify | `web_search_verify_ssl` (default: True) |
-| Page fetch fallback | HTTP first; optional Playwright fallback planned for JS-shell domains |
-| Source file (current) | `core/web_search.py` — 363 LOC |
-| Target location | `src/web_search/` |
+| `protocol.py` | Provider protocol and ranked result value object |
+| `factory.py` | Provider registry, aliases, key detection, construction |
+| `api_providers.py` | Serper, Brave, Tavily, and Bing API adapters |
+| `baidu.py`, `bing.py`, `duckduckgo.py` | HTML provider adapters and redirect/CAPTCHA handling |
+| `discovery.py` | Provider ordering, staged fan-out, deadlines, circuits, final provider merge |
+| `query_prep.py`, `query_constraints.py` | Deterministic query planning and hard-constraint preservation |
+| `common.py` | URL normalization, authenticity checks, authority and relevance scoring |
+| `tool.py` | LangChain `live_web_search` wrapper and ranked result artifact |
+| `content_fetcher.py` | Direct page loading, extraction, readability, token limits, publication dates |
+| `fetch_policy.py`, `playwright_loader.py` | Domain-aware HTTP headers and optional JS rendering |
+| `date_extractor.py`, `recency.py` | Publication-date extraction and query-aware freshness assessment |
+| `evidence.py`, `claim_consensus.py` | Typed answer evidence and current-status consensus |
+| `prompt_builder.py` | Source-only prompt assembly with URL, title, and publication date |
+| `benchmark.py` | Offline Mandarin search quality and latency evaluation |
+| `__init__.py` | Public exports |
 
-## File Map (Current)
+## Lightweight Chat Flow
 
-```
-src/core/
-+-- web_search.py           # discover_urls_from_web() + Baidu/DDG providers + URL filtering — 363 LOC
-```
+With `web_search_lightweight=True`, chat owns discovery inside the graph. Each
+turn resets stale URL state before execution.
 
-### Detailed File Responsibilities
-
-| Function / Class | Responsibility | Method |
-|------|---------------|--------|
-| `discover_urls_from_web(settings)` | Top-level entry: select provider, search, normalize, filter, return top-k | Calls provider search |
-| `settings_for_discovered_urls(settings, discovered)` | Return new Settings object with discovered URLs as source_urls | -- |
-| `BaiduWebSearch` | Baidu HTML scraping via `requests.get()`, parse result links | Regex extraction from HTML |
-| `DuckDuckGoWebSearch` | DDGS library (`ddgs.text()`) + HTML fallback (`_duckduckgo_search_html()`) | Library + requests |
-| `_normalize_urls()` | Redirect resolution + deduplication | HEAD requests |
-| `_filter_urls()` | Remove PDF, video, social media, and other noise | Domain + extension blocklist |
-| `_resolve_redirects()` | Follow HTTP redirects to canonical URLs | requests.head() |
-
-## Search Pipeline
-
-```
-User Query (from settings.source_urls used as search terms)
-  │
-  ▼
-Provider Selection (Baidu or DuckDuckGo)
-  │
-  ▼
-Raw Results (URLs + snippets)
-  │
-  ▼
-Redirect Resolution (_resolve_redirects)
-  │
-  ▼
-Deduplication (canonical URL set)
-  │
-  ▼
-Noise Filtering (_filter_urls)
-  │   Remove: PDFs, videos (.mp4, .avi), social media (facebook, twitter, instagram),
-  │   login pages, archive sites, and other non-text content
-  │
-  ▼
-Top-K Selection (web_search_top_k)
-  │
-  ▼
-Return list[str] of clean URLs
+```text
+START
+  -> agent
+     -> direct answer -> END
+     -> one live_web_search call
+        -> decompose
+        -> search_queries
+        -> merge
+        -> web_answer
+           -> grounded answer -> END
+           -> no grounded page -> expand -> search_queries -> merge -> web_answer
+           -> second miss -> grounded refusal -> END
 ```
 
-## Provider Comparison
+`decompose` bypasses its LLM for atomic questions and emits at most three
+validated sub-questions for compound questions. `search_queries` executes at
+most six queries with at most three concurrent tool calls. Each tool call enters
+provider discovery, which runs at most `web_search_provider_fanout` providers in
+one stage. The default peak is therefore three query calls times two provider
+calls, subject to provider availability and deadlines.
 
-| Provider | Implementation | Method | Strengths | Weaknesses |
-|----------|---------------|--------|-----------|------------|
-| Baidu | HTML scraping of search results | `_baidu_search()` via `requests.get()` | Better Chinese-language results, no API key needed | Fragile to HTML structure changes, rate limiting |
-| DuckDuckGo | `ddgs` library + HTML fallback | `_duckduckgo_search()` via `ddgs.text()` + `_duckduckgo_search_html()` | Privacy-focused, more stable API | Fewer Chinese results, library version sensitivity |
+The `web_search` ToolNode in the lightweight graph is the generic fallback for
+mixed or multiple tool calls. A single pure live-search call uses the bounded
+`decompose -> search_queries` path.
 
-### Inconsistency Note
+## Discovery and Pre-Fetch Filtering
 
-```
-Baidu:   raw HTTP → parse HTML → extract URLs
-DDGS:    library call → structured results → extract URLs
+1. `build_search_query` performs deterministic cleanup. Optional LLM rewriting
+   is accepted only when language, quoted phrases, identifiers, and years remain
+   valid.
+2. Mandarin planning adds an exact query and an official-source variant, or one
+   official query per year for a two-year comparison.
+3. Configured APIs are preferred for Mandarin, followed by Baidu, Bing HTML,
+   and DuckDuckGo unless an explicit provider priority overrides the order.
+4. Providers in one stage run concurrently. The first stage with usable results
+   ends provider fallback for that query.
+5. Verification failures open a five-minute HTML-provider cooldown. Two
+   consecutive ordinary failures open a one-minute circuit.
+6. `prefetch_rejection_reason` rejects noise/search/login/download URLs,
+   `site:` mismatches, missing quoted titles or identifiers, and recognized
+   owner-name lookalike domains.
+7. `result_quality_score` combines URL shape, source authority, language,
+   title/snippet coverage, requested years, quantities, and typed evidence.
+8. Results below `web_search_min_url_score` are removed. Canonical duplicates
+   are merged and the provider blend is clamped to `web_search_top_k`.
+9. The graph merge ranks all query sets against the original question, retains
+   provider metadata, rewards cross-query overlap, and prefers domain diversity.
 
-Target (Phase 2): Both behind a common WebSearchProvider Protocol.
-```
+## Page Fetch and Evidence Gates
 
-## Key Design Pattern
+The page path is shallow: it fetches selected result URLs only and never follows
+links recursively.
 
-```python
-def discover_urls_from_web(settings: Settings) -> list[str]:
-    # 1. Select provider based on settings.web_search_provider
-    # 2. Search with query = settings.source_urls (used as search terms)
-    # 3. Normalize and filter URLs
-    # 4. Return top web_search_top_k results
-```
+1. HTTP pages load concurrently through `load_source_documents`, preserving URL
+   order and skipping individual failures.
+2. Fetch policy may add browser request headers. When explicitly enabled, known
+   JS domains retry low-text HTTP results with Playwright; force-JS domains skip
+   HTTP. Do not add anti-bot bypass behavior.
+3. Extraction removes scripts, navigation, headers, footers, forms, and sidebars.
+   It prefers JSON-LD and article/main containers, then falls back to body text.
+4. Normal pages must satisfy configured character or token thresholds. Concise
+   official pages have a stricter relevance-based exception.
+5. `FetchedPage.publication_date` is populated from loader metadata or page
+   markup. Published/created dates win; modification dates are fallback only.
+6. Page relevance requires lexical/entity coverage and, when requested, the
+   correct year, quantity, date, or price evidence. Title and the first 1,200
+   characters receive most of the weight.
+7. For one explicit query year, a known conflicting publication year is
+   rejected. Missing dates stay neutral. Current/latest questions rank recent
+   pages first; ordinary questions preserve provider order.
+8. Near-duplicate content is removed. Multi-year questions need independent
+   evidence for every requested year.
+9. Current-status claims require one authoritative source or agreement from two
+   independent domains. Conflicts become explicit prompt constraints.
+10. Only admitted pages enter the prompt. If no evidence survives, the LLM is
+    skipped; after one expanded search pass, the graph returns a refusal.
 
-## Known Issues
+## Testing
 
-| # | Issue | Severity | Location | Fix |
-|---|-------|----------|----------|-----|
-| 1 | Baidu HTML scraping is fragile — page structure changes break extraction | High | `_baidu_search()` | Add integration test with captured HTML snapshot |
-| 2 | Inconsistent provider patterns — DDGS uses library, Baidu uses raw HTTP | Medium | Both providers | Unify behind `WebSearchProvider` Protocol (Phase 2) |
-| 3 | URL normalization is complex (redirect resolution, noise filtering, dedup) | Medium | Multiple functions | Add comprehensive unit tests |
-| 4 | No retry logic on search failures — single attempt per provider | Medium | `discover_urls_from_web()` | Add retry with fallback to alternate provider |
-| 5 | `web_search_region` default "wt-wt" is undocumented | Low | config defaults | Document region code semantics |
-| 6 | `WebBaseLoader` cannot render JS or browser-gated pages | High | `content_fetcher.py`, `playwright_loader.py` | Implemented: optional Playwright fallback after low-text extraction |
-| 7 | No domain-specific fetch policy for known JS/anti-bot hosts | Medium | `fetch_policy.py`, `content_fetcher.py` | Implemented: configured fallback/force-JS domains |
+Use focused tests before the broader suite:
 
-## Refactoring Target — src/web_search/
-
-```
-src/web_search/
-+-- __init__.py
-+-- protocol.py            # WebSearchProvider Protocol
-+-- baidu.py               # BaiduWebSearch implementation
-+-- duckduckgo.py          # DuckDuckGoWebSearch implementation
-+-- factory.py             # Provider selection + instantiation
-+-- content_fetcher.py     # Lightweight page fetch/extract/prompt preparation
-+-- fetch_policy.py        # Domain-aware HTTP/JS page-fetch policy
-+-- playwright_loader.py   # Optional JS-capable page loader adapter
-```
-
-### Protocol Definition (Phase 2)
-
-```python
-@runtime_checkable
-class WebSearchProvider(Protocol):
-    def search(self, query: str, max_results: int = 20) -> list[str]: ...
-    @property
-    def provider_name(self) -> str: ...
-```
-
-## JS Fallback / Domain Fetch Policy Target
-
-Problem 3A/3E is solved with an optional browser-backed fetch path, not by
-weakening the readability guard. Keep `WebBaseLoader` as the fast default and use
-Playwright only when policy says it is worth the cost.
-
-### Config Shape
-
-```python
-web_search_js_fallback_enabled: bool = False
-web_search_js_fallback_domains: list[str] = [
-    "baike.baidu.com",
-    "zhuanlan.zhihu.com",
-    "apps.microsoft.com",
-    "deepseek.net",
-]
-web_search_js_force_domains: list[str] = []
+```text
+tests/test_web_search_providers.py
+tests/test_search_api_providers.py
+tests/test_web_search_discovery_blending.py
+tests/test_web_search_lightweight_primitives.py
+tests/test_web_search_relevance.py
+tests/test_web_search_evidence.py
+tests/test_web_search_claim_consensus.py
+tests/test_web_search_recency.py
+tests/test_lightweight_graph_web_answer_integration.py
 ```
 
-### Fetch Policy Shape
+Network-backed provider behavior should be tested with captured responses or
+mock sessions. Never require paid API keys for the deterministic unit suite.
 
-```python
-@dataclass(frozen=True)
-class FetchPolicy:
-    force_js: bool = False
-    retry_js_on_low_text: bool = True
-    request_headers: dict[str, str] = field(default_factory=dict)
-```
+## Known Limitations
 
-### Execution Flow
-
-1. Resolve the URL host through `fetch_policy.py`.
-2. Use `WebBaseLoader` first unless `force_js=True`.
-3. Extract text and check `is_readable_text(...)` with configured thresholds.
-4. If text is below threshold and `retry_js_on_low_text=True`, retry once with
-   `playwright_loader.py`.
-5. If the JS result is still below threshold or Playwright fails, keep the current
-   grounded refusal path. Do not pass shell text to the LLM.
-
-### Implementation Notes
-
-- Keep Playwright optional and disabled by default; document `python -m playwright
-  install chromium` for users who enable it.
-- Normalize metadata from the JS loader to match `WebBaseLoader`: `source`, `url`,
-  and `title`.
-- Use tight per-page timeouts and log whether each page used HTTP, JS fallback, or
-  force-JS.
-- Do not add a broad anti-bot bypass. The goal is rendering legitimate pages when
-  operators opt in, not evading access controls.
-
-## Refactoring To-Do List
-
-> Source: [`REFACTORING_PLAN.md`](../../REFACTORING_PLAN.md). Web search scope items.
-
-### Phase 1 — Extract Without Behavioral Change
-
-- [ ] **1.3 Replace `print()` with `logging`** in web_search module
-- [ ] **1.2 Extract networking utilities** — SSL config, timeout helpers → `src/utils/networking.py`
-
-### Phase 2 — Interfaces & Abstractions
-
-- [ ] **2.1 Define `WebSearchProvider` Protocol** — `src/web_search/protocol.py`
-  - [ ] `search(query, max_results)` → `list[str]`
-  - [ ] `provider_name` property
-- [ ] **2.1 Implement Protocol classes**
-  - [ ] `BaiduWebSearch` → `src/web_search/baidu.py`
-  - [ ] `DuckDuckGoWebSearch` → `src/web_search/duckduckgo.py`
-  - [ ] Verify: `isinstance(provider, WebSearchProvider)` passes for both
-- [ ] **2.1 Provider factory** — `src/web_search/factory.py` with `get_search_provider(name, config)` selector
-- [ ] **2.2 DI integration** — `discover_urls_from_web()` accepts `WebSearchProvider`, not reads from Settings directly
-
-### Phase 3 — Optimizations
-
-- [ ] **3.4 Retry with provider fallback** — if Baidu fails, try DDGS automatically
-- [ ] **3.4 Search result caching** — cache results per query for TTL to reduce external calls
-- [ ] **3.5 Deprecation shim** — `src/core/web_search.py` → re-exports from `src/web_search/`
-
-- [x] **3.5a JS-capable page fetch fallback** -- optional Playwright loader after low-text HTTP extraction
-- [x] **3.5b Domain fetch policy** -- `src/web_search/fetch_policy.py` for fallback/force-JS hosts and request profiles
-
-## Testing Strategy
-
-| Test | Approach | Phase |
-|------|----------|-------|
-| Baidu HTML parsing | Capture real HTML response; verify URL extraction | Phase 1 |
-| DDGS library mock | Mock `ddgs.text()` return; verify integration | Phase 1 |
-| URL normalization | Redirect resolution, dedup, noise filtering edge cases | Phase 1 |
-| Provider fallback | Mock Baidu failure; verify DDGS kicks in | Phase 2 |
-| Protocol conformance | `isinstance(provider, WebSearchProvider)` | Phase 2 |
-| Low-text JS fallback | Mock HTTP shell text, verify JS loader is retried once | Phase 3 |
-| Force-JS domains | Configured domain skips HTTP and uses JS loader first | Phase 3 |
-| JS fallback failure | Browser loader failure still returns grounded refusal | Phase 3 |
-
-## Dependencies
-
-- `src/config/` — WebSearchConfig (provider, max_results, top_k, region, timelimit, verify_ssl)
-- `src/utils/networking.py` — SSL config, redirect resolution helpers
-- External: `requests`, `beautifulsoup4`, `ddgs`
-- Optional external: `playwright` (+ Chromium browser install), `html2text` if using
-  `AsyncChromiumLoader` + `Html2TextTransformer`
+- HTML provider layouts and anti-bot pages can change without notice.
+- A successful early provider stage prevents later stages from contributing
+  additional recall for that query.
+- Publication dates are missing or mislabeled on many valid pages, so undated
+  pages must remain eligible.
+- Publication year is only a safe hard constraint for a single explicit-year
+  query; multi-year comparisons rely on page-text evidence instead.
+- Search filtering cannot recover relevant pages a provider never returned.

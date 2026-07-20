@@ -208,6 +208,7 @@ def _repl(args: argparse.Namespace) -> None:
             if graph_owned_web:
                 inputs.update(
                     {
+                        "current_question": prompt,
                         "source_urls": [],
                         "source_mode": "web_search",
                         "sub_questions": [],

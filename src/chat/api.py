@@ -230,6 +230,7 @@ def _graph_inputs_for_turn(
         # A web-search turn must not inherit the previous question's pages
         # from the checkpoint. The graph will populate this list from the
         # current turn's search results.
+        inputs["current_question"] = message
         inputs["source_urls"] = []
         inputs["source_mode"] = "web_search"
         inputs["sub_questions"] = []

@@ -25,7 +25,6 @@ from .nodes import (
     condense_question_factory,
     decompose_factory,
     expand_factory,
-    fallback_answer_factory,
     generate_factory,
     grade_documents_factory,
     merge_factory,
@@ -267,14 +266,6 @@ def build_lightweight_graph(
             question_resolver,
         ),
     )
-    workflow.add_node(
-        "fallback_answer",
-        nodes.fallback_answer
-        or fallback_answer_factory(
-            _require_settings(settings, "fallback answer"),
-            question_resolver,
-        ),
-    )
 
     workflow.add_edge(START, "agent")
     workflow.add_conditional_edges(
@@ -307,7 +298,6 @@ def build_lightweight_graph(
         route_after_web_answer,
         WEB_ANSWER_EDGE_MAP,
     )
-    workflow.add_edge("fallback_answer", END)
 
     resolved_checkpointer = _resolve_checkpointer(mode, providers, checkpointer)
     if resolved_checkpointer is None:

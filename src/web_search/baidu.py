@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
+from time import monotonic
 from typing import cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin, urlparse
@@ -52,6 +54,7 @@ class BaiduWebSearch:
     """Baidu HTML search provider."""
 
     verify_ssl: bool = True
+    timeout: float = 8.0
 
     @property
     def provider_name(self) -> str:
@@ -61,12 +64,14 @@ class BaiduWebSearch:
         return [result.url for result in self.search_results(query, max_results)]
 
     def search_results(self, query: str, max_results: int = 20) -> list[SearchResult]:
+        provider_budget = max(0.1, float(self.timeout) - 0.5)
+        deadline_at = monotonic() + provider_budget
         params = urlencode({"wd": query, "rn": max(1, max_results)})
         search_url = f"{BAIDU_BASE_URL}/s?{params}"
 
         with urlopen(
             search_request(search_url),
-            timeout=10,
+            timeout=provider_budget,
             context=urlopen_context(self.verify_ssl),
         ) as response:
             final_url = response.geturl()
@@ -91,12 +96,59 @@ class BaiduWebSearch:
                 len(html),
             )
 
+        candidates = [
+            (urljoin(BAIDU_BASE_URL, href), title, snippet)
+            for href, title, snippet in raw_results[: max(1, max_results)]
+        ]
+        resolved_urls = [url for url, _title, _snippet in candidates]
+        redirect_indexes = [
+            index
+            for index, url in enumerate(resolved_urls)
+            if is_baidu_result_redirect(url)
+        ]
+        remaining = deadline_at - monotonic()
+        if redirect_indexes and remaining > 0.1:
+            executor = ThreadPoolExecutor(
+                max_workers=min(4, len(redirect_indexes)),
+                thread_name_prefix="baidu-redirect",
+            )
+            futures: dict[Future[str], int] = {
+                executor.submit(
+                    self.resolve_redirect,
+                    resolved_urls[index],
+                    remaining,
+                ): index
+                for index in redirect_indexes
+            }
+            try:
+                done, not_done = wait(futures, timeout=remaining)
+                for future in done:
+                    index = futures[future]
+                    try:
+                        resolved_urls[index] = future.result()
+                    except Exception as exc:
+                        logger.debug(
+                            "Could not resolve Baidu redirect %s: %s",
+                            resolved_urls[index],
+                            exc,
+                        )
+                for future in not_done:
+                    future.cancel()
+                if not_done:
+                    logger.debug(
+                        "Baidu redirect deadline left %s URL(s) unresolved",
+                        len(not_done),
+                    )
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
+
         results: list[SearchResult] = []
         seen: set[str] = set()
-        for href, title, snippet in raw_results:
-            absolute_url = urljoin(BAIDU_BASE_URL, href)
-            if is_baidu_result_redirect(absolute_url):
-                absolute_url = self.resolve_redirect(absolute_url)
+        for absolute_url, (_original_url, title, snippet) in zip(
+            resolved_urls,
+            candidates,
+            strict=True,
+        ):
             if not absolute_url.startswith(("http://", "https://")):
                 continue
             if absolute_url in seen:
@@ -104,21 +156,19 @@ class BaiduWebSearch:
             seen.add(absolute_url)
             results.append(SearchResult(url=absolute_url, title=title, snippet=snippet))
 
-            if len(results) >= max_results:
-                break
-
         return results
 
-    def resolve_redirect(self, url: str) -> str:
+    def resolve_redirect(self, url: str, timeout: float | None = None) -> str:
         """Resolve Baidu's result redirect URL to the target page when possible."""
 
         if not is_baidu_result_redirect(url):
             return url
 
+        request_timeout = self.timeout if timeout is None else min(self.timeout, timeout)
         try:
             with urlopen(
                 search_request(url),
-                timeout=8,
+                timeout=max(0.1, request_timeout),
                 context=urlopen_context(self.verify_ssl),
             ) as response:
                 final_url = response.geturl()

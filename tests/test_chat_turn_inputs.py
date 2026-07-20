@@ -71,6 +71,7 @@ def test_lightweight_web_turn_resets_checkpointed_search_state():
     )
 
     assert inputs["source_urls"] == []
+    assert inputs["current_question"] == "A new question"
     assert inputs["sub_questions"] == []
     assert inputs["expanded_queries"] == []
     assert inputs["search_queries"] == []

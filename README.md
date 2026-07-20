@@ -32,7 +32,7 @@ langgraph-rag/
 |   |-- sessions/             # Chat session registry, SQLite metadata + checkpoint persistence
 |   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, file readers) + shared HTTP helper
 |   |-- utils/                # Retry, networking, URL parsing helpers
-|   |-- web_search/           # Live web search providers (Bing, Baidu, DuckDuckGo), discovery, content fetching, JS fallback
+|   |-- web_search/           # Search APIs + HTML fallbacks, discovery, ranking, fetching, JS fallback
 |-- tests/                    # Offline-focused pytest suite
 |-- ARCHITECTURE.md           # System architecture and operational notes
 |-- COMPANY_READINESS_GAPS.md # Completed and remaining company-readiness work
@@ -107,7 +107,16 @@ Key settings:
 | `CHAT_CONTEXT_MAX_CHARS` | `12000` | Hard character budget for the model-side chat projection |
 | `WEB_SEARCH_ENABLED` | `true` | Enable live web search |
 | `WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED` | `false` | Compatibility opt-in for an extra search-query LLM call |
-| `WEB_SEARCH_PROVIDER` | `bing` | `bing`, `baidu`, or `duckduckgo` |
+| `WEB_SEARCH_PROVIDER` | `bing` | Backward-compatible primary/fallback provider |
+| `WEB_SEARCH_PROVIDERS` | empty | Optional comma-separated provider priority list |
+| `WEB_SEARCH_PROVIDER_FANOUT` | `2` | Providers queried concurrently in each discovery stage |
+| `WEB_SEARCH_PROVIDER_TIMEOUT_SECONDS` | `8` | Network timeout for each provider request |
+| `WEB_SEARCH_API_TIMEOUT_SECONDS` | `20` | Request timeout for key-backed search APIs |
+| `WEB_SEARCH_DEADLINE_SECONDS` | `30` | Overall provider-discovery deadline |
+| `SERPER_API_KEY` | empty | Enables Serper and prioritizes it for Mandarin search |
+| `BRAVE_SEARCH_API_KEY` | empty | Enables Brave Search API |
+| `TAVILY_API_KEY` | empty | Enables Tavily Search API |
+| `BING_SEARCH_API_KEY` | empty | Enables the configured official Bing Search API endpoint |
 | `WEB_SEARCH_LIGHTWEIGHT` | `true` | Use lightweight graph for web search |
 | `WEB_SEARCH_TOP_K` | `6` | Top-K URLs after merge ranking |
 | `WEB_SEARCH_MIN_URL_SCORE` | `45` | URL quality threshold (0-100) |
@@ -164,7 +173,7 @@ START → agent ──(no tool)──► END                                    
                                                                                   (no readable, expanded)
                                                                                               │
                                                                                               ▼
-                                                                                 fallback_answer ─► END   (tool-free fallback)
+                                                                                             END   (grounded refusal)
 ```
 
 Skips Chroma, embeddings, and grading. The agent either answers directly (system prompt steers it away from tools for stable factual questions like founding dates and capitals) or calls the live web search tool, which kicks off a `decompose → search_queries → merge → web_answer` chain:
@@ -174,7 +183,7 @@ Skips Chroma, embeddings, and grading. The agent either answers directly (system
 - **merge** dedupes URLs by canonical form and ranks provider title/snippet relevance and overall quality before cross-query overlap and provider rank, keeping `web_search_top_k`.
 - **web_answer** fetches the merged URLs, rejects fetched pages that are not relevant to the query, extracts readable text, and prompts the LLM to synthesize a grounded answer.
 
-When `web_answer` produces no readable, relevant content and expansion has not yet fired, the post-`web_answer` edge routes to **expand**, which produces bounded keyword paraphrases per sub-question. The graph re-enters `search_queries → merge → web_answer` with the broader query set; the merge stage combines the new URLs with the first attempt's URLs rather than discarding them. A second failure routes to **fallback_answer**, which calls an unbound model once using the preserved user question and clearly states that the answer could not be verified against live web sources. It cannot invoke search or turn a generated refusal into another query. The two search/fetch attempts are bounded by `expansion_attempted` and `web_answer_attempts` (`WEB_ANSWER_FALLBACK_MAX_ATTEMPTS=2`).
+When `web_answer` produces no readable, relevant content and expansion has not yet fired, the post-`web_answer` edge routes to **expand**, which produces bounded keyword paraphrases per sub-question. The graph re-enters `search_queries → merge → web_answer` with the broader query set; the merge stage combines the new URLs with the first attempt's URLs rather than discarding them. A second failure terminates with the grounded refusal. Web-search mode never substitutes an answer from model training knowledge when no source survives admission.
 
 Provider queries use deterministic keyword cleanup by default. Set `WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED=true` only when an additional LLM rewrite call is worth its latency and cost; it is not required for ordinary chat search.
 
@@ -356,23 +365,27 @@ The filesystem is the source of truth for uploads, so a server restart preserves
 
 ## Web Search
 
-Live web search is provided by three providers in `src/web_search/`:
+Live web search supports key-backed APIs and HTML fallbacks in `src/web_search/`:
 
-- **Bing** (`BingWebSearch`) — HTML scraping with optional `d`/`w`/`m` recency filter
-- **Baidu** (`BaiduWebSearch`) — HTML scraping with captcha detection
-- **DuckDuckGo** (`DuckDuckGoWebSearch`) — HTML scraping
+- **Serper** (`SerperWebSearch`) - supported Google-results JSON API
+- **Brave** (`BraveWebSearch`) - supported Brave Search JSON API
+- **Tavily** (`TavilyWebSearch`) - supported Tavily JSON API
+- **Bing API** (`BingApiWebSearch`) - configured Microsoft Bing Search endpoint
+- **Bing** (`BingWebSearch`) - HTML fallback with optional recency filter
+- **Baidu** (`BaiduWebSearch`) - HTML fallback with CAPTCHA detection
+- **DuckDuckGo** (`DuckDuckGoWebSearch`) - bounded HTML fallback
 
-The default provider order is Bing → Baidu → DuckDuckGo, with automatic fallback on failure. Predominantly Chinese queries instead prefer Baidu → Bing → DuckDuckGo, regardless of the default provider setting, so Chinese-language result titles and snippets are available for relevance scoring. An explicitly injected provider (for tests or integrations) remains pinned.
+Configured API providers are automatically prioritized for predominantly Chinese queries. Discovery runs ordered provider stages with `web_search_provider_fanout=2`, independent adapter timeouts, a shared overall deadline, and per-provider circuit breakers. If no API key is configured, Mandarin search falls back to concurrent Baidu/Bing HTML discovery and then DuckDuckGo. An explicitly injected provider remains pinned for tests and integrations.
 
 A multi-stage quality pipeline runs before the agent sees URLs:
 
-- **Result relevance and URL scoring** (`web_search_min_url_score`, default 45) combines normalized provider title/snippet matches (including CJK query terms) with URL quality, dropping off-topic results and low-quality patterns such as search/login/tag/file/feed pages.
+- **Pre-fetch admission and ranking** combines provider title/snippet relevance, identifiers, quoted titles, `site:` constraints, intent evidence, language, source authority, requested years, count evidence, and URL quality. Owner-name lookalike domains and hard constraint mismatches are rejected before page fetching.
 - **Provider-result dedup** by canonical host/path.
 - **Pre-index document filtering** drops short/empty/boilerplate/low-signal pages, with optional embedding similarity gate against the question (`document_quality_relevance_query`) and configurable recency bias from extracted publication dates.
 - **Post-retrieval re-ranking** scores chunks by query/document overlap, frequency, and phrase matches; `RERANK_STRATEGY` switches between lexical (default), embedding, or hybrid.
 - **Optional JS-capable fallback** (`WEB_SEARCH_JS_FALLBACK_ENABLED`) retries known JS-only domains (`baike.baidu.com`, `zhuanlan.zhihu.com`, `apps.microsoft.com`, `deepseek.net` by default) through a lazy headless Chromium adapter when the HTTP loader returns empty/insufficient text. Off by default; requires installing `playwright` and a Chromium runtime.
 
-When `web_search_lightweight` is enabled (default), the lightweight graph routes the agent's tool call through `decompose → search_queries → merge → web_answer` as described above, with one-shot conditional expansion and a tool-free training-data fallback as the final safety net. Chat uses this as the sole web-search owner; it no longer performs a preliminary provider search or recompiles the graph for each turn.
+When `web_search_lightweight` is enabled (default), the lightweight graph routes the agent's tool call through `decompose → search_queries → merge → web_answer` as described above, with one-shot conditional expansion and a grounded refusal when no evidence survives. Chat uses this as the sole web-search owner; it does not perform a preliminary provider search or recompile the graph for each turn.
 
 ## Streaming
 
@@ -410,7 +423,7 @@ Starts QA on `http://127.0.0.1:8000` and Chat on `http://127.0.0.1:8001` with na
 ## Verification
 
 ```powershell
-python -m pytest -q                         # Run tests (current baseline: 220 passed)
+python -m pytest -q                         # Run tests (current baseline: 410 passed)
 ruff check .                                # Lint
 mypy src/                                   # Type check
 python -m pytest --tb=short --cov=src --cov-report=term --cov-fail-under=70
@@ -422,7 +435,7 @@ git diff --check                            # Whitespace check
 
 - The chat model is configurable via `LLM_PROVIDER` — DashScope (`qwen-plus`) or DeepSeek (`deepseek-v4-pro`). Embeddings always use DashScope/Tongyi unless `embedding_model` is set to a HuggingFace model.
 - Existing Chroma stores with incompatible embedding metadata are rebuilt automatically on startup.
-- Web search defaults to Bing with Baidu and DuckDuckGo fallback; predominantly Chinese queries prefer Baidu first. If Baidu returns a captcha/verification page, it is temporarily skipped. `WEB_SEARCH_PROVIDER` selects the starting provider for non-Chinese queries.
+- Key-backed search APIs are preferred for Mandarin when configured. Otherwise search uses the bounded Bing/Baidu/DuckDuckGo HTML fallbacks. CAPTCHA and repeated network failures open temporary provider circuits instead of blocking every expanded query.
 - The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
 - Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.
 - Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (the four file readers share `FILE_READ_ENABLED`). None require an API key; only `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.

@@ -24,6 +24,11 @@ META_DATE_SELECTORS = (
     {"name": "date"},
     {"itemprop": "datePublished"},
 )
+MODIFIED_META_DATE_SELECTORS = (
+    {"property": "article:modified_time"},
+    {"property": "og:updated_time"},
+    {"itemprop": "dateModified"},
+)
 
 
 def extract_publication_date(html: str, metadata: dict[str, Any] | None = None) -> date | None:
@@ -40,10 +45,25 @@ def extract_publication_date(html: str, metadata: dict[str, Any] | None = None) 
             return parsed
 
     if BeautifulSoup is None or not _looks_like_html(html):
+        for candidate in _modified_metadata_candidates(metadata or {}):
+            parsed = parse_publication_date(candidate)
+            if parsed is not None:
+                return parsed
         return parse_publication_date(html)
 
     soup = BeautifulSoup(html, "html.parser")
     for candidate in _html_candidates(soup):
+        parsed = parse_publication_date(candidate)
+        if parsed is not None:
+            return parsed
+
+    # Modification dates are a weaker fallback. A declared publication or
+    # creation date always wins, including one found in page markup.
+    for candidate in _modified_metadata_candidates(metadata or {}):
+        parsed = parse_publication_date(candidate)
+        if parsed is not None:
+            return parsed
+    for candidate in _modified_html_candidates(soup):
         parsed = parse_publication_date(candidate)
         if parsed is not None:
             return parsed
@@ -90,11 +110,26 @@ def _metadata_candidates(metadata: dict[str, Any]) -> list[Any]:
     return [metadata[key] for key in keys if key in metadata]
 
 
+def _modified_metadata_candidates(metadata: dict[str, Any]) -> list[Any]:
+    keys = ("modified_at", "dateModified", "date_modified", "updated_at")
+    return [metadata[key] for key in keys if key in metadata]
+
+
 def _html_candidates(soup: Any) -> list[str]:
     candidates: list[str] = []
     candidates.extend(_meta_candidates(soup))
-    candidates.extend(_time_candidates(soup))
     candidates.extend(_json_ld_candidates(soup))
+    candidates.extend(_time_candidates(soup))
+    return candidates
+
+
+def _modified_html_candidates(soup: Any) -> list[str]:
+    candidates: list[str] = []
+    for attrs in MODIFIED_META_DATE_SELECTORS:
+        tag = soup.find("meta", attrs=attrs)
+        if tag is not None and tag.get("content"):
+            candidates.append(str(tag["content"]))
+    candidates.extend(_json_ld_candidates(soup, modified=True))
     return candidates
 
 
@@ -118,29 +153,34 @@ def _time_candidates(soup: Any) -> list[str]:
     return values
 
 
-def _json_ld_candidates(soup: Any) -> list[str]:
+def _json_ld_candidates(soup: Any, *, modified: bool = False) -> list[str]:
     values: list[str] = []
     for tag in soup.find_all("script", attrs={"type": "application/ld+json"}):
         try:
             payload = json.loads(tag.string or tag.get_text() or "{}")
         except json.JSONDecodeError:
             continue
-        values.extend(_json_ld_date_values(payload))
+        values.extend(_json_ld_date_values(payload, modified=modified))
     return values
 
 
-def _json_ld_date_values(payload: Any) -> list[str]:
+def _json_ld_date_values(payload: Any, *, modified: bool = False) -> list[str]:
     if isinstance(payload, list):
-        return [value for item in payload for value in _json_ld_date_values(item)]
+        return [
+            value
+            for item in payload
+            for value in _json_ld_date_values(item, modified=modified)
+        ]
     if not isinstance(payload, dict):
         return []
 
     values: list[str] = []
-    for key in ("datePublished", "dateCreated", "dateModified"):
+    keys = ("dateModified",) if modified else ("datePublished", "dateCreated")
+    for key in keys:
         if payload.get(key):
             values.append(str(payload[key]))
     for key in ("@graph", "mainEntity", "articleBody"):
-        values.extend(_json_ld_date_values(payload.get(key)))
+        values.extend(_json_ld_date_values(payload.get(key), modified=modified))
     return values
 
 

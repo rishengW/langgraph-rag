@@ -29,7 +29,7 @@ from .page_structure import (
     PageStructure,
     assess_page_structure,
 )
-from .pdf_loader import PdfPageLoader, is_pdf_url
+from .pdf_loader import PdfPageLoader, is_pdf_url, looks_like_pdf_payload
 from .playwright_loader import playwright_loader_factory
 
 logger = logging.getLogger(__name__)
@@ -159,6 +159,17 @@ def fetch_pages(
         )
         for url in ordered_urls
     ]
+    pages = _retry_pages_as_pdf(
+        pages,
+        timeout=timeout,
+        max_tokens_per_page=max_tokens_per_page,
+        min_readable_chars=min_readable_chars,
+        min_readable_tokens=min_readable_tokens,
+        relevance_query=relevance_query,
+        policies=policies,
+        max_link_density=max_link_density,
+        min_content_words=min_content_words,
+    )
     pages = _retry_pages_with_js_fallback(
         pages,
         policies=policies,
@@ -444,6 +455,67 @@ def _policy_http_loader_factory(
     return build_loader
 
 
+PDF_DETECTED_FETCH_METHOD = "http_pdf_detected"
+
+
+def _pdf_loader_factory(headers: dict[str, str] | None) -> LoaderFactory:
+    """Build a PDF loader factory bound to one page's request headers."""
+
+    def build_loader(url: str, page_timeout: int) -> Any:
+        return PdfPageLoader(url, page_timeout, headers=headers)
+
+    return build_loader
+
+
+def _retry_pages_as_pdf(
+    pages: Sequence[FetchedPage],
+    *,
+    timeout: float,
+    max_tokens_per_page: int,
+    min_readable_chars: int,
+    min_readable_tokens: int,
+    relevance_query: str,
+    policies: dict[str, FetchPolicy],
+    max_link_density: float,
+    min_content_words: int,
+) -> list[FetchedPage]:
+    """Re-fetch responses that turned out to be PDF bytes behind an HTML URL."""
+
+    retried: list[FetchedPage] = []
+    for page in pages:
+        if page.fetch_method != PDF_DETECTED_FETCH_METHOD:
+            retried.append(page)
+            continue
+        headers = policies.get(page.url, FetchPolicy()).request_headers or None
+        started_at = time.monotonic()
+        documents, load_error = _load_documents(
+            [page.url],
+            timeout=timeout,
+            cache_ttl_seconds=0,
+            max_concurrent_loads=1,
+            document_cache=None,
+            loader_factory=_pdf_loader_factory(headers),
+        )
+        elapsed_ms = (time.monotonic() - started_at) * 1000
+        logger.info("Re-fetching %s as PDF after detecting a PDF response body", page.url)
+        retried.append(
+            _page_from_documents(
+                page.url,
+                documents,
+                elapsed_ms=elapsed_ms,
+                max_tokens_per_page=max_tokens_per_page,
+                min_readable_chars=min_readable_chars,
+                min_readable_tokens=min_readable_tokens,
+                relevance_query=relevance_query,
+                load_error=load_error,
+                fetch_method="pdf",
+                max_link_density=max_link_density,
+                min_content_words=min_content_words,
+            )
+        )
+    return retried
+
+
 def _retry_pages_with_js_fallback(
     pages: Sequence[FetchedPage],
     *,
@@ -597,6 +669,26 @@ def _page_from_documents(
             fetch_time_ms=elapsed_ms,
             error=error,
             fetch_method=fetch_method,
+        )
+
+    # Report how the content was really obtained, not which stage requested it.
+    if fetch_method == "http" and all(
+        str((document.metadata or {}).get("fetch_method") or "") == "pdf" for document in documents
+    ):
+        fetch_method = "pdf"
+
+    if fetch_method == "http" and any(
+        looks_like_pdf_payload(document.page_content or "") for document in documents
+    ):
+        # The HTML loader decoded PDF bytes into text. Signal the PDF retry
+        # instead of handing megabytes of binary noise to the prompt.
+        return FetchedPage(
+            url=url,
+            title="",
+            text="",
+            fetch_time_ms=elapsed_ms,
+            error="Response body is a PDF; retrying with the PDF loader.",
+            fetch_method=PDF_DETECTED_FETCH_METHOD,
         )
 
     title = _document_title(documents[0])

@@ -355,6 +355,8 @@ Set `FILE_READ_ROOT` to a dedicated directory rather than the project root so th
 | `read_excel_spreadsheet` | `.xlsx` (legacy `.xls` is not supported) |
 | `read_pdf` | `.pdf` (scanned/image-only PDFs without a text layer cannot be read) |
 
+`read_pdf` is for local files only and refuses URLs. PDFs found on the web are handled by the web-search fetch path and the `summarize_url` tool instead, which download and extract them with the same `pypdf` backend.
+
 ### Upload → read flow
 
 1. In the chat UI, click the 📎 button and pick one or more files. The browser POSTs them to `POST /chat/{id}/upload` as `multipart/form-data`.
@@ -396,7 +398,7 @@ Hard rejections are reserved for URLs that can never be sources (auth and search
 - **Optional semantic relevance** (`WEB_SEARCH_SEMANTIC_FILTER_ENABLED`, off by default) adds cosine similarity from a local sentence-transformers model. It can only add recall: a bounded bonus for strong matches, a rescue at the gate floor for results that lexical scoring filtered out, and a second chance for pages the lexical page gate rejected. It never lowers a lexical score or bypasses the year, quantity, and typed-evidence gates. First use downloads the model.
 - **Adaptive domain reputation** (`WEB_SEARCH_DOMAIN_REPUTATION_ENABLED`, on by default) records per-domain fetch outcomes (grounded, rejected, unreachable) in `CHROMA_DIR/web-search/reputation.sqlite3` and feeds a bounded ranking prior back into merge. It stays neutral until a domain reaches `WEB_SEARCH_DOMAIN_REPUTATION_MIN_SAMPLES`, and never rejects a URL on its own.
 - **Provider-result dedup** by canonical host/path, plus per-domain diversity in merge.
-- **Document fetching** loads HTML concurrently and extracts `.pdf` sources with `pypdf` (bounded to 30 pages / 20 MB), so official notices and vendor whitepapers stay eligible. Scanned PDFs without a text layer fail like any other unreadable page.
+- **Document fetching** loads HTML concurrently and extracts PDF sources with `pypdf` (bounded to 30 pages / 20 MB), so official notices and vendor whitepapers stay eligible. PDFs are recognized both by a `.pdf` path and by the `%PDF-` response header, which covers extension-less endpoints like `arxiv.org/pdf/1706.03762`. Scanned PDFs without a text layer fail like any other unreadable page.
 - **Optional JS-capable fallback** (`WEB_SEARCH_JS_FALLBACK_ENABLED`) retries through a lazy headless Chromium adapter whenever an HTTP fetch returned no readable text or a login/enable-JavaScript shell — the trigger is the measurement, not a domain list. It is bounded by `WEB_SEARCH_JS_RETRY_BUDGET`, and the configured domains (`baike.baidu.com`, `zhuanlan.zhihu.com`, `apps.microsoft.com`, `deepseek.net` by default) only get priority inside that budget. Off by default; requires `playwright` plus a Chromium runtime.
 - **Pre-index document filtering** (full graph only) drops short/empty/boilerplate/low-signal pages, with an optional embedding similarity gate against the question (`document_quality_relevance_query`) and configurable recency bias from extracted publication dates.
 - **Post-retrieval re-ranking** (full graph only) scores chunks by query/document overlap, frequency, and phrase matches; `RERANK_STRATEGY` switches between lexical (default), embedding, or hybrid.

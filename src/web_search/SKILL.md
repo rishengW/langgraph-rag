@@ -162,7 +162,10 @@ links recursively.
    domains get priority within that budget and force-JS domains skip HTTP. Do
    not add anti-bot bypass behavior.
 3. `.pdf` URLs load through `pdf_loader.PdfPageLoader` (bounded to
-   `MAX_PDF_PAGES` and `MAX_PDF_BYTES`) and bypass HTML extraction. PDFs
+   `MAX_PDF_PAGES` and `MAX_PDF_BYTES`) and bypass HTML extraction. Extension-less
+   endpoints that serve PDFs are detected from the `%PDF-` response header by
+   `looks_like_pdf_payload` and re-fetched through the same loader, so binary
+   noise never reaches the prompt. `FetchedPage.fetch_method` reports `pdf`. PDFs
    without a text layer fail like any other unreadable page.
 4. Extraction removes scripts, navigation, headers, footers, forms, and sidebars.
    It prefers JSON-LD and article/main containers, then falls back to body text.

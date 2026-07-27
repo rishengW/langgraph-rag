@@ -134,11 +134,40 @@ def _extract_publication_date(html: str, metadata: dict[str, Any]) -> date | Non
     return extract_publication_date(html, metadata)
 
 
-def default_loader_factory(url: str, page_timeout: int) -> WebBaseLoader:
-    return DateAwareWebBaseLoader(
-        url,
-        requests_kwargs={"timeout": page_timeout},
-    )
+class PdfAwareLoader:
+    """Loader wrapper that extracts PDF sources instead of indexing raw bytes.
+
+    A `.pdf` URL goes straight to the PDF reader. Extension-less endpoints that
+    serve PDFs (``arxiv.org/pdf/1706.03762``, CMS download handlers) are only
+    detectable from the response, so the HTML result is inspected for the PDF
+    file header and re-read when it matches. Without this, the HTML loader
+    decodes the binary body into megabytes of noise and indexes it as prose.
+    """
+
+    def __init__(self, url: str, page_timeout: int) -> None:
+        self.url = url
+        self.page_timeout = page_timeout
+
+    def load(self) -> list[Document]:
+        from ..web_search.pdf_loader import PdfPageLoader, is_pdf_url, looks_like_pdf_payload
+
+        if is_pdf_url(self.url):
+            return PdfPageLoader(self.url, self.page_timeout).load()
+
+        documents = list(
+            DateAwareWebBaseLoader(
+                self.url,
+                requests_kwargs={"timeout": self.page_timeout},
+            ).load()
+        )
+        if any(looks_like_pdf_payload(document.page_content or "") for document in documents):
+            logger.info("Re-reading %s as a PDF after detecting a PDF response body", self.url)
+            return PdfPageLoader(self.url, self.page_timeout).load()
+        return documents
+
+
+def default_loader_factory(url: str, page_timeout: int) -> PdfAwareLoader:
+    return PdfAwareLoader(url, page_timeout)
 
 
 def default_splitter_factory(
@@ -230,14 +259,10 @@ def _load_url_documents_batch(
                 )
 
     docs_nested = [
-        docs_by_index[index]
-        for index in range(len(source_urls))
-        if index in docs_by_index
+        docs_by_index[index] for index in range(len(source_urls)) if index in docs_by_index
     ]
     failed_urls = [
-        failed_by_index[index]
-        for index in range(len(source_urls))
-        if index in failed_by_index
+        failed_by_index[index] for index in range(len(source_urls)) if index in failed_by_index
     ]
     return docs_nested, failed_urls
 

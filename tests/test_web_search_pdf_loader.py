@@ -133,3 +133,70 @@ def test_fetch_pages_keeps_pdf_text_without_html_extraction():
     assert len(pages) == 1
     assert pages[0].error is None
     assert "Nanjing metro" in pages[0].text
+
+
+def test_looks_like_pdf_payload_detects_a_decoded_pdf_body():
+    from src.web_search.pdf_loader import looks_like_pdf_payload
+
+    assert looks_like_pdf_payload("%PDF-1.7\n1 0 obj ...")
+    assert looks_like_pdf_payload("\n  %PDF-1.4 garbage")
+    assert not looks_like_pdf_payload("<html><body>PDF guide</body></html>")
+    assert not looks_like_pdf_payload("")
+
+
+def test_fetch_pages_recovers_a_pdf_served_from_an_extensionless_url():
+    """arxiv.org/pdf/<id> has no extension, so only the payload reveals the PDF."""
+
+    pdf_bytes = _pdf_bytes("Attention is all you need. " * 40)
+    session = _Session(pdf_bytes)
+    html_loader_calls: list[str] = []
+
+    def loader_factory(url: str, page_timeout: int):
+        # First stage mimics the HTML loader decoding PDF bytes into text.
+        html_loader_calls.append(url)
+        from langchain_core.documents import Document
+
+        class _Decoded:
+            def load(self):
+                return [
+                    Document(
+                        page_content=pdf_bytes.decode("latin-1"),
+                        metadata={"source": url},
+                    )
+                ]
+
+        return _Decoded()
+
+    from src.web_search import content_fetcher as content_fetcher_module
+
+    original_loader = content_fetcher_module.PdfPageLoader
+
+    def patched_loader(url, page_timeout, **kwargs):
+        return original_loader(url, page_timeout, session=session, **kwargs)
+
+    content_fetcher_module.PdfPageLoader = patched_loader
+    try:
+        pages = fetch_pages(
+            ["https://arxiv.org/pdf/1706.03762"],
+            timeout=5,
+            cache_ttl_seconds=0,
+            relevance_query="attention is all you need",
+            loader_factory=loader_factory,
+        )
+    finally:
+        content_fetcher_module.PdfPageLoader = original_loader
+
+    assert html_loader_calls == ["https://arxiv.org/pdf/1706.03762"]
+    assert pages[0].fetch_method == "pdf"
+    assert pages[0].error is None
+    assert "Attention is all you need" in pages[0].text
+
+
+def test_default_loader_factory_reads_pdf_source_urls():
+    """Explicit `.pdf` source URLs used for indexing get extracted, not decoded."""
+
+    from src.rag.document_loader import PdfAwareLoader, default_loader_factory
+
+    loader = default_loader_factory("https://example.com/notice.pdf", 5)
+
+    assert isinstance(loader, PdfAwareLoader)

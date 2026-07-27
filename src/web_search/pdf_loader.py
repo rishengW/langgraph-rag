@@ -35,6 +35,17 @@ def is_pdf_url(url: str) -> bool:
     return bool(PDF_URL_RE.search(path))
 
 
+def looks_like_pdf_payload(text: str) -> bool:
+    """Return whether loaded text is really PDF bytes decoded as characters.
+
+    Many hosts serve PDFs from extension-less paths (``arxiv.org/pdf/1706.03762``,
+    CMS download endpoints). The HTML loader happily decodes those bytes, so the
+    only reliable signal at that point is the PDF file header.
+    """
+
+    return (text or "").lstrip()[:1024].startswith("%PDF-")
+
+
 class PdfPageLoader:
     """Minimal loader-compatible wrapper that extracts remote PDF text."""
 
@@ -126,5 +137,6 @@ __all__ = [
     "PdfPageLoader",
     "extract_pdf_text",
     "is_pdf_url",
+    "looks_like_pdf_payload",
     "pdf_loader_factory",
 ]

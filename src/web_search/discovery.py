@@ -28,6 +28,7 @@ from .factory import (
 )
 from .protocol import RankedSearchResult, WebSearchProvider
 from .query_prep import build_search_query
+from .semantic import DEFAULT_MIN_SIMILARITY, SemanticScorer, build_semantic_scorer, semantic_bonus
 
 if TYPE_CHECKING:
     from ..config import Settings
@@ -43,6 +44,10 @@ DEFAULT_PROVIDER_TIMEOUT_SECONDS = 8.0
 DEFAULT_API_PROVIDER_TIMEOUT_SECONDS = 20.0
 DEFAULT_SEARCH_DEADLINE_SECONDS = 30.0
 DEFAULT_PROVIDER_FANOUT = 2
+# A stage that yields a single usable URL is treated as thin recall rather than
+# success: later provider stages still run and their results are merged in. One
+# weak hit from the first provider must not suppress every fallback provider.
+MIN_STAGE_USABLE_RESULTS = 2
 PROVIDER_FAILURE_THRESHOLD = 2
 PROVIDER_FAILURE_COOLDOWN_SECONDS = 60.0
 _provider_cooldowns: dict[str, float] = {}
@@ -159,19 +164,43 @@ def discover_search_results_from_web(
         getattr(settings, "web_search_provider_fanout", DEFAULT_PROVIDER_FANOUT),
         DEFAULT_PROVIDER_FANOUT,
     )
+    top_k = int(getattr(settings, "web_search_top_k", 0) or 0)
+    stage_threshold = _stage_result_threshold(top_k)
+    collected: list[RankedSearchResult] = []
+    merged: list[RankedSearchResult] = []
     for start in range(0, len(provider_names), fanout):
         stage_names = provider_names[start : start + fanout]
-        selected = _discover_with_deadline(
-            question,
-            search_query,
-            settings,
-            _available_providers(stage_names, settings),
-            deadline_at=deadline_at,
+        collected.extend(
+            _discover_with_deadline(
+                question,
+                search_query,
+                settings,
+                _available_providers(stage_names, settings),
+                deadline_at=deadline_at,
+            )
         )
-        if selected:
-            return selected
+        # Earlier stages are never discarded: a thin stage contributes its URLs
+        # and the next stage adds recall on top of them.
+        merged = _merge_ranked_results(
+            collected,
+            provider_priority=provider_names,
+            top_k=top_k,
+        )
+        if len(merged) >= stage_threshold:
+            return merged
+        if monotonic() >= deadline_at:
+            logger.warning("Web search deadline reached; returning %d URL(s)", len(merged))
+            break
 
-    return []
+    return merged
+
+
+def _stage_result_threshold(top_k: int) -> int:
+    """Return how many usable URLs make a provider stage sufficient."""
+
+    if top_k <= 0:
+        return MIN_STAGE_USABLE_RESULTS
+    return max(1, min(MIN_STAGE_USABLE_RESULTS, top_k))
 
 
 def _provider_names_for_question(settings: Settings, question: str) -> list[str]:
@@ -448,6 +477,10 @@ def _discover_results_with_provider(
             DEFAULT_MIN_USABLE_URL_SCORE,
         ),
         query=search_query,
+        semantic_scorer=build_semantic_scorer(settings),
+        semantic_min_similarity=float(
+            getattr(settings, "web_search_semantic_min_similarity", DEFAULT_MIN_SIMILARITY)
+        ),
     )
     logger.info(
         "Discovered %s URL(s) from %s; keeping %s usable URL(s) after quality filtering",
@@ -472,10 +505,12 @@ def _rank_usable_results(
     top_k: int,
     min_score: int,
     query: str,
+    semantic_scorer: SemanticScorer | None = None,
+    semantic_min_similarity: float = DEFAULT_MIN_SIMILARITY,
 ) -> list[RankedSearchResult]:
     """Filter provider results without discarding their relevance metadata."""
 
-    best_by_url: dict[tuple[str, str], RankedSearchResult] = {}
+    candidates: list[tuple[int, SearchResult]] = []
     for provider_rank, result in enumerate(results):
         rejection_reason = prefetch_rejection_reason(result, query)
         if rejection_reason is not None:
@@ -486,7 +521,29 @@ def _rank_usable_results(
                 result.url,
             )
             continue
-        quality_score = result_quality_score(result, query=query)
+        candidates.append((provider_rank, result))
+
+    semantic_scores = _semantic_scores(
+        [result for _rank, result in candidates],
+        query=query,
+        scorer=semantic_scorer,
+        min_similarity=semantic_min_similarity,
+    )
+
+    best_by_url: dict[tuple[str, str], RankedSearchResult] = {}
+    for index, (provider_rank, result) in enumerate(candidates):
+        similarity, bonus = semantic_scores[index]
+        quality_score = result_quality_score(result, query=query) + bonus
+        if bonus > 0 and quality_score < min_score:
+            # Semantic rescue: a clearly on-topic result enters at the gate
+            # floor, so it can never outrank a lexically strong result but is
+            # no longer discarded for sharing no surface tokens with the query.
+            logger.info(
+                "Semantic rescue of lexically filtered result: url=%s similarity=%.3f",
+                result.url,
+                similarity,
+            )
+            quality_score = min_score
         if quality_score < min_score:
             continue
         ranked = RankedSearchResult(
@@ -516,6 +573,23 @@ def _rank_usable_results(
     if top_k > 0:
         return ranked_results[:top_k]
     return ranked_results
+
+
+def _semantic_scores(
+    results: list[SearchResult],
+    *,
+    query: str,
+    scorer: SemanticScorer | None,
+    min_similarity: float,
+) -> list[tuple[float, int]]:
+    """Return (similarity, bounded bonus) per candidate, or zeros when disabled."""
+
+    if scorer is None or not results:
+        return [(0.0, 0)] * len(results)
+    similarities = scorer.similarities(query, [result.relevance_text for result in results])
+    if len(similarities) != len(results):
+        return [(0.0, 0)] * len(results)
+    return [(similarity, semantic_bonus(similarity, min_similarity)) for similarity in similarities]
 
 
 def _provider_search_results(

@@ -1,29 +1,104 @@
 from __future__ import annotations
 
 from src.web_search.common import (
+    DEFAULT_MIN_USABLE_URL_SCORE,
+    OWNER_LOOKALIKE_PENALTY,
     SearchResult,
+    has_listing_path,
     is_noise_url,
+    is_owner_domain_lookalike,
     is_page_text_relevant,
     page_relevance_score,
     prefetch_rejection_reason,
+    result_constraint_score,
     result_quality_score,
 )
 
 
-def test_prefetch_gate_rejects_owner_name_lookalike_domain():
-    result = SearchResult(
+def test_owner_name_lookalike_domain_is_penalized_but_still_eligible():
+    query = "DeepSeek V3.2 \u548c V3.1 \u6709\u4ec0\u4e48\u533a\u522b"
+    lookalike = SearchResult(
         url="https://deepseek-seek.com.cn/news/v3-2",
         title="DeepSeek V3.2 \u548c V3.1 \u5bf9\u6bd4",
         snippet="DeepSeek V3.2 \u548c V3.1 \u529f\u80fd\u5dee\u5f02",
     )
-
-    assert (
-        prefetch_rejection_reason(
-            result,
-            "DeepSeek V3.2 \u548c V3.1 \u6709\u4ec0\u4e48\u533a\u522b",
-        )
-        == "owner_domain_lookalike"
+    neutral = SearchResult(
+        url="https://example.com/news/v3-2",
+        title=lookalike.title,
+        snippet=lookalike.snippet,
     )
+
+    assert prefetch_rejection_reason(lookalike, query) is None
+    assert is_owner_domain_lookalike(lookalike.url, query)
+    assert not is_owner_domain_lookalike(neutral.url, query)
+    assert result_constraint_score(lookalike, query) == (
+        result_constraint_score(neutral, query) - OWNER_LOOKALIKE_PENALTY
+    )
+    assert result_quality_score(lookalike, query=query) >= DEFAULT_MIN_USABLE_URL_SCORE
+
+
+def test_first_party_host_outside_the_allowlist_stays_usable():
+    """``deepseek.net`` and ``xiaomiev.com`` are real sources, not lookalikes."""
+
+    cases = [
+        ("DeepSeek V3 open source weights", "https://deepseek-ai.github.io/DeepSeek-V3/"),
+        ("xiaomi SU7 range", "https://www.xiaomiev.com/su7/spec"),
+    ]
+    for query, url in cases:
+        result = SearchResult(
+            url=url,
+            title=query,
+            snippet=f"{query} official details",
+        )
+
+        assert prefetch_rejection_reason(result, query) is None
+        assert result_quality_score(result, query=query) >= DEFAULT_MIN_USABLE_URL_SCORE
+
+
+def test_pdf_and_document_paths_remain_usable_sources():
+    query = "NVIDIA Blackwell architecture whitepaper"
+    whitepaper = SearchResult(
+        url="https://resources.nvidia.com/blackwell/architecture-brief.pdf",
+        title="NVIDIA Blackwell Architecture Technical Brief",
+        snippet="NVIDIA Blackwell GPU architecture whitepaper.",
+    )
+    download_path = SearchResult(
+        url="https://www.njmetro.com.cn/download/xianlutu.html",
+        title="\u5357\u4eac\u5730\u94c1\u7ebf\u8def\u56fe",
+        snippet="\u5357\u4eac\u5730\u94c1\u6700\u65b0\u7ebf\u8def\u56fe",
+    )
+
+    assert not is_noise_url(whitepaper.url)
+    assert not is_noise_url(download_path.url)
+    assert result_quality_score(whitepaper, query=query) >= DEFAULT_MIN_USABLE_URL_SCORE
+
+
+def test_listing_paths_are_demoted_instead_of_rejected():
+    query = "LangGraph release notes"
+    listing = SearchResult(
+        url="https://changelog.langchain.com/category/langgraph",
+        title="LangGraph changelog",
+        snippet="Latest LangGraph release notes.",
+    )
+    article = SearchResult(
+        url="https://changelog.langchain.com/announcements/langgraph",
+        title=listing.title,
+        snippet=listing.snippet,
+    )
+
+    assert not is_noise_url(listing.url)
+    assert has_listing_path("/category/langgraph")
+    assert result_quality_score(listing, query=query) < result_quality_score(
+        article,
+        query=query,
+    )
+
+
+def test_auth_and_search_paths_are_still_hard_rejected():
+    assert is_noise_url("https://example.com/login/next")
+    assert is_noise_url("https://example.com/account/settings")
+    assert is_noise_url("https://example.com/search?q=rag")
+    assert is_noise_url("https://example.com/assets/logo.png")
 
 
 def test_prefetch_gate_enforces_site_identifier_and_quoted_title_constraints():

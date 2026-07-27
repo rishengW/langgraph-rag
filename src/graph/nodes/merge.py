@@ -18,6 +18,7 @@ from ...web_search.common import (
     registrable_domain,
     text_relevance_delta,
 )
+from ...web_search.reputation import build_reputation_store, reputation_delta
 from .common import qa_question_resolver
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,21 @@ def merge_factory(
     -- the design decision in the 2026-06-17 form.
     """
 
+    reputation_store = build_reputation_store(settings)
+    min_samples = int(getattr(settings, "web_search_domain_reputation_min_samples", 5) or 5)
+
+    def domain_prior(url: str) -> int:
+        """Return the learned per-domain ranking prior for one URL."""
+
+        if reputation_store is None:
+            return 0
+        try:
+            stats = reputation_store.stats(url)
+        except Exception as exc:  # noqa: BLE001 - reputation must never break merge
+            logger.warning("Domain reputation lookup failed for %s: %s", url, exc)
+            return 0
+        return reputation_delta(stats, min_samples=min_samples)
+
     def merge(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("MERGE SEARCH RESULTS")
         explicit = _clean_urls(state.get("source_urls") or [])
@@ -77,6 +93,7 @@ def merge_factory(
             metadata_sets=metadata_sets,
             top_k=int(getattr(settings, "web_search_top_k", 0) or 0),
             original_question=original_question,
+            domain_prior=domain_prior,
         )
         return {"source_urls": combined}
 
@@ -111,10 +128,12 @@ def _combine_and_rank_sets(
     top_k: int,
     metadata_sets: list[list[dict[str, Any]]] | None = None,
     original_question: str = "",
+    domain_prior: Callable[[str], int] | None = None,
 ) -> list[str]:
     """Rank against the original question, then diversify selected domains."""
 
     canonical_to_records: dict[str, dict[str, Any]] = {}
+    prior = domain_prior or (lambda _url: 0)
 
     def record(
         url: str,
@@ -139,7 +158,7 @@ def _combine_and_rank_sets(
                 "best_relevance_score": relevance_score,
                 "best_original_relevance_score": original_relevance_score,
                 "best_quality_score": quality_score,
-                "host_quality_score": host_quality_score(url),
+                "host_quality_score": host_quality_score(url) + prior(url),
                 "has_score": has_score,
                 "first_seen": len(canonical_to_records),
             }

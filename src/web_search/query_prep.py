@@ -88,9 +88,33 @@ QUESTION_FILLER_WORDS = frozenset(
 
 CURRENT_YEAR = str(date.today().year)
 TIME_SENSITIVE_PATTERNS = (
-    re.compile(r"\b(?:latest|newest|current|recent|new|now|today|up.?to.?date)\b", re.I),
+    re.compile(r"\b(?:latest|newest|current|currently|recent|new|now|today|up.?to.?date)\b", re.I),
+    # Relative wording is as time-sensitive as "latest". Without these, "who
+    # wins the world cup this year" produced an undated query and providers
+    # answered with evergreen all-time list pages.
+    re.compile(
+        r"\b(?:this|last|next|past|coming)\s+(?:year|month|week|season)\b|"
+        r"\b(?:so\s+far|thus\s+far|to\s+date|right\s+now|at\s+the\s+moment|"
+        r"this\s+time)\b",
+        re.I,
+    ),
     re.compile(r"(?<!\d)20\d{2}(?!\d)"),
-    re.compile(r"(?:最新|当前|现在|近期|最近|截至(?:目前|现在)?|今年|今日|今天)"),
+    re.compile(
+        r"(?:最新|当前|现在|近期|最近|截至(?:目前|现在)?|"
+        r"今年|去年|明年|本年|本月|今日|今天|目前|当下)"
+    ),
+)
+
+# Relative time wording resolved to a concrete year offset from today. Leaving
+# the wording in the query hurts twice: providers cannot use it, and the terms
+# "this"/"year" are then treated as the query's distinctive entities.
+_RELATIVE_YEAR_PATTERNS: tuple[tuple[re.Pattern[str], int], ...] = (
+    (re.compile(r"\b(?:this|the\s+current)\s+(?:year|season)\b", re.I), 0),
+    (re.compile(r"\b(?:last|previous|past)\s+(?:year|season)\b", re.I), -1),
+    (re.compile(r"\b(?:next|coming|following)\s+(?:year|season)\b", re.I), 1),
+    (re.compile(r"今年|本年(?:度)?"), 0),
+    (re.compile(r"去年|上一?年"), -1),
+    (re.compile(r"明年|下一?年"), 1),
 )
 MANDARIN_SEARCH_MAX_VARIANTS = 2
 
@@ -159,16 +183,24 @@ def prepare_search_query(question: str) -> str:
     if not original:
         return original
 
-    if _is_mandarin_query(original):
-        result = _prepare_mandarin_query(original)
+    # Resolve relative wording before term extraction: dropping "this year" as
+    # a phrase avoids leaving the orphaned, meaningless token "year" behind.
+    relative_year = None if _contains_year(original) else _relative_year(original)
+    source = _strip_relative_time(original) if relative_year is not None else original
+
+    if _is_mandarin_query(source):
+        result = _prepare_mandarin_query(source)
     else:
-        key_terms = _extract_key_terms(original)
+        key_terms = _extract_key_terms(source)
         if not key_terms:
             return original
         result = " ".join(key_terms)
 
-    if _is_time_sensitive(original) and not _contains_year(original):
-        result = f"{result} {CURRENT_YEAR}"
+    if not _contains_year(original):
+        if relative_year is not None:
+            result = f"{result} {relative_year}".strip()
+        elif _is_time_sensitive(original):
+            result = f"{result} {CURRENT_YEAR}"
 
     if _is_mandarin_query(original):
         result = _add_mandarin_intent_hints(original, result)
@@ -403,6 +435,24 @@ def _append_missing_terms(query: str, terms: list[str]) -> str:
 
 def _is_time_sensitive(text: str) -> bool:
     return any(pattern.search(text) for pattern in TIME_SENSITIVE_PATTERNS)
+
+
+def _relative_year(text: str) -> str | None:
+    """Return the concrete year a relative expression refers to, if any."""
+
+    for pattern, offset in _RELATIVE_YEAR_PATTERNS:
+        if pattern.search(text or ""):
+            return str(date.today().year + offset)
+    return None
+
+
+def _strip_relative_time(text: str) -> str:
+    """Remove resolved relative time wording from a prepared query."""
+
+    cleaned = text or ""
+    for pattern, _offset in _RELATIVE_YEAR_PATTERNS:
+        cleaned = pattern.sub(" ", cleaned)
+    return " ".join(cleaned.split())
 
 
 def _contains_year(text: str) -> bool:

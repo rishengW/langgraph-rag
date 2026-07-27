@@ -108,29 +108,37 @@ NOISE_HOSTNAMES = {
 }
 
 # REFACTOR: URL-level quality gates for provider results before page fetching.
+# Only segments that never carry article content stay hard rejections. Listing
+# segments (tags, categories, author archives) frequently do carry usable text
+# and are demoted by ``LISTING_PATH_PENALTY`` instead of removed. Distribution
+# segments such as ``download`` or ``files`` were removed entirely: official
+# release notes and document pages commonly live under them, and unreadable
+# binaries are still rejected by ``LOW_VALUE_FILE_EXTENSIONS``.
 NOISE_PATH_SEGMENTS = {
     "account",
     "accounts",
     "auth",
-    "author",
-    "authors",
-    "categories",
-    "category",
-    "download",
-    "downloads",
-    "file",
-    "files",
     "login",
     "register",
     "search",
     "searches",
     "signin",
     "signup",
+}
+LISTING_PATH_SEGMENTS = {
+    "author",
+    "authors",
+    "categories",
+    "category",
     "tag",
     "tags",
     "user",
     "users",
 }
+# URL shape is only a tiebreaker now that ``page_structure`` measures link
+# density on the page we fetched. Keep the nudge small enough that a listing URL
+# with strong query relevance still clears the usability gate.
+LISTING_PATH_PENALTY = 6
 LOW_VALUE_PATH_LEAFS = {
     "about",
     "contact",
@@ -150,6 +158,10 @@ DOORWAY_PATH_LEAFS = {
     "redir.php",
     "repack.php",
 }
+# Binary and media assets the fetcher cannot turn into readable text. ``.pdf``
+# is deliberately absent: government notices, standards, and vendor
+# whitepapers are usually PDFs, and the lightweight fetcher extracts them
+# through ``src/web_search/pdf_loader.py``.
 LOW_VALUE_FILE_EXTENSIONS = {
     ".7z",
     ".apk",
@@ -169,7 +181,6 @@ LOW_VALUE_FILE_EXTENSIONS = {
     ".mov",
     ".mp3",
     ".mp4",
-    ".pdf",
     ".png",
     ".ppt",
     ".pptx",
@@ -217,6 +228,12 @@ SYNDICATED_HOST_PENALTY = 12
 OFFICIAL_SOURCE_BONUS = 18
 UNVERIFIED_OFFICIAL_SOURCE_PENALTY = 12
 LANGUAGE_MISMATCH_PENALTY = 10
+# A hostname that embeds an owner's name without being one of its registered
+# domains is a weak impersonation signal, not proof. Substring matching also
+# hits genuine first-party and community hosts (``deepseek.net``,
+# ``xiaomiev.com``, ``deepseek-ai.github.io``), so this is a ranking penalty
+# rather than a pre-fetch rejection.
+OWNER_LOOKALIKE_PENALTY = 15
 
 RECOGNIZED_OWNER_DOMAINS = frozenset(
     {
@@ -376,8 +393,19 @@ def prefetch_rejection_reason(result: SearchResult, query: str) -> str | None:
         # entity coverage remains a weighted lexical signal below; quoted
         # titles and identifiers are the hard anchors.
 
+    return None
+
+
+def is_owner_domain_lookalike(url_or_host: str, query: str) -> bool:
+    """Return whether a host mimics a known owner's name without owning it."""
+
+    hostname = _hostname_from_url_or_host(url_or_host)
+    if not hostname:
+        return False
+
+    normalized_query = normalize_constraint_text(query)
     for identity, owner_domains in OWNER_IDENTITY_DOMAINS.items():
-        if identity not in normalize_constraint_text(query):
+        if identity not in normalized_query:
             continue
         latin_identity = identity.encode("ascii", errors="ignore").decode("ascii")
         identity_tokens = (
@@ -392,8 +420,8 @@ def prefetch_rejection_reason(result: SearchResult, query: str) -> str | None:
         if not any(token and token in hostname for token in identity_tokens):
             continue
         if not any(_host_matches(hostname, domain) for domain in owner_domains):
-            return "owner_domain_lookalike"
-    return None
+            return True
+    return False
 
 
 def result_constraint_score(result: SearchResult, query: str) -> int:
@@ -411,6 +439,8 @@ def result_constraint_score(result: SearchResult, query: str) -> int:
     evidence_text = result.relevance_text.strip()
     if contains_cjk(query) and evidence_text and not contains_cjk(evidence_text):
         score -= LANGUAGE_MISMATCH_PENALTY
+    if is_owner_domain_lookalike(result.url, query):
+        score -= OWNER_LOOKALIKE_PENALTY
     return score
 
 
@@ -458,6 +488,12 @@ def is_noise_url(url: str) -> bool:
     if has_noise_path(parsed.path):
         return True
     return bool(has_search_query(parsed.path, parsed.query))
+
+
+def has_listing_path(path: str) -> bool:
+    """Return whether a path looks like a tag, category, or author listing."""
+
+    return bool(set(path_segments(path)) & LISTING_PATH_SEGMENTS)
 
 
 def has_noise_path(path: str) -> bool:
@@ -516,6 +552,7 @@ def url_quality_score(url: str, *, query: str = "") -> int:
     score -= 5 if parsed.query else 0
     score += 15 if set(segments) & CONTENT_PATH_CUES else 0
     score += 8 if any(re.fullmatch(r"20\d{2}", segment) for segment in segments) else 0
+    score -= LISTING_PATH_PENALTY if set(segments) & LISTING_PATH_SEGMENTS else 0
     score += _url_query_relevance_bonus(segments, parsed.hostname or "", query)
     return score
 
@@ -544,7 +581,12 @@ _SEARCH_QUERY_FILLER_RE = re.compile(
     r"\b(?:a|an|the|is|are|was|were|of|in|on|at|to|for|with|by|about|"
     r"what|when|where|which|who|how|does|do|did|can|could|will|would|"
     r"should|tell|explain|find|show|give|list|please|just|latest|newest|"
-    r"current|recent|new|now)\b",
+    r"current|recent|new|now|"
+    # Relative time wording carries no topical signal. Leaving it in made
+    # "this"/"year" the distinctive terms of "who wins the world cup this
+    # year", so the multi-entity guard rejected the correct page.
+    r"this|that|these|those|year|years|month|months|week|weeks|"
+    r"day|days|today|yesterday|tomorrow|currently)\b",
     re.I,
 )
 
@@ -566,6 +608,14 @@ _CJK_QUERY_FILLERS = (
     "多少",
     "几个",
     "几条",
+    # Relative time markers, dropped for the same reason as the Latin ones.
+    "今年",
+    "去年",
+    "明年",
+    "本年",
+    "目前",
+    "现在",
+    "最近",
 )
 
 _YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")

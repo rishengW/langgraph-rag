@@ -51,6 +51,7 @@ def web_answer_factory(
         from ...web_search.claim_consensus import assess_status_consensus
         from ...web_search.common import is_page_text_relevant
         from ...web_search.content_fetcher import fetch_pages, is_readable_page
+        from ...web_search.page_structure import structure_rejection_reason
         from ...web_search.prompt_builder import build_web_search_prompt
 
         pages = fetch_pages(
@@ -65,6 +66,9 @@ def web_answer_factory(
             js_fallback_enabled=settings.web_search_js_fallback_enabled,
             js_fallback_domains=settings.web_search_js_fallback_domains,
             js_force_domains=settings.web_search_js_force_domains,
+            js_retry_budget=settings.web_search_js_retry_budget,
+            max_link_density=settings.web_search_max_link_density,
+            min_content_words=settings.web_search_min_content_words,
         )
 
         # Guard against ungrounded answers: if no fetched page produced
@@ -84,15 +88,43 @@ def web_answer_factory(
                 min_tokens=settings.web_search_min_page_tokens,
             )
         ]
+        # Structural filtering measures the fetched page instead of guessing
+        # from its URL: index/tag listings, login walls, and thin shells are
+        # removed here so the lexical gate only sees real prose.
+        structural_pages = readable_pages
+        if settings.web_search_structure_filter_enabled:
+            structural_pages = []
+            for page in readable_pages:
+                # Page objects supplied by callers or tests may predate
+                # structural measurement, so an absent structure abstains.
+                structure = getattr(page, "structure", None)
+                reason = None if structure is None else structure_rejection_reason(structure)
+                if reason is None or structure is None:
+                    structural_pages.append(page)
+                    continue
+                logger.info(
+                    "Filtered web source by page structure: url=%s reason=%s "
+                    "link_density=%.3f content_words=%d",
+                    page.url,
+                    reason,
+                    structure.link_density,
+                    structure.content_words,
+                )
         topical_pages = [
             page
-            for page in readable_pages
+            for page in structural_pages
             if is_page_text_relevant(
                 page.text or "",
                 question,
                 title=page.title or "",
             )
         ]
+        topical_pages = _rescue_semantically_relevant_pages(
+            structural_pages,
+            topical_pages,
+            question,
+            settings,
+        )
         date_ranked_pages, date_conflict_urls = _rank_pages_by_publication_date(
             topical_pages,
             question,
@@ -115,13 +147,14 @@ def web_answer_factory(
                 ", ".join(missing_years),
             )
             relevant_pages = []
-        filtered_urls = [page.url for page in readable_pages if page not in topical_pages]
+        filtered_urls = [page.url for page in structural_pages if page not in topical_pages]
         if filtered_urls:
             logger.info(
                 "Filtered readable but off-topic web source content: urls=%s",
                 ", ".join(filtered_urls),
             )
         if not relevant_pages:
+            _record_domain_outcomes(settings, pages, relevant_pages)
             attempted = ", ".join(page.url for page in pages if page.url) or "none"
             logger.warning(
                 "No relevant readable web source content for question; skipping LLM call "
@@ -154,6 +187,8 @@ def web_answer_factory(
                 "web_answer_no_readable_content": True,
                 "web_answer_attempts": attempts,
             }
+
+        _record_domain_outcomes(settings, pages, relevant_pages)
 
         status_consensus = assess_status_consensus(relevant_pages, question)
         if status_consensus.prompt_instruction:
@@ -247,6 +282,91 @@ def _clean_urls(values: Sequence[Any]) -> list[str]:
         seen.add(url)
         urls.append(url)
     return urls
+
+
+def _record_domain_outcomes(
+    settings: Settings,
+    pages: Sequence[Any],
+    admitted: Sequence[Any],
+) -> None:
+    """Feed this turn's fetch outcomes into the adaptive domain reputation prior."""
+
+    from ...web_search.reputation import (
+        OUTCOME_GROUNDED,
+        OUTCOME_REJECTED,
+        OUTCOME_UNREACHABLE,
+        build_reputation_store,
+    )
+
+    store = build_reputation_store(settings)
+    if store is None:
+        return
+
+    admitted_urls = {getattr(page, "url", "") for page in admitted}
+    outcomes: list[tuple[str, str]] = []
+    for page in pages:
+        url = str(getattr(page, "url", "") or "")
+        if not url:
+            continue
+        if url in admitted_urls:
+            outcomes.append((url, OUTCOME_GROUNDED))
+        elif getattr(page, "text", ""):
+            outcomes.append((url, OUTCOME_REJECTED))
+        else:
+            outcomes.append((url, OUTCOME_UNREACHABLE))
+    try:
+        store.record_many(outcomes)
+    except Exception as exc:  # noqa: BLE001 - telemetry must never break answering
+        logger.warning("Could not record domain reputation outcomes: %s", exc)
+
+
+def _rescue_semantically_relevant_pages(
+    candidates: Sequence[Any],
+    admitted: list[Any],
+    question: str,
+    settings: Settings,
+) -> list[Any]:
+    """Re-admit lexically rejected pages that are semantically on topic.
+
+    Lexical coverage misses paraphrases and cross-language pairs. Similarity is
+    only allowed to add pages back; the hard year, quantity, and typed-evidence
+    checks already ran inside ``is_page_text_relevant`` and are not revisited
+    here, so a rescued page still has to survive the later evidence gates.
+    """
+
+    from ...web_search.semantic import build_semantic_scorer
+
+    scorer = build_semantic_scorer(settings)
+    rejected = [page for page in candidates if page not in admitted]
+    if scorer is None or not rejected:
+        return admitted
+
+    leads = [
+        f"{getattr(page, 'title', '') or ''} {str(getattr(page, 'text', '') or '')[:1200]}".strip()
+        for page in rejected
+    ]
+    similarities = scorer.similarities(question, leads)
+    if len(similarities) != len(rejected):
+        return admitted
+
+    threshold = float(settings.web_search_semantic_min_similarity)
+    rescued = {
+        id(page): similarity
+        for page, similarity in zip(rejected, similarities, strict=True)
+        if similarity >= threshold
+    }
+    if not rescued:
+        return admitted
+
+    for page in rejected:
+        if id(page) in rescued:
+            logger.info(
+                "Rescued semantically relevant web source: url=%s similarity=%.3f",
+                getattr(page, "url", ""),
+                rescued[id(page)],
+            )
+    # Preserve the original ranked order of the candidate list.
+    return [page for page in candidates if page in admitted or id(page) in rescued]
 
 
 def _dedupe_near_duplicate_pages(

@@ -32,7 +32,7 @@ langgraph-rag/
 |   |-- sessions/             # Chat session registry, SQLite metadata + checkpoint persistence
 |   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, file readers) + shared HTTP helper
 |   |-- utils/                # Retry, networking, URL parsing helpers
-|   |-- web_search/           # Search APIs + HTML fallbacks, discovery, ranking, fetching, JS fallback
+|   |-- web_search/           # Search APIs + HTML fallbacks, discovery, ranking, fetching (HTML/PDF/JS), structural + semantic filtering, domain reputation
 |-- tests/                    # Offline-focused pytest suite
 |-- ARCHITECTURE.md           # System architecture and operational notes
 |-- COMPANY_READINESS_GAPS.md # Completed and remaining company-readiness work
@@ -58,7 +58,7 @@ Install runtime dependencies:
 python -m pip install -r requirements.txt
 ```
 
-Playwright is included in the runtime requirements. Install its Chromium binary only if you enable `WEB_SEARCH_JS_FALLBACK_ENABLED`:
+Playwright is included in the runtime requirements. Install its Chromium binary only if you enable `WEB_SEARCH_JS_FALLBACK_ENABLED` (the browser retry is skipped silently without it):
 
 ```powershell
 python -m playwright install chromium
@@ -120,7 +120,16 @@ Key settings:
 | `WEB_SEARCH_LIGHTWEIGHT` | `true` | Use lightweight graph for web search |
 | `WEB_SEARCH_TOP_K` | `6` | Top-K URLs after merge ranking |
 | `WEB_SEARCH_MIN_URL_SCORE` | `45` | URL quality threshold (0-100) |
-| `WEB_SEARCH_JS_FALLBACK_ENABLED` | `false` | Opt-in Playwright Chromium retry for JS-rendered domains |
+| `WEB_SEARCH_JS_FALLBACK_ENABLED` | `false` | Opt-in Playwright Chromium retry for unreadable pages |
+| `WEB_SEARCH_JS_RETRY_BUDGET` | `2` | Maximum browser renders per fetch batch |
+| `WEB_SEARCH_STRUCTURE_FILTER_ENABLED` | `true` | Drop listing/login/thin pages by measuring the fetched page |
+| `WEB_SEARCH_MAX_LINK_DENSITY` | `0.5` | Anchor-text share above which a page counts as a listing |
+| `WEB_SEARCH_MIN_CONTENT_WORDS` | `60` | Content units below which a page is too thin to ground an answer |
+| `WEB_SEARCH_SEMANTIC_FILTER_ENABLED` | `false` | Opt-in embedding similarity that can only add recall |
+| `WEB_SEARCH_SEMANTIC_MODEL` | `paraphrase-multilingual-MiniLM-L12-v2` | Local sentence-transformers model for similarity |
+| `WEB_SEARCH_SEMANTIC_MIN_SIMILARITY` | `0.35` | Cosine similarity required for a bonus or rescue |
+| `WEB_SEARCH_DOMAIN_REPUTATION_ENABLED` | `true` | Learn a per-domain ranking prior from fetch outcomes |
+| `WEB_SEARCH_DOMAIN_REPUTATION_MIN_SAMPLES` | `5` | Observations before a domain's reputation counts |
 | `WEATHER_ENABLED` | `false` | Open-Meteo weather/forecast tool |
 | `STOCK_ENABLED` | `false` | yfinance stock-quote tool |
 | `CURRENCY_ENABLED` | `false` | Frankfurter currency-conversion tool |
@@ -181,11 +190,11 @@ Skips Chroma, embeddings, and grading. The agent either answers directly (system
 - **decompose** splits a compound question into 1-3 atomic sub-questions; atomic questions bypass the decomposition LLM.
 - **search_queries** executes up to 6 distinct queries with at most 3 concurrent provider calls; this bounded fan-out is owned by the graph, so chat does not run a duplicate preliminary search or rebuild the graph per turn.
 - **merge** dedupes URLs by canonical form and ranks provider title/snippet relevance and overall quality before cross-query overlap and provider rank, keeping `web_search_top_k`.
-- **web_answer** fetches the merged URLs, rejects fetched pages that are not relevant to the query, extracts readable text, and prompts the LLM to synthesize a grounded answer.
+- **web_answer** fetches the merged URLs (HTML, PDF, or a bounded browser render), then admits pages through readability, structural measurement, query relevance, publication-date, duplicate, and evidence gates before prompting the LLM for a grounded answer. Each page's outcome is recorded against its domain for future ranking.
 
 When `web_answer` produces no readable, relevant content and expansion has not yet fired, the post-`web_answer` edge routes to **expand**, which produces bounded keyword paraphrases per sub-question. The graph re-enters `search_queries → merge → web_answer` with the broader query set; the merge stage combines the new URLs with the first attempt's URLs rather than discarding them. A second failure terminates with the grounded refusal. Web-search mode never substitutes an answer from model training knowledge when no source survives admission.
 
-Provider queries use deterministic keyword cleanup by default. Set `WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED=true` only when an additional LLM rewrite call is worth its latency and cost; it is not required for ordinary chat search.
+Provider queries use deterministic keyword cleanup by default. Relative time wording is resolved to a concrete year, so "who wins the world cup this year" searches for the current year instead of returning evergreen all-time list pages; `last year` and `next year` (and `今年`/`去年`/`明年`) resolve the same way, and an explicit year in the question always wins. Set `WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED=true` only when an additional LLM rewrite call is worth its latency and cost; it is not required for ordinary chat search.
 
 ### Graph Nodes
 
@@ -211,7 +220,7 @@ The agent can be given any combination of these tools via per-tool config flags.
 | Tool | Module | Config flag | Notes |
 |---|---|---|---|
 | `retrieve_source_documents` | `src/rag/chroma_retriever.py` | always on (full graph) | Chroma vectorstore retrieval |
-| `live_web_search` | `src/web_search/tool.py` | `WEB_SEARCH_ENABLED=true` (default) | Bing/Baidu/DuckDuckGo HTML scraping |
+| `live_web_search` | `src/web_search/tool.py` | `WEB_SEARCH_ENABLED=true` (default) | Serper/Brave/Tavily/Bing APIs plus Bing/Baidu/DuckDuckGo HTML fallbacks |
 | `get_weather` | `src/tools/weather.py` | `WEATHER_ENABLED=true` | Open-Meteo forecast (city or coordinates), no API key |
 | `get_stock_quote` | `src/tools/stock.py` | `STOCK_ENABLED=true` | yfinance / Yahoo Finance, no API key |
 | `convert_currency` | `src/tools/currency.py` | `CURRENCY_ENABLED=true` | Frankfurter API (201 currencies), no API key |
@@ -319,6 +328,7 @@ Chat uses additional persisted state:
 - `.chroma/chat/<thread_id>/`: isolated Chroma store for per-thread sources
 - `.chroma/chat/sessions.sqlite3`: session metadata via `SQLiteStorage`
 - `.chroma/chat/checkpoints.sqlite3`: LangGraph checkpoints via `SQLiteMemorySaver`
+- `.chroma/web-search/reputation.sqlite3`: rolling per-domain fetch outcomes used as a ranking prior (safe to delete; it rebuilds itself)
 
 Chat sessions survive app restarts. Sessions with explicit URLs use isolated per-thread stores. Lightweight web chat compiles once, discovers sources inside the graph, and persists the latest URLs as session metadata without rebuilding Chroma or the graph. Checkpoints retain the complete transcript for history and restart recovery, while model calls receive only a bounded recent projection controlled by `CHAT_CONTEXT_MAX_TURNS` and `CHAT_CONTEXT_MAX_CHARS`. The `SQLiteMemorySaver` checkpointer is thread-safe under concurrent `/chat` requests for the same thread (uses a reentrant lock around the inherited `MemorySaver` mutations and the SQLite snapshot).
 
@@ -375,15 +385,21 @@ Live web search supports key-backed APIs and HTML fallbacks in `src/web_search/`
 - **Baidu** (`BaiduWebSearch`) - HTML fallback with CAPTCHA detection
 - **DuckDuckGo** (`DuckDuckGoWebSearch`) - bounded HTML fallback
 
-Configured API providers are automatically prioritized for predominantly Chinese queries. Discovery runs ordered provider stages with `web_search_provider_fanout=2`, independent adapter timeouts, a shared overall deadline, and per-provider circuit breakers. If no API key is configured, Mandarin search falls back to concurrent Baidu/Bing HTML discovery and then DuckDuckGo. An explicitly injected provider remains pinned for tests and integrations.
+Configured API providers are automatically prioritized for predominantly Chinese queries. Discovery runs ordered provider stages with `web_search_provider_fanout=2`, independent adapter timeouts, a shared overall deadline, and per-provider circuit breakers. A stage ends provider fallback only when it yields at least two usable URLs, so a single weak hit no longer suppresses every remaining provider; thinner stages keep their URLs and the next stage merges more recall on top. If no API key is configured, Mandarin search falls back to concurrent Baidu/Bing HTML discovery and then DuckDuckGo. An explicitly injected provider remains pinned for tests and integrations.
 
-A multi-stage quality pipeline runs before the agent sees URLs:
+### Filtering pipeline
 
-- **Pre-fetch admission and ranking** combines provider title/snippet relevance, identifiers, quoted titles, `site:` constraints, intent evidence, language, source authority, requested years, count evidence, and URL quality. Owner-name lookalike domains and hard constraint mismatches are rejected before page fetching.
-- **Provider-result dedup** by canonical host/path.
-- **Pre-index document filtering** drops short/empty/boilerplate/low-signal pages, with optional embedding similarity gate against the question (`document_quality_relevance_query`) and configurable recency bias from extracted publication dates.
-- **Post-retrieval re-ranking** scores chunks by query/document overlap, frequency, and phrase matches; `RERANK_STRATEGY` switches between lexical (default), embedding, or hybrid.
-- **Optional JS-capable fallback** (`WEB_SEARCH_JS_FALLBACK_ENABLED`) retries known JS-only domains (`baike.baidu.com`, `zhuanlan.zhihu.com`, `apps.microsoft.com`, `deepseek.net` by default) through a lazy headless Chromium adapter when the HTTP loader returns empty/insufficient text. Off by default; requires installing `playwright` and a Chromium runtime.
+Hard rejections are reserved for URLs that can never be sources (auth and search paths, unresolved search-engine redirects, doorway scripts, unparseable binaries). Everything else is scored, measured, or demoted, so a relevant page is not lost to a guess about its URL shape.
+
+- **Pre-fetch admission and ranking** combines provider title/snippet relevance, identifiers, quoted titles, `site:` constraints, intent evidence, language, source authority, requested years, count evidence, and URL quality. Hard constraint mismatches are rejected. Owner-name lookalike hosts and tag/category/author listing paths are *demoted* rather than removed, because substring and path guesses also hit genuine first-party sources.
+- **Structural page filtering** (`WEB_SEARCH_STRUCTURE_FILTER_ENABLED`, on by default) measures the page that was actually fetched — anchor-text share, anchors per 100 words, and content volume — and removes index/tag listings, login and enable-JavaScript shells, and thin SEO pages. Unmeasurable pages abstain instead of being rejected. This is what replaces URL-pattern guessing; see `src/web_search/page_structure.py`.
+- **Optional semantic relevance** (`WEB_SEARCH_SEMANTIC_FILTER_ENABLED`, off by default) adds cosine similarity from a local sentence-transformers model. It can only add recall: a bounded bonus for strong matches, a rescue at the gate floor for results that lexical scoring filtered out, and a second chance for pages the lexical page gate rejected. It never lowers a lexical score or bypasses the year, quantity, and typed-evidence gates. First use downloads the model.
+- **Adaptive domain reputation** (`WEB_SEARCH_DOMAIN_REPUTATION_ENABLED`, on by default) records per-domain fetch outcomes (grounded, rejected, unreachable) in `CHROMA_DIR/web-search/reputation.sqlite3` and feeds a bounded ranking prior back into merge. It stays neutral until a domain reaches `WEB_SEARCH_DOMAIN_REPUTATION_MIN_SAMPLES`, and never rejects a URL on its own.
+- **Provider-result dedup** by canonical host/path, plus per-domain diversity in merge.
+- **Document fetching** loads HTML concurrently and extracts `.pdf` sources with `pypdf` (bounded to 30 pages / 20 MB), so official notices and vendor whitepapers stay eligible. Scanned PDFs without a text layer fail like any other unreadable page.
+- **Optional JS-capable fallback** (`WEB_SEARCH_JS_FALLBACK_ENABLED`) retries through a lazy headless Chromium adapter whenever an HTTP fetch returned no readable text or a login/enable-JavaScript shell — the trigger is the measurement, not a domain list. It is bounded by `WEB_SEARCH_JS_RETRY_BUDGET`, and the configured domains (`baike.baidu.com`, `zhuanlan.zhihu.com`, `apps.microsoft.com`, `deepseek.net` by default) only get priority inside that budget. Off by default; requires `playwright` plus a Chromium runtime.
+- **Pre-index document filtering** (full graph only) drops short/empty/boilerplate/low-signal pages, with an optional embedding similarity gate against the question (`document_quality_relevance_query`) and configurable recency bias from extracted publication dates.
+- **Post-retrieval re-ranking** (full graph only) scores chunks by query/document overlap, frequency, and phrase matches; `RERANK_STRATEGY` switches between lexical (default), embedding, or hybrid.
 
 When `web_search_lightweight` is enabled (default), the lightweight graph routes the agent's tool call through `decompose → search_queries → merge → web_answer` as described above, with one-shot conditional expansion and a grounded refusal when no evidence survives. Chat uses this as the sole web-search owner; it does not perform a preliminary provider search or recompile the graph for each turn.
 
@@ -423,7 +439,7 @@ Starts QA on `http://127.0.0.1:8000` and Chat on `http://127.0.0.1:8001` with na
 ## Verification
 
 ```powershell
-python -m pytest -q                         # Run tests (current baseline: 410 passed)
+python -m pytest -q                         # Run tests (current baseline: 455 passed)
 ruff check .                                # Lint
 mypy src/                                   # Type check
 python -m pytest --tb=short --cov=src --cov-report=term --cov-fail-under=70
@@ -436,6 +452,7 @@ git diff --check                            # Whitespace check
 - The chat model is configurable via `LLM_PROVIDER` — DashScope (`qwen-plus`) or DeepSeek (`deepseek-v4-pro`). Embeddings always use DashScope/Tongyi unless `embedding_model` is set to a HuggingFace model.
 - Existing Chroma stores with incompatible embedding metadata are rebuilt automatically on startup.
 - Key-backed search APIs are preferred for Mandarin when configured. Otherwise search uses the bounded Bing/Baidu/DuckDuckGo HTML fallbacks. CAPTCHA and repeated network failures open temporary provider circuits instead of blocking every expanded query.
+- Noise filtering is measured rather than pattern-matched: structural page assessment and the learned domain prior are on by default, and semantic similarity is available as an opt-in recall layer. The tradeoff is that structural filtering needs a fetch first, so a noisy URL still costs one concurrent request.
 - The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
 - Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.
 - Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (the four file readers share `FILE_READ_ENABLED`). None require an API key; only `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.

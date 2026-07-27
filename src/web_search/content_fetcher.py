@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any
 
@@ -23,6 +23,13 @@ from ..rag.document_loader import (
 from .common import host_authority_class, is_page_text_relevant, page_relevance_score
 from .date_extractor import extract_publication_date
 from .fetch_policy import FetchPolicy, resolve_fetch_policy
+from .page_structure import (
+    DEFAULT_MAX_LINK_DENSITY,
+    DEFAULT_MIN_CONTENT_WORDS,
+    PageStructure,
+    assess_page_structure,
+)
+from .pdf_loader import PdfPageLoader, is_pdf_url
 from .playwright_loader import playwright_loader_factory
 
 logger = logging.getLogger(__name__)
@@ -47,6 +54,7 @@ class FetchedPage:
     extracted_tokens: int = 0
     fetch_method: str = "http"
     publication_date: date | None = None
+    structure: PageStructure = field(default_factory=PageStructure)
 
 
 class WebPageFetchError(RuntimeError):
@@ -69,6 +77,9 @@ def fetch_pages(
     js_fallback_domains: Sequence[str] | None = None,
     js_force_domains: Sequence[str] | None = None,
     js_loader_factory: LoaderFactory | None = None,
+    js_retry_budget: int = 2,
+    max_link_density: float = DEFAULT_MAX_LINK_DENSITY,
+    min_content_words: int = DEFAULT_MIN_CONTENT_WORDS,
 ) -> list[FetchedPage]:
     """Fetch URLs with the shared loader and return prompt-ready page text.
 
@@ -85,9 +96,12 @@ def fetch_pages(
         document_cache: Optional cache override for tests or callers.
         loader_factory: Optional loader factory override.
         js_fallback_enabled: Enables optional browser fallback for policy domains.
-        js_fallback_domains: Domains that may retry with JS on low text.
+        js_fallback_domains: Domains prioritized for the JS retry.
         js_force_domains: Domains that should skip HTTP and use JS first.
         js_loader_factory: Optional JS loader override for tests.
+        js_retry_budget: Maximum browser renders for this batch.
+        max_link_density: Anchor-text share above which a page is a listing.
+        min_content_words: Content units below which a page is too thin.
 
     Returns:
         Fetched pages in the original URL order, with error entries for URLs
@@ -140,6 +154,8 @@ def fetch_pages(
             relevance_query=relevance_query,
             load_error=js_load_error if policies[url].force_js else load_error,
             fetch_method="js" if policies[url].force_js else "http",
+            max_link_density=max_link_density,
+            min_content_words=min_content_words,
         )
         for url in ordered_urls
     ]
@@ -152,12 +168,17 @@ def fetch_pages(
         min_readable_tokens=min_readable_tokens,
         relevance_query=relevance_query,
         js_loader_factory=js_factory,
+        js_fallback_enabled=js_fallback_enabled,
+        js_retry_budget=js_retry_budget,
+        max_link_density=max_link_density,
+        min_content_words=min_content_words,
     )
     for page in pages:
         logger.info(
             "Fetched web page content: url=%s extracted_chars=%d "
             "extracted_tokens=%d prompt_chars=%d prompt_tokens=%d error=%s "
-            "fetch_method=%s publication_date=%s",
+            "fetch_method=%s publication_date=%s shape=%s link_density=%.3f "
+            "content_words=%d",
             page.url,
             page.extracted_chars,
             page.extracted_tokens,
@@ -166,6 +187,9 @@ def fetch_pages(
             page.error,
             page.fetch_method,
             page.publication_date.isoformat() if page.publication_date else None,
+            page.structure.shape,
+            page.structure.link_density,
+            page.structure.content_words,
         )
     return pages
 
@@ -398,6 +422,15 @@ def _policy_http_loader_factory(
 
     def build_loader(url: str, page_timeout: int) -> Any:
         policy = policies.get(url)
+        # PDFs are a common shape for official notices and whitepapers. The
+        # HTML loader returns binary noise for them, so route them through
+        # pypdf extraction instead of discarding them at discovery time.
+        if is_pdf_url(url):
+            return PdfPageLoader(
+                url,
+                page_timeout,
+                headers=policy.request_headers if policy else None,
+            )
         if not policy or not policy.request_headers:
             return default_loader_factory(url, page_timeout)
         return WebBaseLoader(
@@ -421,11 +454,41 @@ def _retry_pages_with_js_fallback(
     min_readable_tokens: int,
     relevance_query: str,
     js_loader_factory: LoaderFactory,
+    js_fallback_enabled: bool = False,
+    js_retry_budget: int = 2,
+    max_link_density: float = DEFAULT_MAX_LINK_DENSITY,
+    min_content_words: int = DEFAULT_MIN_CONTENT_WORDS,
 ) -> list[FetchedPage]:
+    """Re-render unreadable HTTP pages with a browser, newest signal first.
+
+    The retry trigger is the measurement we already have (no readable text, or a
+    login/enable-JavaScript shell) rather than a domain allowlist. Configured
+    JS domains keep priority when the budget cannot cover every candidate.
+    """
+
+    budget = max(0, int(js_retry_budget)) if js_fallback_enabled else 0
+    candidates = [
+        index
+        for index, page in enumerate(pages)
+        if _should_retry_with_js(page, policies.get(page.url, FetchPolicy()))
+    ]
+    candidates.sort(
+        key=lambda index: (
+            not policies.get(pages[index].url, FetchPolicy()).retry_js_on_low_text,
+            index,
+        )
+    )
+    selected = set(candidates[:budget])
+    if len(candidates) > budget:
+        logger.info(
+            "JS retry budget %d reached; skipping %d candidate page(s)",
+            budget,
+            len(candidates) - budget,
+        )
+
     retried_pages: list[FetchedPage] = []
-    for page in pages:
-        policy = policies.get(page.url, FetchPolicy())
-        if not _should_retry_with_js(page, policy):
+    for index, page in enumerate(pages):
+        if index not in selected:
             retried_pages.append(page)
             continue
         retried_pages.append(
@@ -437,18 +500,20 @@ def _retry_pages_with_js_fallback(
                 min_readable_tokens=min_readable_tokens,
                 relevance_query=relevance_query,
                 loader_factory=js_loader_factory,
+                max_link_density=max_link_density,
+                min_content_words=min_content_words,
             )
         )
     return retried_pages
 
 
 def _should_retry_with_js(page: FetchedPage, policy: FetchPolicy) -> bool:
-    return bool(
-        policy.retry_js_on_low_text
-        and not policy.force_js
-        and not page.text
-        and page.fetch_method == "http"
-    )
+    """Return whether an HTTP result is worth one browser render."""
+
+    if policy.force_js or page.fetch_method != "http":
+        return False
+    structure = getattr(page, "structure", None)
+    return not page.text or (structure is not None and structure.shape == "gateway")
 
 
 def _fetch_js_fallback_page(
@@ -460,6 +525,8 @@ def _fetch_js_fallback_page(
     min_readable_tokens: int,
     relevance_query: str,
     loader_factory: LoaderFactory,
+    max_link_density: float = DEFAULT_MAX_LINK_DENSITY,
+    min_content_words: int = DEFAULT_MIN_CONTENT_WORDS,
 ) -> FetchedPage:
     started_at = time.monotonic()
     documents, load_error = _load_js_documents(
@@ -478,6 +545,8 @@ def _fetch_js_fallback_page(
         relevance_query=relevance_query,
         load_error=load_error,
         fetch_method="js_fallback",
+        max_link_density=max_link_density,
+        min_content_words=min_content_words,
     )
     if fallback_page.text:
         return fallback_page
@@ -516,6 +585,8 @@ def _page_from_documents(
     relevance_query: str,
     load_error: str | None,
     fetch_method: str = "http",
+    max_link_density: float = DEFAULT_MAX_LINK_DENSITY,
+    min_content_words: int = DEFAULT_MIN_CONTENT_WORDS,
 ) -> FetchedPage:
     if not documents:
         error = load_error or "No document loaded for URL."
@@ -531,10 +602,18 @@ def _page_from_documents(
     title = _document_title(documents[0])
     publication_date = _document_publication_date(documents)
     extracted_text = normalize_whitespace(
-        "\n\n".join(extract_text(document.page_content) for document in documents)
+        "\n\n".join(_document_text(document) for document in documents)
     )
     extracted_chars = len(extracted_text)
     extracted_tokens = estimate_tokens(extracted_text)
+    # Measure structure even when the page later fails a gate: the shape is what
+    # tells the JS retry and the answer node *why* the page is unusable.
+    structure = assess_page_structure(
+        "\n".join(document.page_content or "" for document in documents),
+        extracted_text,
+        max_link_density=max_link_density,
+        min_content_words=min_content_words,
+    )
     if fetch_method.startswith("js") and _looks_like_loader_error(extracted_text):
         return FetchedPage(
             url=url,
@@ -546,6 +625,7 @@ def _page_from_documents(
             extracted_tokens=extracted_tokens,
             fetch_method=fetch_method,
             publication_date=publication_date,
+            structure=structure,
         )
     if not is_readable_page(
         extracted_text,
@@ -569,6 +649,7 @@ def _page_from_documents(
             extracted_tokens=extracted_tokens,
             fetch_method=fetch_method,
             publication_date=publication_date,
+            structure=structure,
         )
 
     text = truncate_to_token_budget(extracted_text, max_tokens_per_page)
@@ -583,7 +664,21 @@ def _page_from_documents(
         extracted_tokens=extracted_tokens,
         fetch_method=fetch_method,
         publication_date=publication_date,
+        structure=structure,
     )
+
+
+def _document_text(document: Document) -> str:
+    """Return readable text, skipping HTML extraction for non-HTML documents.
+
+    PDF text is already plain, and running it through the HTML parser would
+    silently drop content that looks like markup (e.g. ``<2026``).
+    """
+
+    metadata: dict[str, Any] = document.metadata or {}
+    if str(metadata.get("fetch_method") or "") == "pdf":
+        return normalize_whitespace(document.page_content or "")
+    return extract_text(document.page_content)
 
 
 def _looks_like_loader_error(text: str) -> bool:

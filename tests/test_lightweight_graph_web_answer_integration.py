@@ -89,6 +89,9 @@ def test_web_answer_fetches_state_urls_and_invokes_llm(monkeypatch, isolated_set
                 "deepseek.net",
             ],
             "js_force_domains": [],
+            "js_retry_budget": 2,
+            "max_link_density": 0.5,
+            "min_content_words": 60,
         },
     )
     assert calls["prompt"] == ("What changed?", pages)
@@ -1066,3 +1069,94 @@ def test_build_lightweight_graph_grounded_refusal_cannot_start_a_third_search(
     final = state["messages"][-1].content
     assert "call #2" in final
     assert "call #3" not in final
+
+
+def test_web_answer_drops_structurally_noisy_pages(monkeypatch, isolated_settings):
+    """A link-dense listing page is filtered on measurement, not URL shape."""
+
+    from src.web_search.page_structure import PageStructure
+
+    settings = isolated_settings(source_urls=[], web_search_structure_filter_enabled=True)
+    article = SimpleNamespace(
+        url="https://example.test/news/source-detail",
+        title="source detail report",
+        text=_readable_text(),
+        structure=PageStructure(shape="article", content_words=120, measured=True),
+    )
+    listing = SimpleNamespace(
+        url="https://example.test/news/index",
+        title="source detail archive",
+        text=_readable_text(),
+        structure=PageStructure(
+            shape="listing",
+            link_density=0.71,
+            anchor_count=40,
+            content_words=140,
+            measured=True,
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    def fake_build_prompt(question, resolved_pages, **_kwargs):
+        captured["pages"] = list(resolved_pages)
+        return "assembled prompt"
+
+    _install_lightweight_web_modules(
+        monkeypatch,
+        lambda _urls, **_kwargs: [article, listing],
+        fake_build_prompt,
+    )
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "fake-model")
+    monkeypatch.setattr(
+        web_answer_module,
+        "invoke_with_retry",
+        lambda *_args, **_kwargs: AIMessage(content="grounded answer"),
+    )
+
+    node = web_answer_module.web_answer_factory(settings)
+    result = node(
+        {
+            "messages": [HumanMessage(content="source detail")],
+            "source_urls": [article.url, listing.url],
+        }
+    )
+
+    assert result["source_urls"] == [article.url]
+    assert captured["pages"] == [article]
+
+
+def test_web_answer_keeps_listing_pages_when_structure_filtering_is_off(
+    monkeypatch,
+    isolated_settings,
+):
+    from src.web_search.page_structure import PageStructure
+
+    settings = isolated_settings(source_urls=[], web_search_structure_filter_enabled=False)
+    listing = SimpleNamespace(
+        url="https://example.test/news/index",
+        title="source detail archive",
+        text=_readable_text(),
+        structure=PageStructure(shape="listing", link_density=0.71, measured=True),
+    )
+
+    _install_lightweight_web_modules(
+        monkeypatch,
+        lambda _urls, **_kwargs: [listing],
+        lambda _question, _pages, **_kwargs: "assembled prompt",
+    )
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "fake-model")
+    monkeypatch.setattr(
+        web_answer_module,
+        "invoke_with_retry",
+        lambda *_args, **_kwargs: AIMessage(content="grounded answer"),
+    )
+
+    node = web_answer_module.web_answer_factory(settings)
+    result = node(
+        {
+            "messages": [HumanMessage(content="source detail")],
+            "source_urls": [listing.url],
+        }
+    )
+
+    assert result["source_urls"] == [listing.url]

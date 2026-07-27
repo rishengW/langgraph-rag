@@ -83,6 +83,23 @@ class Settings:
         default_factory=lambda: DEFAULT_WEB_SEARCH_JS_FALLBACK_DOMAINS.copy()
     )
     web_search_js_force_domains: list[str] = field(default_factory=list)
+    # Bound browser renders per fetch batch. The JS retry is triggered by an
+    # unreadable HTTP result rather than by a domain list, so it needs its own
+    # budget to keep a bad turn from spending the whole deadline in Chromium.
+    web_search_js_retry_budget: int = 2
+    # REFACTOR: Dynamic structural page filtering replaces URL-shape guessing.
+    web_search_structure_filter_enabled: bool = True
+    web_search_max_link_density: float = 0.5
+    web_search_min_content_words: int = 60
+    # REFACTOR: Optional semantic (embedding) relevance layered on top of the
+    # deterministic lexical gates. Disabled by default: it loads a local
+    # sentence-transformers model on first use.
+    web_search_semantic_filter_enabled: bool = False
+    web_search_semantic_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    web_search_semantic_min_similarity: float = 0.35
+    # REFACTOR: Adaptive per-domain reputation prior learned from fetch outcomes.
+    web_search_domain_reputation_enabled: bool = True
+    web_search_domain_reputation_min_samples: int = 5
     weather_enabled: bool = False
     stock_enabled: bool = False
     currency_enabled: bool = False

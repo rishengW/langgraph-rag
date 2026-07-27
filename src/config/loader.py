@@ -63,6 +63,15 @@ SETTING_ENV_NAMES = {
     "web_search_js_fallback_enabled": "WEB_SEARCH_JS_FALLBACK_ENABLED",
     "web_search_js_fallback_domains": "WEB_SEARCH_JS_FALLBACK_DOMAINS",
     "web_search_js_force_domains": "WEB_SEARCH_JS_FORCE_DOMAINS",
+    "web_search_js_retry_budget": "WEB_SEARCH_JS_RETRY_BUDGET",
+    "web_search_structure_filter_enabled": "WEB_SEARCH_STRUCTURE_FILTER_ENABLED",
+    "web_search_max_link_density": "WEB_SEARCH_MAX_LINK_DENSITY",
+    "web_search_min_content_words": "WEB_SEARCH_MIN_CONTENT_WORDS",
+    "web_search_semantic_filter_enabled": "WEB_SEARCH_SEMANTIC_FILTER_ENABLED",
+    "web_search_semantic_model": "WEB_SEARCH_SEMANTIC_MODEL",
+    "web_search_semantic_min_similarity": "WEB_SEARCH_SEMANTIC_MIN_SIMILARITY",
+    "web_search_domain_reputation_enabled": "WEB_SEARCH_DOMAIN_REPUTATION_ENABLED",
+    "web_search_domain_reputation_min_samples": "WEB_SEARCH_DOMAIN_REPUTATION_MIN_SAMPLES",
     "serper_api_key": "SERPER_API_KEY",
     "brave_search_api_key": "BRAVE_SEARCH_API_KEY",
     "tavily_api_key": "TAVILY_API_KEY",
@@ -271,6 +280,9 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "web_search_max_page_tokens",
         "web_search_min_page_chars",
         "web_search_min_page_tokens",
+        "web_search_js_retry_budget",
+        "web_search_min_content_words",
+        "web_search_domain_reputation_min_samples",
         "page_load_timeout",
         "page_load_max_concurrency",
         "page_load_cache_ttl_seconds",
@@ -293,6 +305,9 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
             "web_search_max_page_tokens",
             "web_search_min_page_chars",
             "web_search_min_page_tokens",
+            "web_search_js_retry_budget",
+            "web_search_min_content_words",
+            "web_search_domain_reputation_min_samples",
             "document_quality_min_text_length",
             "document_quality_min_unique_terms",
             "document_quality_query_min_overlap",
@@ -316,7 +331,11 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         if name == "page_load_cache_ttl_seconds":
             return max(0, parsed)
         return parsed
-    if name == "document_quality_min_similarity":
+    if name in (
+        "document_quality_min_similarity",
+        "web_search_max_link_density",
+        "web_search_semantic_min_similarity",
+    ):
         return max(0.0, min(1.0, float(value)))
     if name in (
         "allow_low_relevance_generate",
@@ -325,6 +344,9 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "web_search_verify_ssl",
         "web_search_lightweight",
         "web_search_js_fallback_enabled",
+        "web_search_structure_filter_enabled",
+        "web_search_semantic_filter_enabled",
+        "web_search_domain_reputation_enabled",
         "weather_enabled",
         "stock_enabled",
         "currency_enabled",

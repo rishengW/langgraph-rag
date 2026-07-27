@@ -300,3 +300,70 @@ def test_single_provider_stage_does_not_create_an_orphan_executor(
     )
 
     assert [result.provider for result in results] == ["bing"]
+
+
+def test_thin_first_stage_still_runs_fallback_providers_and_merges_results(
+    monkeypatch,
+    isolated_settings,
+):
+    """One usable URL is thin recall, not a reason to skip every fallback."""
+
+    providers = {
+        "tavily": ResultProvider(
+            "tavily",
+            [
+                SearchResult(
+                    url="https://example.com/news/2026/deepseek-release",
+                    title="DeepSeek release 2026",
+                    snippet="DeepSeek released a new model in 2026.",
+                )
+            ],
+        ),
+        "bing": ResultProvider(
+            "bing",
+            [
+                SearchResult(
+                    url="https://api-docs.deepseek.com/news/2026/release",
+                    title="DeepSeek release notes 2026",
+                    snippet="Official DeepSeek 2026 release notes.",
+                )
+            ],
+        ),
+        "baidu": ResultProvider(
+            "baidu",
+            [
+                SearchResult(
+                    url="https://other.example.com/news/2026/deepseek",
+                    title="DeepSeek release 2026",
+                    snippet="DeepSeek 2026 model coverage.",
+                )
+            ],
+        ),
+        "duckduckgo": ResultProvider("duckduckgo", []),
+    }
+    monkeypatch.setattr(
+        discovery_module,
+        "get_search_provider",
+        lambda name, _settings: providers[name],
+    )
+
+    results = discover_search_results_from_web(
+        "DeepSeek release 2026",
+        isolated_settings(
+            web_search_provider="tavily",
+            tavily_api_key="tavily-key",
+            web_search_provider_fanout=1,
+            web_search_top_k=6,
+        ),
+    )
+
+    assert {result.provider for result in results} == {"tavily", "bing"}
+    assert len(providers["tavily"].calls) == 1
+    assert len(providers["bing"].calls) == 1
+    assert providers["baidu"].calls == []
+
+
+def test_stage_threshold_scales_down_with_a_small_top_k():
+    assert discovery_module._stage_result_threshold(0) == 2
+    assert discovery_module._stage_result_threshold(1) == 1
+    assert discovery_module._stage_result_threshold(6) == 2

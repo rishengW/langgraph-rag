@@ -167,8 +167,13 @@ def test_url_quality_gate_filters_scores_and_deduplicates_candidates():
     selected = select_top_urls(urls, top_k=3)
 
     assert is_noise_url("https://example.com/search?q=rag")
-    assert is_noise_url("https://example.com/tag/rag")
-    assert is_noise_url("https://example.com/file/report.pdf")
+    # Listing pages are demoted rather than rejected, and PDFs stay eligible
+    # because the lightweight fetcher extracts them.
+    assert not is_noise_url("https://example.com/tag/rag")
+    assert not is_noise_url("https://example.com/file/report.pdf")
+    assert url_quality_score("https://example.com/tag/rag") < url_quality_score(
+        "https://example.com/blog/rag"
+    )
     assert url_quality_score("https://example.com/") < url_quality_score(
         "https://example.com/blog/rag"
     )
@@ -966,8 +971,12 @@ def test_select_top_urls_passes_query_through(isolated_settings):
         "https://deepseek.net/blog",
     ]
     selected = select_top_urls(urls, top_k=3, query="deepseek v4")
-    # URLs matching the query should rank higher
-    assert selected == []
+    # First-party-looking hosts outside the owner allowlist are demoted, not
+    # removed, so query-matching URLs still rank above an unrelated about page.
+    assert selected[:2] == [
+        "https://deepseek.net/docs/v4",
+        "https://deepseek.net/blog",
+    ]
 
 
 # ── snippet-aware relevance ranking ─────────────────────────────────────────
@@ -1293,4 +1302,96 @@ def test_page_relevance_keeps_short_chinese_fact_and_rejects_unrelated_page():
         * 20,
         query,
         title="Slack product updates",
+    )
+
+
+def test_prepare_search_query_resolves_relative_year_expressions():
+    """A relative expression is as time-sensitive as "latest" and becomes a year."""
+
+    from src.web_search.query_prep import CURRENT_YEAR, prepare_search_query
+
+    current = prepare_search_query("Who wins the world cup this year")
+
+    assert current == f"wins world cup {CURRENT_YEAR}"
+    # The orphaned "year" token must not survive: it would otherwise become a
+    # distinctive query term and poison relevance scoring.
+    assert "year" not in current.lower().split()
+
+    previous = prepare_search_query("who won the world cup last year")
+    upcoming = prepare_search_query("world cup winner next year")
+
+    assert previous.endswith(str(int(CURRENT_YEAR) - 1))
+    assert upcoming.endswith(str(int(CURRENT_YEAR) + 1))
+
+
+def test_prepare_search_query_resolves_mandarin_relative_years():
+    from src.web_search.query_prep import CURRENT_YEAR, prepare_search_query
+
+    current = prepare_search_query("今年世界杯冠军是谁")
+    previous = prepare_search_query("去年世界杯冠军")
+
+    assert current == f"世界杯冠军是谁 {CURRENT_YEAR}"
+    assert previous == f"世界杯冠军 {int(CURRENT_YEAR) - 1}"
+
+
+def test_prepare_search_query_keeps_explicit_years_over_relative_wording():
+    from src.web_search.query_prep import prepare_search_query
+
+    assert prepare_search_query("world cup 2022 winner") == "world cup 2022 winner"
+    # "fiscal year" is not a relative expression and must survive untouched.
+    assert prepare_search_query("fiscal year 2025 revenue of nvidia") == (
+        "fiscal year 2025 revenue nvidia"
+    )
+
+
+def test_relative_time_words_are_not_treated_as_distinctive_query_terms():
+    from src.web_search.common import _acronym_terms, _search_query_terms, _term_weight
+
+    question = "Who wins the world cup this year"
+    terms = _search_query_terms(question)
+    acronyms = _acronym_terms(question)
+
+    assert terms == ["wins", "world", "cup"]
+    assert [term for term in terms if _term_weight(term, acronyms) >= 1.0] == []
+
+
+def test_current_tournament_page_outranks_evergreen_winners_list():
+    from src.web_search.common import SearchResult, result_quality_score
+    from src.web_search.query_prep import CURRENT_YEAR, prepare_search_query
+
+    query = prepare_search_query("Who wins the world cup this year")
+    current_final = SearchResult(
+        url=(
+            "https://www.fifa.com/en/tournaments/mens/worldcup/"
+            "canadamexicousa2026/articles/final-result"
+        ),
+        title=f"Argentina crowned {CURRENT_YEAR} FIFA World Cup champions",
+        snippet=f"Argentina beat Spain in the {CURRENT_YEAR} FIFA World Cup final.",
+    )
+    all_time_list = SearchResult(
+        url="https://www.espn.com/soccer/story/_/id/48913452/who-won-men-world-cup-winners-list",
+        title="Who won the men's World Cup? All winners list",
+        snippet="A complete list of FIFA World Cup winners from 1930 to 2022.",
+    )
+
+    assert result_quality_score(current_final, query=query) > result_quality_score(
+        all_time_list,
+        query=query,
+    )
+
+
+def test_page_relevance_admits_the_current_result_for_a_relative_question():
+    from src.web_search.common import is_page_text_relevant
+    from src.web_search.query_prep import CURRENT_YEAR
+
+    question = "Who wins the world cup this year"
+    page_text = (
+        f"Argentina were crowned champions of the {CURRENT_YEAR} FIFA World Cup "
+        "after beating Spain in the final. It was their fourth title. "
+    ) * 6
+
+    assert is_page_text_relevant(
+        page_text,
+        question,
+        title=f"Argentina win the {CURRENT_YEAR} World Cup",
     )

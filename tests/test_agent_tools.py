@@ -388,7 +388,10 @@ def test_directions_tool_geocodes_endpoints_and_formats_route():
         {"origin": "Shanghai", "destination": "Hangzhou", "mode": "driving"}
     )
 
-    assert "Directions from Shanghai, Shanghai, China to Hangzhou, Zhejiang, China" in result
+    # The shared geocoder deduplicates repeated label parts, so a city whose
+    # admin1 repeats its name renders as "Shanghai, China" rather than
+    # "Shanghai, Shanghai, China".
+    assert "Directions from Shanghai, China to Hangzhou, Zhejiang, China" in result
     assert "| Distance | 165.0 km |" in result
     assert "| Estimated time | 2 h |" in result
     # Two geocoding calls + one routing call.

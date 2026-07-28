@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from ..llm.sanitize import CitationArtifactFilter
 from .events import (
     DoneEvent,
     ErrorEvent,
@@ -117,14 +118,23 @@ class GraphExecutor:
         """
 
         final_output: Mapping[str, Any] | None = None
+        # One filter per streaming node: a fabricated citation marker can be
+        # split across token chunks, so partial markers are buffered until they
+        # either complete (and are dropped) or are ruled out (and released).
+        token_filters: dict[str, CitationArtifactFilter] = {}
         try:
             stream_kwargs: dict[str, Any] = {"stream_mode": ["updates", "messages"]}
             if config is not None:
                 stream_kwargs["config"] = config
             for mode, chunk in self.graph.stream(inputs, **stream_kwargs):
                 if mode == "messages":
-                    yield from self._token_events_from_messages(chunk, token_nodes)
+                    yield from self._token_events_from_messages(
+                        chunk,
+                        token_nodes,
+                        token_filters,
+                    )
                     continue
+                yield from self._flush_token_filters(token_filters)
                 if not isinstance(chunk, Mapping):
                     yield from self._emit(
                         ErrorEvent(
@@ -140,14 +150,28 @@ class GraphExecutor:
         except Exception as exc:
             yield from self._emit(ErrorEvent(message=str(exc), recoverable=False))
 
+        yield from self._flush_token_filters(token_filters)
         yield from self._emit(
             DoneEvent(output=dict(final_output or {}), answer=_extract_answer(final_output))
         )
+
+    def _flush_token_filters(
+        self,
+        token_filters: dict[str, CitationArtifactFilter],
+    ) -> Iterator[GraphEvent]:
+        """Release any text still buffered by the per-node token filters."""
+
+        for node, token_filter in list(token_filters.items()):
+            remaining = token_filter.flush()
+            if remaining:
+                yield from self._emit(TokenEvent(token=remaining, node=node or None))
+        token_filters.clear()
 
     def _token_events_from_messages(
         self,
         chunk: Any,
         token_nodes: frozenset[str],
+        token_filters: dict[str, CitationArtifactFilter] | None = None,
     ) -> Iterator[GraphEvent]:
         """Convert a ``messages``-mode chunk into ``TokenEvent``s.
 
@@ -176,6 +200,11 @@ class GraphExecutor:
         text = _message_text(message_chunk)
         if not text:
             return
+        if token_filters is not None:
+            token_filter = token_filters.setdefault(node, CitationArtifactFilter())
+            text = token_filter.feed(text)
+            if not text:
+                return
         yield from self._emit(TokenEvent(token=text, node=node or None))
 
     async def astream(

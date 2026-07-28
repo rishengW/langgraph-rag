@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from ...config import Settings
 from ...llm.prompts import AGENT_SYSTEM_PROMPT, GRADE_PROMPT, RAG_PROMPT
 from ...llm.provider import build_chat_model, build_structured_chat_model
+from ...llm.sanitize import strip_citation_artifacts
 from ...utils.networking import configure_ssl_from_env
 from ...utils.retry import invoke_with_retry
 
@@ -263,6 +264,22 @@ def _copy_message_with_content(message: Any, content: str) -> Any:
     if isinstance(message, list) and len(message) >= 2:
         return [message[0], content, *message[2:]]
     return message
+
+
+def _sanitized_ai_message(message: Any) -> Any:
+    """Return the message with fabricated citation markers removed.
+
+    Only plain string content is rewritten. Tool-call carriers and structured
+    content blocks are returned unchanged so the tool protocol is preserved.
+    """
+
+    content = getattr(message, "content", None)
+    if not isinstance(content, str) or getattr(message, "tool_calls", None):
+        return message
+    cleaned = strip_citation_artifacts(content)
+    if cleaned == content:
+        return message
+    return _copy_message_with_content(message, cleaned)
 
 
 def qa_question_resolver(state: dict[str, Any]) -> str:
@@ -693,6 +710,9 @@ def agent_factory(
                 messages,
                 max_retries=settings.dashscope_max_retries,
             )
+            # A direct agent answer is user-facing too, so it gets the same
+            # citation-artifact cleanup. Tool-call carriers are left untouched.
+            response = _sanitized_ai_message(response)
         except Exception as exc:
             logger.error("Agent error: %s", exc)
             question = question_resolver(state)
@@ -791,7 +811,8 @@ def generate_factory(
                 {"context": retrieved_docs_text, "question": question},
                 max_retries=settings.dashscope_max_retries,
             )
-            response = AIMessage(content=answer if isinstance(answer, str) else str(answer))
+            text = answer if isinstance(answer, str) else str(answer)
+            response = AIMessage(content=strip_citation_artifacts(text))
         except Exception as exc:
             logger.error("Generate error: %s", exc)
             response = AIMessage(content=build_extractive_answer(question, retrieved_docs_text))

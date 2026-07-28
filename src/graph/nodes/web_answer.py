@@ -12,6 +12,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage
 
 from ...config import Settings
+from ...llm.sanitize import strip_citation_artifacts
 from ...utils.retry import invoke_with_retry
 from .common import message_text, new_chat_model, qa_question_resolver
 
@@ -206,7 +207,11 @@ def web_answer_factory(
                 [HumanMessage(content=prompt)],
                 max_retries=settings.dashscope_max_retries,
             )
-            content = message_text(result)
+            # Models sometimes reproduce other assistants' citation syntax
+            # (e.g. the source-index/line-range marker shape). Our sources
+            # carry no indices or line numbers, so those markers reference
+            # nothing and are removed.
+            content = strip_citation_artifacts(message_text(result))
         except Exception as exc:
             logger.error("Web answer error: %s", exc)
             content = (

@@ -81,7 +81,7 @@ provider rank, relevance score, and quality score through the graph artifact.
 | `reputation.py` | Adaptive per-domain fetch-outcome prior in SQLite |
 | `date_extractor.py`, `recency.py` | Publication-date extraction and query-aware freshness assessment |
 | `evidence.py`, `claim_consensus.py` | Typed answer evidence and current-status consensus |
-| `prompt_builder.py` | Source-only prompt assembly with URL, title, and publication date |
+| `prompt_builder.py` | Source-only prompt assembly with URL, title, publication date, and the URL-only citation rule |
 | `benchmark.py` | Offline Mandarin search quality and latency evaluation |
 | `__init__.py` | Public exports |
 
@@ -189,6 +189,8 @@ links recursively.
     independent domains. Conflicts become explicit prompt constraints.
 12. Only admitted pages enter the prompt. If no evidence survives, the LLM is
     skipped; after one expanded search pass, the graph returns a refusal.
+    Answers are cited by URL, and fabricated reference markers such as
+    `【199†L91-L126】` are stripped by `src/llm/sanitize.py` before display.
 13. Each page's outcome (grounded, rejected, unreachable) is recorded per domain
     so future merges can rank domains by measured behavior.
 

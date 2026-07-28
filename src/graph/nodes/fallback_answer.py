@@ -9,6 +9,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage
 
 from ...config import Settings
+from ...llm.sanitize import strip_citation_artifacts
 from ...utils.retry import invoke_with_retry
 from .common import QuestionResolver, message_text, new_chat_model
 
@@ -54,6 +55,8 @@ def fallback_answer_factory(
         except Exception as exc:  # noqa: BLE001 - final fallback must terminate
             logger.warning("Tool-free fallback answer failed: %s", exc)
             response = AIMessage(content=_FALLBACK_REFUSAL)
+        else:
+            response = AIMessage(content=strip_citation_artifacts(message_text(response)))
         return {"messages": [response]}
 
     return fallback_answer

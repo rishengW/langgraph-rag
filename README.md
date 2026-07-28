@@ -225,8 +225,8 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `get_stock_quote` | `src/tools/stock.py` | `STOCK_ENABLED=true` | yfinance / Yahoo Finance, no API key |
 | `convert_currency` | `src/tools/currency.py` | `CURRENCY_ENABLED=true` | Frankfurter API (201 currencies), no API key |
 | `search_wikipedia` | `src/tools/wikipedia_tool.py` | `WIKIPEDIA_ENABLED=true` | MediaWiki API summary + URL, set `WIKIPEDIA_USER_AGENT` |
-| `get_directions` | `src/tools/directions.py` | `DIRECTIONS_ENABLED=true` | OSRM route/distance/time between two places, no API key |
-| `find_on_map` | `src/tools/map_tool.py` | `MAP_ENABLED=true` | Open-Meteo geocoding + OpenStreetMap link, no API key |
+| `get_directions` | `src/tools/directions.py` | `DIRECTIONS_ENABLED=true` | OSRM route/distance/time between two places (free-flow, no live traffic), no API key |
+| `find_on_map` | `src/tools/map_tool.py` | `MAP_ENABLED=true` | Coordinates + OpenStreetMap link via Open-Meteo (cities) and Photon (POIs, CJK names), no API key |
 | `solve_math` | `src/tools/math_tool.py` | `MATH_ENABLED=true` | SymPy derivatives/integrals/solve/simplify/limits/series, no API key |
 | `compute_statistics` | `src/tools/statistics_tool.py` | `STATISTICS_ENABLED=true` | Mean/median/mode/variance/stdev/quartiles (stdlib), no API key |
 | `linear_algebra` | `src/tools/linalg_tool.py` | `LINALG_ENABLED=true` | Matrix det/inverse/transpose/multiply/eigenvalues, solve Ax=b (SymPy) |
@@ -405,6 +405,19 @@ Hard rejections are reserved for URLs that can never be sources (auth and search
 
 When `web_search_lightweight` is enabled (default), the lightweight graph routes the agent's tool call through `decompose → search_queries → merge → web_answer` as described above, with one-shot conditional expansion and a grounded refusal when no evidence survives. Chat uses this as the sole web-search owner; it does not perform a preliminary provider search or recompile the graph for each turn.
 
+## Answer citations
+
+Sources are cited by URL. The prompts state this explicitly and forbid invented reference markers, because the source blocks handed to the model carry no numbers, IDs, or line numbers.
+
+Models trained on transcripts from other tool-augmented assistants sometimes reproduce those assistants' internal citation syntax anyway — for example `【199†L91-L126】` (a source index, a dagger, and a line range) or `[oaicite:0]`. Those markers reference nothing in this project, cannot be verified, and signal that the model is improvising attribution.
+
+`src/llm/sanitize.py` removes them from user-facing text in two places:
+
+- `strip_citation_artifacts` runs on the final answer in `web_answer`, `generate`, `fallback_answer`, and on direct agent replies (tool-call carriers are left untouched).
+- `CitationArtifactFilter` does the same for SSE token streams, holding back any tail that could still become a marker and flushing it when the marker completes or is ruled out.
+
+URLs, markdown links, ordinary brackets like `[1]` or `[sic]`, and a lone `†` are all preserved.
+
 ## Streaming
 
 Both apps expose SSE streaming endpoints, but they stream at different granularities:
@@ -413,6 +426,8 @@ Both apps expose SSE streaming endpoints, but they stream at different granulari
 - **Chat `/chat/{id}/message/stream`**: the same node lifecycle events, and — by default — per-token `token` events streamed from the answer-producing nodes (`generate`, `web_answer`, `agent`) as the LLM generates them, followed by a final `done` event. Pass `?tokens=false` to fall back to node-events-only streaming.
 
 Token streaming uses LangGraph's combined `stream_mode=["updates", "messages"]`. Only genuine streaming chunks (`AIMessageChunk`) are forwarded; the aggregated final message a node returns is dropped so the answer is not duplicated. Tokens from internal structured-output calls (decompose, expand, grade, condense, rewrite) are filtered out so they never leak into the user-visible answer.
+
+Streamed tokens also pass through `CitationArtifactFilter` (`src/llm/sanitize.py`), which buffers partial text so a fabricated citation marker split across chunks is still removed. See [Answer citations](#answer-citations).
 
 The browser chat UI consumes the token stream and renders the answer incrementally. The terminal REPL (`python -m src.chat.main chat`) also streams tokens to stdout as they arrive. Both fall back to the final `done` answer when a provider does not emit token chunks.
 
@@ -457,5 +472,6 @@ git diff --check                            # Whitespace check
 - Noise filtering is measured rather than pattern-matched: structural page assessment and the learned domain prior are on by default, and semantic similarity is available as an opt-in recall layer. The tradeoff is that structural filtering needs a fetch first, so a noisy URL still costs one concurrent request.
 - The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
 - Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.
+- Location questions route to `find_on_map` before `live_web_search`. Place lookup goes through the shared geocoder in `src/tools/_geocoding.py`: request wording is stripped ("在地图上找出上海的位置" → "上海"), Open-Meteo resolves populated places (using `language=zh` for Chinese input), and Photon resolves points of interest and non-Latin names. Since text-similarity geocoding can return a neighbouring or same-named place, results below the confidence threshold are labelled `APPROXIMATE MATCH` and same-name ties are labelled `AMBIGUOUS`; the agent is instructed to verify those with a web search rather than assert them.
 - Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (the four file readers share `FILE_READ_ENABLED`). None require an API key; only `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.
 - The lightweight graph's conditional expansion fires only on web-search retrieval failure — single-keyword questions that get a readable, relevant page back take the fast path with one search and one LLM call. Compound questions that decompose into multiple sub-Qs still take the fast path; expansion only fires when no fetched page yields usable evidence.

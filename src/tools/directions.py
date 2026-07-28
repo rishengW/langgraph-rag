@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
+from ._geocoding import geocode_place
 from ._http import JsonRequester, request_json
 
 if TYPE_CHECKING:
     from ..config import Settings
 
-GEOCODING_API_URL = "https://geocoding-api.open-meteo.com/v1/search"
 OSRM_ROUTE_API_URL = "https://router.project-osrm.org/route/v1"
 
 # OSRM's public demo server is built with the car profile. We expose a mode
@@ -70,9 +70,12 @@ def build_directions_tool(
         name="get_directions",
         description=(
             "Get the route, distance, and estimated travel time between two "
-            "places. Use for directions, how far apart two locations are, how "
-            "long a trip takes, or which roads to take. Accepts city/place "
-            "names or 'latitude,longitude' for origin and destination."
+            "places. USE THIS FIRST for directions, how far apart two locations "
+            "are, how long a trip takes, or which roads to take, instead of a "
+            "web search. Accepts city/place names, points of interest, "
+            "addresses (including Chinese names), or 'latitude,longitude'. "
+            "Distances and durations are free-flow estimates and exclude live "
+            "traffic."
         ),
         args_schema=DirectionsInput,
     )
@@ -124,25 +127,14 @@ def _resolve_point(
         lat, lon = coord
         return f"{lat:g},{lon:g}", lat, lon
 
-    payload = request_json(
-        GEOCODING_API_URL,
-        params={"name": location, "count": 1, "language": "en", "format": "json"},
-        requester=requester,
-    )
-    results = payload.get("results") or []
-    if not results:
+    # Shared geocoder so route endpoints can be points of interest, addresses,
+    # or non-Latin place names rather than city names only.
+    candidates = geocode_place(location, limit=1, requester=requester)
+    if not candidates:
         raise ValueError(f"no matching location found for {location!r}")
 
-    first = results[0]
-    lat = float(first["latitude"])
-    lon = float(first["longitude"])
-    label_parts = [
-        str(first.get("name") or location),
-        str(first.get("admin1") or "").strip(),
-        str(first.get("country") or "").strip(),
-    ]
-    label = ", ".join(part for part in label_parts if part)
-    return label, lat, lon
+    best = candidates[0]
+    return best.label, best.latitude, best.longitude
 
 
 def _parse_coordinates(value: str) -> tuple[float, float] | None:

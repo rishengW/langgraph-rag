@@ -43,11 +43,35 @@ guessing.
 src/tools/
 ├── __init__.py         # Re-exports input schemas and build_*_tool factories
 ├── _http.py            # request_json — tiny injectable HTTP wrapper
+├── _geocoding.py       # Shared place lookup: Open-Meteo cities + Photon POIs
 ├── currency.py         # convert_currency + Frankfurter exchange-rate API
+├── directions.py       # get_directions + shared geocoder and OSRM routing
+├── map_tool.py         # find_on_map + shared geocoder and OpenStreetMap links
 ├── stock.py            # get_stock_quote + yfinance ticker lookup
 ├── weather.py          # get_weather + Open-Meteo geocoding/forecast
 └── wikipedia_tool.py   # search_wikipedia + Wikipedia MediaWiki API
 ```
+
+## Shared Geocoding
+
+`_geocoding.geocode_place` backs both `find_on_map` and `get_directions`.
+
+1. `clean_place_query` removes request wording so a whole sentence
+   ("在地图上找出上海的位置", "where is Shanghai on a map") becomes a place name.
+2. Open-Meteo runs first for populated places, with `language=zh` for CJK input.
+   Passing `language=en` returns nothing for Chinese place names.
+3. Anything Open-Meteo cannot resolve confidently falls through to Photon
+   (`photon.komoot.io`), which covers points of interest, campuses, and
+   non-Latin names. No API key; send a descriptive `User-Agent`.
+4. Each candidate carries a `match_score` (share of query terms present in the
+   candidate name). Below `CONFIDENT_MATCH_SCORE` the map tool labels the result
+   an APPROXIMATE MATCH; equally scored same-name places in different
+   countries are labelled AMBIGUOUS. Both labels tell the agent to verify with a
+   web search instead of asserting the coordinates.
+
+Photon ranks by text similarity with no notion of prominence, so a plausible
+name can be the wrong place ("Eiffel Tower" matches a peak in Alberta). Never
+present a low-scoring or tied candidate as a confirmed location.
 
 ## Currently Available Tools
 
@@ -56,6 +80,8 @@ src/tools/
 | `convert_currency` | `currency.py` | `api.frankfurter.dev` | HTTP JSON | `CURRENCY_ENABLED` |
 | `get_stock_quote` | `stock.py` | `yfinance` Python library | yfinance internals | `STOCK_ENABLED` |
 | `get_weather` | `weather.py` | Open-Meteo (geocoding + forecast) | HTTP JSON (two calls) | `WEATHER_ENABLED` |
+| `find_on_map` | `map_tool.py` | Open-Meteo + Photon geocoding | HTTP JSON (one or two calls) | `MAP_ENABLED` |
+| `get_directions` | `directions.py` | Shared geocoder + OSRM routing | HTTP JSON (two or three calls) | `DIRECTIONS_ENABLED` |
 | `search_wikipedia` | `wikipedia_tool.py` | `en.wikipedia.org/w/api.php` | HTTP JSON (two calls) | `WIKIPEDIA_ENABLED` |
 
 ## Tool Authoring Pattern

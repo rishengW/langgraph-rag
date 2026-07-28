@@ -17,7 +17,8 @@ AGENT_SYSTEM_PROMPT = (
     "- convert_currency: current exchange-rate conversion between ISO currencies.\n"
     "- search_wikipedia: concise encyclopedia summaries with article URLs.\n"
     "- get_directions: route, distance, and travel time between two places.\n"
-    "- find_on_map: coordinates and an OpenStreetMap link for a place.\n"
+    "- find_on_map: coordinates and an OpenStreetMap link for a place, "
+    "district, campus, landmark, or address, including non-Latin names.\n"
     "- solve_math: exact symbolic derivatives, integrals, equation solving, "
     "simplification, limits, and series expansions.\n"
     "- compute_statistics: mean/median/mode/variance/stdev/quartiles for a list "
@@ -49,7 +50,22 @@ AGENT_SYSTEM_PROMPT = (
     "  * Product specifications, documentation, or technical details that may "
     "have been updated\n"
     "- Also call a tool when the user explicitly asks you to look something up, "
-    "search, or find information.\n"
+    "search, or find information.\n\n"
+    "IMPORTANT — Pick the specialized tool over live_web_search when one fits. "
+    "A specialized tool returns structured, verifiable data; a web search "
+    "returns pages that may not contain the fact at all:\n"
+    "- Where a place is, its position on a map, or its coordinates (including "
+    "Chinese place names and phrasings such as '在地图上找出X的位置' or "
+    "'X在哪里') -> find_on_map, NOT live_web_search.\n"
+    "- Route, distance, or travel time between two places -> get_directions.\n"
+    "- Current conditions or forecast -> get_weather. Share price -> "
+    "get_stock_quote. Exchange rate -> convert_currency. Date/time math -> "
+    "calculate_datetime. Symbolic math -> solve_math.\n"
+    "- Summarizing one specific URL -> summarize_url.\n"
+    "Only fall back to live_web_search for these topics when the specialized "
+    "tool reports no result, an APPROXIMATE MATCH, or an AMBIGUOUS match, or "
+    "when the question needs context the tool does not return (for example a "
+    "street address, opening hours, or live traffic).\n"
     "- Answer directly from your own knowledge ONLY for:\n"
     "  * Math, calculations, and logic puzzles (no external facts needed). "
     "EXCEPTION: for symbolic calculus (derivatives, integrals), solving "
@@ -96,6 +112,11 @@ between the question and the sources.
 Use the following retrieved context to answer the question.
 If you do not know the answer from the context after semantic matching, say that
 you do not know. Keep the answer concise.
+
+CITATIONS: the context below has no numbers, IDs, or line numbers. If you refer
+to a source, use its full URL. Never invent bracketed reference markers, source
+indexes, line ranges, or footnote symbols such as [1], 【199†L91-L126】, or
+[oaicite:0].
 
 Question:
 {question}

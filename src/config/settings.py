@@ -115,6 +115,18 @@ class Settings:
     file_read_enabled: bool = False
     file_read_root: str = "."
     file_read_max_bytes: int = 5_000_000
+    # Chat-agent long-term memory. Disabled by default so existing
+    # deployments keep their current tool set and touch no memory file.
+    memory_enabled: bool = False
+    # Empty means the default path memory/long_term_memory.json, resolved
+    # against the process working directory.
+    memory_store_path: str = ""
+    memory_max_records: int = 500
+    memory_max_record_chars: int = 1000
+    memory_recall_top_k: int = 5
+    memory_context_max_chars: int = 2000
+    memory_default_scope: str = "global"
+    memory_auto_recall_enabled: bool = True
     wikipedia_max_summary_chars: int = 1500
     wikipedia_user_agent: str = "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
     page_load_timeout: int = 15

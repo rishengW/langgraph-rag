@@ -11,6 +11,10 @@ __pycache__/
 # Vector database
 .chroma/
 
+# Chat agent long-term memory store (runtime state, not documentation)
+memory/long_term_memory.json
+memory/long_term_memory.json.corrupt-*
+
 # Jupyter scratch
 .ipynb_checkpoints/
 

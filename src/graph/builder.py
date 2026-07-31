@@ -324,6 +324,10 @@ def _resolve_tools(
     tools = [build_retriever_tool(settings, rebuild=rebuild_vectorstore)]
     if settings.web_search_enabled:
         tools.append(build_web_search_tool(settings))
+    if settings.memory_enabled:
+        # Keep this in sync with _resolve_lightweight_tools. build_memory_tools
+        # returns a fixed list so both graphs expose identical names/schemas.
+        tools.extend(tool_module.build_memory_tools(settings))
     if settings.weather_enabled:
         tools.append(tool_module.build_weather_tool(settings))
     if settings.stock_enabled:
@@ -370,6 +374,9 @@ def _resolve_lightweight_tools(
 
     tool_module = cast(Any, import_module("..tools", package=__package__))
     tools: list[Any] = [build_web_search_tool(settings)]
+    if settings.memory_enabled:
+        # Keep this in sync with _resolve_tools.
+        tools.extend(tool_module.build_memory_tools(settings))
     if settings.weather_enabled:
         tools.append(tool_module.build_weather_tool(settings))
     if settings.stock_enabled:

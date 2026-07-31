@@ -92,6 +92,14 @@ SETTING_ENV_NAMES = {
     "file_read_enabled": "FILE_READ_ENABLED",
     "file_read_root": "FILE_READ_ROOT",
     "file_read_max_bytes": "FILE_READ_MAX_BYTES",
+    "memory_enabled": "MEMORY_ENABLED",
+    "memory_store_path": "MEMORY_STORE_PATH",
+    "memory_max_records": "MEMORY_MAX_RECORDS",
+    "memory_max_record_chars": "MEMORY_MAX_RECORD_CHARS",
+    "memory_recall_top_k": "MEMORY_RECALL_TOP_K",
+    "memory_context_max_chars": "MEMORY_CONTEXT_MAX_CHARS",
+    "memory_default_scope": "MEMORY_DEFAULT_SCOPE",
+    "memory_auto_recall_enabled": "MEMORY_AUTO_RECALL_ENABLED",
     "wikipedia_max_summary_chars": "WIKIPEDIA_MAX_SUMMARY_CHARS",
     "wikipedia_user_agent": "WIKIPEDIA_USER_AGENT",
     "page_load_timeout": "PAGE_LOAD_TIMEOUT",
@@ -112,6 +120,19 @@ SETTING_ENV_NAMES = {
     "dashscope_max_retries": "DASHSCOPE_MAX_RETRIES",
     "dashscope_http_base_url": "DASHSCOPE_HTTP_BASE_URL",
 }
+
+
+# Long-term memory bounds. Unlike the other integer settings, these fail the
+# load instead of clamping: a nonsensical cap should surface at startup rather
+# than silently become 1. Same policy as ``rerank_strategy`` below.
+_MEMORY_INT_RANGES: dict[str, tuple[int, int]] = {
+    "memory_max_records": (1, 10_000),
+    "memory_max_record_chars": (1, 10_000),
+    "memory_recall_top_k": (1, 50),
+    "memory_context_max_chars": (1, 20_000),
+}
+
+MEMORY_SCOPES = ("global", "session")
 
 
 def parse_urls(raw_value: str | None) -> list[str]:
@@ -260,6 +281,25 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         return items if items else list(default or [])
     if name in ("chroma_dir",):
         return Path(str(value)).expanduser()
+    if name in _MEMORY_INT_RANGES:
+        low, high = _MEMORY_INT_RANGES[name]
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"{name} must be an integer between {low} and {high}; got {value!r}"
+            ) from None
+        if not low <= parsed <= high:
+            raise ValueError(f"{name} must be between {low} and {high}; got {parsed}")
+        return parsed
+    if name == "memory_default_scope":
+        scope = str(value).strip().casefold() or str(default or "global")
+        if scope not in MEMORY_SCOPES:
+            raise ValueError(
+                "memory_default_scope must be one of: "
+                f"{', '.join(MEMORY_SCOPES)}; got {value!r}"
+            )
+        return scope
     if name in (
         "embedding_dimension",
         "embedding_batch_size",
@@ -360,6 +400,8 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "datetime_enabled",
         "summarize_url_enabled",
         "file_read_enabled",
+        "memory_enabled",
+        "memory_auto_recall_enabled",
         "document_quality_filter_enabled",
     ):
         return parse_bool(value, bool(default))
@@ -512,6 +554,7 @@ __all__ = [
     "DEFAULT_CONFIG_DIR",
     "DEFAULT_CONFIG_FILE",
     "DEFAULT_ENVIRONMENT",
+    "MEMORY_SCOPES",
     "apply_runtime_environment",
     "load_cors_allow_origins",
     "load_settings",

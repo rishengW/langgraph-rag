@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+import pytest
 
 from src.config.loader import (
     load_settings,
@@ -403,3 +406,180 @@ def test_load_settings_defaults_to_dashscope(tmp_path, monkeypatch):
 
     assert settings.llm_provider == "dashscope"
     assert settings.deepseek_api_key == ""
+
+
+# ---- long-term memory settings ---------------------------------------------
+
+MEMORY_SETTING_NAMES = (
+    "memory_enabled",
+    "memory_store_path",
+    "memory_max_records",
+    "memory_max_record_chars",
+    "memory_recall_top_k",
+    "memory_context_max_chars",
+    "memory_default_scope",
+    "memory_auto_recall_enabled",
+)
+
+
+def test_memory_defaults_align_with_yaml():
+    defaults = load_yaml_config("config/default.yaml")
+    settings = Settings(dashscope_api_key="test-key")
+
+    assert settings.memory_enabled is False
+    assert settings.memory_store_path == ""
+    assert settings.memory_max_records == 500
+    assert settings.memory_max_record_chars == 1000
+    assert settings.memory_recall_top_k == 5
+    assert settings.memory_context_max_chars == 2000
+    assert settings.memory_default_scope == "global"
+    assert settings.memory_auto_recall_enabled is True
+
+    for name in MEMORY_SETTING_NAMES:
+        assert name in defaults, f"{name} missing from config/default.yaml"
+        assert defaults[name] == getattr(settings, name), name
+
+
+def test_memory_settings_are_documented():
+    env_example = Path(".env.example").read_text(encoding="utf-8")
+    yaml_text = Path("config/default.yaml").read_text(encoding="utf-8")
+
+    for name in MEMORY_SETTING_NAMES:
+        assert name.upper() in env_example, f"{name.upper()} missing from .env.example"
+        assert name in yaml_text, f"{name} missing from config/default.yaml"
+
+
+def test_load_settings_accepts_memory_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("MEMORY_ENABLED", "true")
+    monkeypatch.setenv("MEMORY_STORE_PATH", "custom/memories.json")
+    monkeypatch.setenv("MEMORY_MAX_RECORDS", "42")
+    monkeypatch.setenv("MEMORY_MAX_RECORD_CHARS", "256")
+    monkeypatch.setenv("MEMORY_RECALL_TOP_K", "3")
+    monkeypatch.setenv("MEMORY_CONTEXT_MAX_CHARS", "900")
+    monkeypatch.setenv("MEMORY_DEFAULT_SCOPE", "  SESSION ")
+    monkeypatch.setenv("MEMORY_AUTO_RECALL_ENABLED", "false")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.memory_enabled is True
+    assert settings.memory_store_path == "custom/memories.json"
+    assert settings.memory_max_records == 42
+    assert settings.memory_max_record_chars == 256
+    assert settings.memory_recall_top_k == 3
+    assert settings.memory_context_max_chars == 900
+    assert settings.memory_default_scope == "session"
+    assert settings.memory_auto_recall_enabled is False
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("true", True),
+    ("1", True),
+    ("yes", True),
+    ("on", True),
+    ("TRUE", True),
+    ("false", False),
+    ("0", False),
+    ("maybe", False),
+    ("", False),
+])
+def test_memory_boolean_accepted_values(tmp_path, monkeypatch, raw, expected):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("MEMORY_ENABLED", raw)
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.memory_enabled is expected
+
+
+@pytest.mark.parametrize("env_name,raw,low,high", [
+    ("MEMORY_MAX_RECORDS", "0", 1, 10000),
+    ("MEMORY_MAX_RECORDS", "10001", 1, 10000),
+    ("MEMORY_MAX_RECORD_CHARS", "0", 1, 10000),
+    ("MEMORY_MAX_RECORD_CHARS", "10001", 1, 10000),
+    ("MEMORY_RECALL_TOP_K", "0", 1, 50),
+    ("MEMORY_RECALL_TOP_K", "51", 1, 50),
+    ("MEMORY_CONTEXT_MAX_CHARS", "-1", 1, 20000),
+    ("MEMORY_CONTEXT_MAX_CHARS", "20001", 1, 20000),
+])
+def test_load_settings_rejects_out_of_range_memory_ints(
+    tmp_path, monkeypatch, env_name, raw, low, high
+):
+    """Out-of-range memory bounds fail the load instead of being clamped."""
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv(env_name, raw)
+
+    with pytest.raises(ValueError) as excinfo:
+        load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    message = str(excinfo.value)
+    assert env_name.lower() in message
+    assert raw.lstrip("-") in message
+    assert str(low) in message and str(high) in message
+
+
+@pytest.mark.parametrize("env_name", [
+    "MEMORY_MAX_RECORDS",
+    "MEMORY_MAX_RECORD_CHARS",
+    "MEMORY_RECALL_TOP_K",
+    "MEMORY_CONTEXT_MAX_CHARS",
+])
+def test_load_settings_rejects_non_integer_memory_ints(tmp_path, monkeypatch, env_name):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv(env_name, "not-a-number")
+
+    with pytest.raises(ValueError) as excinfo:
+        load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    message = str(excinfo.value)
+    assert env_name.lower() in message
+    assert "not-a-number" in message
+
+
+def test_load_settings_rejects_invalid_memory_default_scope(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("MEMORY_DEFAULT_SCOPE", "team")
+
+    with pytest.raises(ValueError) as excinfo:
+        load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    message = str(excinfo.value)
+    assert "memory_default_scope" in message
+    assert "global" in message and "session" in message
+
+
+def test_memory_recall_top_k_may_exceed_max_records(tmp_path, monkeypatch):
+    """A top_k above the cap is allowed; recall simply cannot return more."""
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("MEMORY_MAX_RECORDS", "2")
+    monkeypatch.setenv("MEMORY_RECALL_TOP_K", "10")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.memory_max_records == 2
+    assert settings.memory_recall_top_k == 10
+
+
+def test_memory_settings_from_yaml(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "\n".join(
+            [
+                "memory_enabled: true",
+                "memory_max_records: 77",
+                "memory_default_scope: session",
+                "memory_auto_recall_enabled: false",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=config_file)
+
+    assert settings.memory_enabled is True
+    assert settings.memory_max_records == 77
+    assert settings.memory_default_scope == "session"
+    assert settings.memory_auto_recall_enabled is False

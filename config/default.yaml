@@ -75,6 +75,16 @@ summarize_url_enabled: false
 file_read_enabled: false
 file_read_root: "."
 file_read_max_bytes: 5000000
+# Chat-agent long-term memory. Off by default; the store file is git-ignored.
+memory_enabled: false
+# Blank means memory/long_term_memory.json relative to the working directory.
+memory_store_path: ""
+memory_max_records: 500
+memory_max_record_chars: 1000
+memory_recall_top_k: 5
+memory_context_max_chars: 2000
+memory_default_scope: "global"
+memory_auto_recall_enabled: true
 wikipedia_max_summary_chars: 1500
 wikipedia_user_agent: "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
 page_load_timeout: 15

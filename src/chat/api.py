@@ -29,7 +29,7 @@ from typing import Annotated, Any, TypeAlias
 from fastapi import Depends, FastAPI, File, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 
 from ..api.auth import require_api_key
 from ..api.dependencies import (
@@ -60,6 +60,8 @@ from ..graph.builder import build_lightweight_graph
 from ..graph.executor import GraphExecutor
 from ..graph.metrics import MetricsCollector, MetricsSnapshot
 from ..graph.nodes.condense import condense_followup_question
+from ..memory.recall import build_turn_messages
+from ..memory.store import get_memory_store
 from ..sessions import (
     ChatSession,
     ChatSessionRegistry,
@@ -212,14 +214,22 @@ def _graph_inputs_for_turn(
     paths is prepended so the LLM knows the exact path to pass to the file
     tools. Already-announced files are tracked on the session so the note is
     not repeated every turn.
+
+    When long-term memory is enabled with automatic recall, a memory
+    ``SystemMessage`` is placed ahead of the upload note. Both are stripped
+    from the transcript the history endpoint returns.
     """
 
     turn_messages: list[Any] = []
     if settings is not None:
-        note = _new_upload_context(session, settings)
-        if note is not None:
-            turn_messages.append(SystemMessage(content=note))
-    turn_messages.append(HumanMessage(content=message))
+        turn_messages = build_turn_messages(
+            settings,
+            thread_id=getattr(session, "thread_id", None),
+            message=message,
+            upload_note=_new_upload_context(session, settings),
+        )
+    else:
+        turn_messages.append(HumanMessage(content=message))
 
     inputs: dict[str, Any] = {"messages": turn_messages}
     if (
@@ -937,6 +947,18 @@ def create_app(
                 await asyncio.to_thread(shutil.rmtree, upload_dir, True)
         except Exception as exc:
             logger.warning("Failed to remove uploads for thread %s: %s", thread_id, exc)
+        # Drop this session's session-scoped memories. Global memories survive.
+        # Best effort: a purge failure must not fail the session deletion.
+        try:
+            settings = get_config(fastapi_request)
+            if settings.memory_enabled:
+                await asyncio.to_thread(
+                    get_memory_store(settings).purge_session, thread_id
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to purge session memory for thread %s: %s", thread_id, exc
+            )
         return {"status": "deleted", "thread_id": thread_id}
 
     @app.get("/metrics")

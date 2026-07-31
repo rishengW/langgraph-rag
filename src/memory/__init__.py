@@ -1,0 +1,116 @@
+"""Long-term memory for the chat agent.
+
+Persistence lives here rather than under ``src/tools/`` because three different
+layers read it: the memory tools, the chat turn builder, and session deletion.
+Mirrors how ``src/sessions/`` owns its own storage.
+"""
+
+from __future__ import annotations
+
+from .models import (
+    CATEGORIES,
+    DEFAULT_CATEGORY,
+    DEFAULT_STORE_PATH,
+    ID_PATTERN,
+    MAX_FORGET_DELETES,
+    MAX_QUERY_CHARS,
+    MAX_QUERY_TERMS,
+    MAX_SCOPE_ID_CHARS,
+    MAX_TAG_CHARS,
+    MAX_TAGS,
+    MAX_TOOL_CALLS_PER_TURN,
+    MIN_TERM_CHARS,
+    RECORD_FIELDS,
+    SCHEMA_VERSION,
+    SCOPES,
+    MemoryCategory,
+    MemoryDocument,
+    MemoryRecord,
+    MemoryScope,
+    utc_now_iso,
+)
+from .recall import (
+    MEMORY_BUDGET,
+    MEMORY_NOTE_LABEL,
+    MemoryCallBudget,
+    build_memory_note,
+    build_turn_messages,
+    format_record,
+    format_records,
+)
+from .relevance import (
+    derive_query_terms,
+    normalize_content,
+    rank_records,
+    relevance_score,
+    searchable_text,
+    timestamp_epoch,
+)
+from .secrets import SECRET_PATTERNS, find_secret_in_any, find_secret_match
+from .serialization import CorruptDocumentError, parse_document, serialize_document
+from .store import (
+    ForgetOutcome,
+    MemoryPathError,
+    MemoryStore,
+    MemoryStoreError,
+    MemoryWriteError,
+    RecallOutcome,
+    SaveOutcome,
+    get_memory_store,
+    in_scope_records,
+    reset_store_cache,
+    resolve_store_path,
+)
+
+__all__ = [
+    "CATEGORIES",
+    "DEFAULT_CATEGORY",
+    "DEFAULT_STORE_PATH",
+    "ID_PATTERN",
+    "MAX_FORGET_DELETES",
+    "MAX_QUERY_CHARS",
+    "MAX_QUERY_TERMS",
+    "MAX_SCOPE_ID_CHARS",
+    "MAX_TAGS",
+    "MAX_TAG_CHARS",
+    "MAX_TOOL_CALLS_PER_TURN",
+    "MIN_TERM_CHARS",
+    "RECORD_FIELDS",
+    "SCHEMA_VERSION",
+    "SCOPES",
+    "SECRET_PATTERNS",
+    "MEMORY_BUDGET",
+    "MEMORY_NOTE_LABEL",
+    "CorruptDocumentError",
+    "ForgetOutcome",
+    "MemoryCallBudget",
+    "MemoryCategory",
+    "MemoryDocument",
+    "MemoryPathError",
+    "MemoryRecord",
+    "MemoryScope",
+    "MemoryStore",
+    "MemoryStoreError",
+    "MemoryWriteError",
+    "RecallOutcome",
+    "SaveOutcome",
+    "build_memory_note",
+    "build_turn_messages",
+    "derive_query_terms",
+    "find_secret_in_any",
+    "find_secret_match",
+    "format_record",
+    "format_records",
+    "get_memory_store",
+    "in_scope_records",
+    "normalize_content",
+    "parse_document",
+    "rank_records",
+    "relevance_score",
+    "reset_store_cache",
+    "resolve_store_path",
+    "searchable_text",
+    "serialize_document",
+    "timestamp_epoch",
+    "utc_now_iso",
+]

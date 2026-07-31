@@ -15,8 +15,6 @@ import sys
 from collections.abc import Iterable
 from dataclasses import replace
 
-from langchain_core.messages import HumanMessage
-
 from ..config import load_settings, secret_fingerprint
 from ..core.web_search import (
     discover_urls_from_web,
@@ -24,6 +22,7 @@ from ..core.web_search import (
 )
 from ..graph.events import DoneEvent, ErrorEvent, TokenEvent
 from ..graph.executor import GraphExecutor
+from ..memory.recall import build_turn_messages
 
 
 def _print_urls(label: str, urls: Iterable[str]) -> None:
@@ -204,7 +203,13 @@ def _repl(args: argparse.Namespace) -> None:
             answer = ""
             streamed_any = False
             printed_prefix = False
-            inputs: dict[str, object] = {"messages": [HumanMessage(content=prompt)]}
+            # Same turn builder as the FastAPI path, so the CLI gets identical
+            # memory selection, placement, and character limits.
+            inputs: dict[str, object] = {
+                "messages": build_turn_messages(
+                    settings, thread_id=thread_id, message=prompt
+                )
+            }
             if graph_owned_web:
                 inputs.update(
                     {

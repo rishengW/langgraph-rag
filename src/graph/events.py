@@ -43,6 +43,13 @@ class GraderDecisionEvent:
 
 
 @dataclass(frozen=True)
+class ArtifactEvent:
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
+    node: str | None = None
+    type: Literal["artifact"] = "artifact"
+
+
+@dataclass(frozen=True)
 class ErrorEvent:
     message: str
     recoverable: bool = True
@@ -54,6 +61,7 @@ class ErrorEvent:
 class DoneEvent:
     output: dict[str, Any] | None = None
     answer: str = ""
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
     type: Literal["done"] = "done"
 
 
@@ -63,12 +71,14 @@ GraphEvent = (
     | TokenEvent
     | RetrieverResultEvent
     | GraderDecisionEvent
+    | ArtifactEvent
     | ErrorEvent
     | DoneEvent
 )
 
 
 __all__ = [
+    "ArtifactEvent",
     "DoneEvent",
     "ErrorEvent",
     "GraphEvent",

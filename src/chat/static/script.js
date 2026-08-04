@@ -14,6 +14,15 @@
 const STORAGE_KEY = "onlysub.chat.thread_id";
 const API = window.location.origin;
 
+const AMAP_JS_API_VERSION = "2.0";
+const AMAP_COORDINATE_SYSTEM = "gcj02";
+const AMAP_PROVIDER = "amap";
+const AMAP_FALLBACK_ORIGIN = "https://uri.amap.com";
+const MAX_ARTIFACTS_PER_TURN = 4;
+const MAX_MARKERS_PER_ARTIFACT = 12;
+const MAX_POLYLINE_POINTS = 500;
+const DEFAULT_MARKER_ZOOM = 13;
+
 const startScreen = document.getElementById("startScreen");
 const chatScreen = document.getElementById("chatScreen");
 const sessionControls = document.getElementById("sessionControls");
@@ -34,6 +43,10 @@ const attachments = document.getElementById("attachments");
 
 let threadId = null;
 let pending = false;
+let chatConfigCache = null;
+let chatConfigPromise = null;
+let amapLoadPromise = null;
+const liveMapInstances = new Set();
 
 // ---- helpers ------------------------------------------------------------
 
@@ -43,7 +56,7 @@ function escapeHtml(text) {
 }
 
 function safeHref(url) {
-    const value = String(url || "").trim();
+    const value = String(url || "").trim().replace(/&amp;/gi, "&");
     if (/^(https?:|mailto:)/i.test(value)) {
         return escapeHtml(value);
     }
@@ -59,13 +72,27 @@ function renderInlineMarkdown(text) {
     });
 
     // Protect math spans from the escape/emphasis passes below so LaTeX such
-    // as x_1, a * b, and \sum_{i=1} survives intact for KaTeX. Same
-    // token-stash strategy used for inline code; restored raw (un-escaped)
-    // after Markdown so auto-render sees the original delimiters.
+    // as x_1, a * b, and \sum_{i=1} survives intact for KaTeX. The restored
+    // value is HTML-escaped text, not raw model content, so delimiters remain
+    // available to KaTeX without turning math payloads into executable markup.
     const mathTokens = [];
     value = value.replace(/(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?!\s)[^$\n]+?(?<!\s)\$)/g, (m) => {
         const token = `\u0000MATH${mathTokens.length}\u0000`;
-        mathTokens.push(m);
+        mathTokens.push(escapeHtml(m));
+        return token;
+    });
+
+    // Protect Markdown links before escaping the surrounding text. Parsing
+    // links after escape turns query separators into literal "&amp;" text in
+    // the DOM href, so downstream services receive parameters like "amp;to".
+    const linkTokens = [];
+    value = value.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, url) => {
+        const href = safeHref(url);
+        if (!href) return label;
+        const token = `\u0000LINK${linkTokens.length}\u0000`;
+        linkTokens.push(
+            `<a href="${href}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`,
+        );
         return token;
     });
 
@@ -74,17 +101,15 @@ function renderInlineMarkdown(text) {
     value = value.replace(/__([^_]+)__/g, "<strong>$1</strong>");
     value = value.replace(/\*([^*]+)\*/g, "<em>$1</em>");
     value = value.replace(/_([^_]+)_/g, "<em>$1</em>");
-    value = value.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, url) => {
-        const href = safeHref(url);
-        if (!href) return label;
-        return `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
-    });
 
     for (const [index, html] of codeTokens.entries()) {
-        value = value.replaceAll(`\u0000CODE${index}\u0000`, html);
+        value = value.replaceAll(`\u0000CODE${index}\u0000`, () => html);
     }
-    for (const [index, m] of mathTokens.entries()) {
-        value = value.replaceAll(`\u0000MATH${index}\u0000`, () => m);
+    for (const [index, mathText] of mathTokens.entries()) {
+        value = value.replaceAll(`\u0000MATH${index}\u0000`, () => mathText);
+    }
+    for (const [index, html] of linkTokens.entries()) {
+        value = value.replaceAll(`\u0000LINK${index}\u0000`, () => html);
     }
     return value;
 }
@@ -241,6 +266,12 @@ function renderMarkdownPreview(text) {
     }).join("");
 }
 
+function renderFinalAssistantBubble(bubble, content) {
+    bubble.classList.add("markdown-preview");
+    bubble.innerHTML = renderMarkdownPreview(content);
+    renderMath(bubble);
+}
+
 function showError(msg) {
     errorBanner.textContent = msg;
     errorBanner.classList.remove("hidden");
@@ -256,20 +287,35 @@ function appendTurn(role, content, opts = {}) {
     div.className = `turn ${role}` + (opts.thinking ? " thinking" : "");
     const bubble = document.createElement("div");
     bubble.className = "bubble";
-    if (role === "assistant" && !opts.thinking) {
-        bubble.classList.add("markdown-preview");
-        bubble.innerHTML = renderMarkdownPreview(content);
-        renderMath(bubble);
+    if (role === "assistant" && !opts.thinking && !opts.plain) {
+        renderFinalAssistantBubble(bubble, content);
     } else {
-        bubble.innerHTML = escapeHtml(content);
+        bubble.textContent = String(content);
     }
     div.appendChild(bubble);
+    if (role === "assistant" && !opts.thinking) {
+        renderArtifactStack(div, opts.artifacts);
+    }
     transcript.appendChild(div);
     transcript.scrollTop = transcript.scrollHeight;
     return div;
 }
 
+function destroyMapInstances() {
+    for (const map of liveMapInstances) {
+        try {
+            if (map && typeof map.destroy === "function") {
+                map.destroy();
+            }
+        } catch (_) {
+            // Best-effort teardown; the transcript is being removed anyway.
+        }
+    }
+    liveMapInstances.clear();
+}
+
 function clearTranscript() {
+    destroyMapInstances();
     transcript.innerHTML = "";
 }
 
@@ -295,6 +341,596 @@ function showChat() {
     chatScreen.classList.remove("hidden");
     sessionControls.classList.remove("hidden");
     messageInput.focus();
+}
+
+// ---- AMap artifacts ------------------------------------------------------
+
+function normalizeChatConfig(data) {
+    const amap = data && typeof data === "object" && data.amap && typeof data.amap === "object"
+        ? data.amap
+        : {};
+    return {
+        amap: {
+            enabled: amap.enabled === true,
+            js_api_key: typeof amap.js_api_key === "string" ? amap.js_api_key.trim() : "",
+            service_host: typeof amap.service_host === "string" ? amap.service_host.trim() : "",
+            api_version: String(amap.api_version || AMAP_JS_API_VERSION),
+            coordinate_system: String(amap.coordinate_system || ""),
+        },
+    };
+}
+
+async function getChatConfig() {
+    if (chatConfigCache) return chatConfigCache;
+    if (!chatConfigPromise) {
+        chatConfigPromise = apiGet("/chat/config")
+            .then((data) => {
+                chatConfigCache = normalizeChatConfig(data);
+                return chatConfigCache;
+            })
+            .catch((err) => {
+                chatConfigPromise = null;
+                throw err;
+            });
+    }
+    return chatConfigPromise;
+}
+
+function absoluteSameOriginServiceHost(serviceHost) {
+    const value = String(serviceHost || "").trim();
+    if (!value) return "";
+    try {
+        const url = new URL(value, API);
+        if (url.origin !== API) return "";
+        return url.href;
+    } catch (_) {
+        return "";
+    }
+}
+
+function applyAMapSecurityConfig(serviceHost) {
+    const configured = String(serviceHost || "").trim();
+    if (!configured) return;
+
+    const absoluteServiceHost = absoluteSameOriginServiceHost(configured);
+    if (!absoluteServiceHost) {
+        throw new Error("Invalid AMap service host");
+    }
+
+    window._AMapSecurityConfig = Object.assign({}, window._AMapSecurityConfig || {}, {
+        serviceHost: absoluteServiceHost,
+    });
+}
+
+function injectAMapScript(jsApiKey, apiVersion) {
+    return new Promise((resolve, reject) => {
+        const previous = document.getElementById("amap-js-api");
+        if (previous) previous.remove();
+
+        const src = new URL("https://webapi.amap.com/maps");
+        src.searchParams.set("v", apiVersion);
+        src.searchParams.set("key", jsApiKey);
+
+        const script = document.createElement("script");
+        script.id = "amap-js-api";
+        script.async = true;
+        script.defer = true;
+        script.src = src.toString();
+        script.onload = () => {
+            if (window.AMap && typeof window.AMap.Map === "function") {
+                resolve(window.AMap);
+            } else {
+                reject(new Error("AMap failed to initialize"));
+            }
+        };
+        script.onerror = () => {
+            script.remove();
+            reject(new Error("AMap failed to load"));
+        };
+        document.head.appendChild(script);
+    });
+}
+
+function loadAMap() {
+    if (window.AMap && typeof window.AMap.Map === "function") {
+        return Promise.resolve(window.AMap);
+    }
+    if (amapLoadPromise) return amapLoadPromise;
+
+    amapLoadPromise = getChatConfig()
+        .then((config) => {
+            const amap = config.amap || {};
+            if (amap.enabled !== true) {
+                throw new Error("AMap is disabled");
+            }
+            if (!amap.js_api_key) {
+                throw new Error("AMap JS API key is not configured");
+            }
+            if (amap.api_version !== AMAP_JS_API_VERSION) {
+                throw new Error("Unsupported AMap JS API version");
+            }
+            if (amap.coordinate_system !== AMAP_COORDINATE_SYSTEM) {
+                throw new Error("Unsupported AMap coordinate system");
+            }
+
+            applyAMapSecurityConfig(amap.service_host);
+            return injectAMapScript(amap.js_api_key, amap.api_version);
+        })
+        .catch((err) => {
+            amapLoadPromise = null;
+            throw err;
+        });
+
+    return amapLoadPromise;
+}
+
+function isPlainObject(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizePosition(value) {
+    if (!isPlainObject(value)) return null;
+    const lng = Number(value.lng);
+    const lat = Number(value.lat);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+    if (lng < -180 || lng > 180 || lat < -90 || lat > 90) return null;
+    return {
+        lng: Math.round(lng * 1_000_000) / 1_000_000,
+        lat: Math.round(lat * 1_000_000) / 1_000_000,
+    };
+}
+
+function boundedLabel(value, fallback) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    return (text || fallback).slice(0, 80);
+}
+
+function normalizeZoom(value) {
+    const zoom = Number(value);
+    if (!Number.isFinite(zoom)) return DEFAULT_MARKER_ZOOM;
+    return Math.max(3, Math.min(20, Math.round(zoom)));
+}
+
+function normalizeNonNegativeNumber(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0) return null;
+    return Math.min(number, 1_000_000_000);
+}
+
+function safeAmapFallbackUrl(value) {
+    try {
+        const url = new URL(String(value || "").trim());
+        if (
+            url.origin === AMAP_FALLBACK_ORIGIN &&
+            !url.username &&
+            !url.password
+        ) {
+            return url.href;
+        }
+    } catch (_) {
+        // Fall through to the safe AMap landing page.
+    }
+    return `${AMAP_FALLBACK_ORIGIN}/`;
+}
+
+function normalizeMarker(raw, index) {
+    if (!isPlainObject(raw)) return null;
+    const position = normalizePosition(isPlainObject(raw.position) ? raw.position : raw);
+    if (!position) return null;
+    return {
+        position,
+        label: boundedLabel(raw.label || raw.title || raw.name, `Marker ${index + 1}`),
+    };
+}
+
+function normalizeMarkerArtifact(raw, fallbackUrl) {
+    const markers = [];
+    const rawMarkers = Array.isArray(raw.markers) ? raw.markers : [];
+    for (const marker of rawMarkers) {
+        if (markers.length >= MAX_MARKERS_PER_ARTIFACT) break;
+        const normalized = normalizeMarker(marker, markers.length);
+        if (normalized) markers.push(normalized);
+    }
+
+    const center = normalizePosition(raw.center) || (markers[0] ? markers[0].position : null);
+    if (!center) return null;
+    if (!markers.length) {
+        markers.push({ position: center, label: "Marker" });
+    }
+
+    return {
+        type: "amap",
+        version: 1,
+        kind: "marker",
+        coordinateSystem: AMAP_COORDINATE_SYSTEM,
+        fallbackUrl,
+        center,
+        markers,
+        label: boundedLabel(raw.label || raw.title || markers[0].label, "Map marker"),
+        zoom: normalizeZoom(raw.zoom),
+    };
+}
+
+function normalizeEndpointPosition(value) {
+    if (!isPlainObject(value)) return null;
+    return normalizePosition(isPlainObject(value.position) ? value.position : value);
+}
+
+function normalizeRouteArtifact(raw, fallbackUrl) {
+    const polyline = [];
+    const rawPolyline = Array.isArray(raw.polyline) ? raw.polyline : [];
+    for (const point of rawPolyline) {
+        if (polyline.length >= MAX_POLYLINE_POINTS) break;
+        const normalized = normalizePosition(point);
+        if (normalized) polyline.push(normalized);
+    }
+
+    const rawMarkers = Array.isArray(raw.markers) ? raw.markers : [];
+    const boundedMarkers = rawMarkers.slice(0, MAX_MARKERS_PER_ARTIFACT);
+    const originMarker = boundedMarkers.find((marker) => marker && marker.role === "origin")
+        || rawMarkers[0];
+    const destinationMarker = boundedMarkers.find(
+        (marker) => marker && marker.role === "destination",
+    ) || rawMarkers[rawMarkers.length - 1];
+    const rawPositions = Array.isArray(raw.positions) ? raw.positions : [];
+
+    const origin = normalizeEndpointPosition(raw.origin)
+        || normalizeEndpointPosition(originMarker)
+        || normalizePosition(rawPositions[0])
+        || polyline[0]
+        || null;
+    const destination = normalizeEndpointPosition(raw.destination)
+        || normalizeEndpointPosition(destinationMarker)
+        || normalizePosition(rawPositions[rawPositions.length - 1])
+        || polyline[polyline.length - 1]
+        || null;
+    if (!origin || !destination) return null;
+
+    const originLabel = boundedLabel(
+        raw.originLabel || (isPlainObject(originMarker) && (
+            originMarker.label || originMarker.title || originMarker.name
+        )),
+        "Origin",
+    );
+    const destinationLabel = boundedLabel(
+        raw.destinationLabel || (isPlainObject(destinationMarker) && (
+            destinationMarker.label || destinationMarker.title || destinationMarker.name
+        )),
+        "Destination",
+    );
+
+    return {
+        type: "amap",
+        version: 1,
+        kind: "route",
+        coordinateSystem: AMAP_COORDINATE_SYSTEM,
+        fallbackUrl,
+        origin,
+        destination,
+        polyline: polyline.length >= 2 ? polyline : [],
+        distanceMeters: normalizeNonNegativeNumber(raw.distanceMeters),
+        durationSeconds: normalizeNonNegativeNumber(raw.durationSeconds),
+        label: boundedLabel(raw.label || raw.title, `${originLabel} to ${destinationLabel}`),
+        originLabel,
+        destinationLabel,
+    };
+}
+
+function normalizeAMapArtifact(raw) {
+    if (!isPlainObject(raw)) return null;
+    if (raw.type !== "amap" || raw.version !== 1) return null;
+    if (raw.provider !== AMAP_PROVIDER) return null;
+    if (raw.coordinateSystem !== AMAP_COORDINATE_SYSTEM) return null;
+
+    const fallbackUrl = safeAmapFallbackUrl(raw.fallbackUrl);
+    if (raw.kind === "marker") {
+        return normalizeMarkerArtifact(raw, fallbackUrl);
+    }
+    if (raw.kind === "route") {
+        return normalizeRouteArtifact(raw, fallbackUrl);
+    }
+    return null;
+}
+
+function positionKey(position) {
+    return [position.lng, position.lat];
+}
+
+function artifactDedupeKey(artifact) {
+    if (artifact.kind === "marker") {
+        return JSON.stringify([
+            "amap",
+            1,
+            "marker",
+            artifact.fallbackUrl,
+            positionKey(artifact.center),
+            artifact.zoom,
+            artifact.markers.map((marker) => [positionKey(marker.position), marker.label]),
+        ]);
+    }
+    return JSON.stringify([
+        "amap",
+        1,
+        "route",
+        artifact.fallbackUrl,
+        positionKey(artifact.origin),
+        positionKey(artifact.destination),
+        artifact.polyline.map(positionKey),
+        artifact.distanceMeters,
+        artifact.durationSeconds,
+    ]);
+}
+
+function normalizeArtifacts(input) {
+    const rawArtifacts = Array.isArray(input) ? input : (input ? [input] : []);
+    const artifacts = new Map();
+    for (const rawArtifact of rawArtifacts) {
+        if (artifacts.size >= MAX_ARTIFACTS_PER_TURN) break;
+        const artifact = normalizeAMapArtifact(rawArtifact);
+        if (!artifact) continue;
+        const key = artifactDedupeKey(artifact);
+        if (!artifacts.has(key)) {
+            artifacts.set(key, artifact);
+        }
+    }
+    return Array.from(artifacts.values());
+}
+
+function artifactsFromPayload(payload) {
+    if (!isPlainObject(payload)) return [];
+    const rawArtifacts = [];
+    if (Array.isArray(payload.artifacts)) {
+        rawArtifacts.push(...payload.artifacts);
+    } else if (isPlainObject(payload.artifacts)) {
+        rawArtifacts.push(payload.artifacts);
+    }
+    if (Array.isArray(payload.artifact)) {
+        rawArtifacts.push(...payload.artifact);
+    } else if (isPlainObject(payload.artifact)) {
+        rawArtifacts.push(payload.artifact);
+    }
+    return rawArtifacts;
+}
+
+function collectArtifactsFromPayload(payload, artifactMap) {
+    for (const artifact of normalizeArtifacts(artifactsFromPayload(payload))) {
+        if (artifactMap.size >= MAX_ARTIFACTS_PER_TURN) return;
+        const key = artifactDedupeKey(artifact);
+        if (!artifactMap.has(key)) {
+            artifactMap.set(key, artifact);
+        }
+    }
+}
+
+function toAMapPosition(position) {
+    return [position.lng, position.lat];
+}
+
+function formatPosition(position) {
+    return `${position.lng.toFixed(6)}, ${position.lat.toFixed(6)}`;
+}
+
+function formatDistance(meters) {
+    if (meters === null) return "";
+    if (meters >= 1000) {
+        const digits = meters >= 10_000 ? 0 : 1;
+        return `${(meters / 1000).toFixed(digits)} km`;
+    }
+    return `${Math.round(meters)} m`;
+}
+
+function formatDuration(seconds) {
+    if (seconds === null) return "";
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return remainingMinutes ? `${hours} hr ${remainingMinutes} min` : `${hours} hr`;
+}
+
+function setMapStatus(mapEl, message) {
+    mapEl.textContent = "";
+    const status = document.createElement("span");
+    status.className = "amap-card__status";
+    status.textContent = message;
+    mapEl.appendChild(status);
+}
+
+function appendInfoChip(container, text) {
+    const chip = document.createElement("span");
+    chip.className = "amap-card__chip";
+    chip.textContent = text;
+    container.appendChild(chip);
+}
+
+function addMarkerDetails(card, artifact) {
+    const labels = document.createElement("div");
+    labels.className = "amap-card__labels";
+    appendInfoChip(labels, `Center: ${formatPosition(artifact.center)}`);
+    for (const marker of artifact.markers) {
+        appendInfoChip(labels, `${marker.label}: ${formatPosition(marker.position)}`);
+    }
+    card.appendChild(labels);
+}
+
+function addRouteDetails(card, artifact) {
+    const labels = document.createElement("div");
+    labels.className = "amap-card__labels";
+    appendInfoChip(labels, `${artifact.originLabel}: ${formatPosition(artifact.origin)}`);
+    appendInfoChip(
+        labels,
+        `${artifact.destinationLabel}: ${formatPosition(artifact.destination)}`,
+    );
+
+    const distance = formatDistance(artifact.distanceMeters);
+    const duration = formatDuration(artifact.durationSeconds);
+    if (distance) appendInfoChip(labels, `Distance: ${distance}`);
+    if (duration) appendInfoChip(labels, `Duration: ${duration}`);
+    card.appendChild(labels);
+}
+
+function buildAMapArtifactCard(artifact) {
+    const card = document.createElement("article");
+    card.className = "amap-card";
+    card.dataset.kind = artifact.kind;
+
+    const header = document.createElement("div");
+    header.className = "amap-card__header";
+
+    const title = document.createElement("div");
+    title.className = "amap-card__title";
+    title.textContent = artifact.label;
+    header.appendChild(title);
+
+    const fallback = document.createElement("a");
+    fallback.className = "amap-card__fallback";
+    fallback.href = artifact.fallbackUrl;
+    fallback.target = "_blank";
+    fallback.rel = "noopener noreferrer";
+    fallback.textContent = "Open in AMap";
+    header.appendChild(fallback);
+
+    card.appendChild(header);
+
+    const mapEl = document.createElement("div");
+    mapEl.className = "amap-card__map";
+    setMapStatus(mapEl, "Map preview loading...");
+    card.appendChild(mapEl);
+
+    if (artifact.kind === "route") {
+        addRouteDetails(card, artifact);
+    } else {
+        addMarkerDetails(card, artifact);
+    }
+
+    return { card, mapEl };
+}
+
+function fitMapView(map, overlays) {
+    if (!overlays.length || typeof map.setFitView !== "function") return;
+    try {
+        map.setFitView(overlays, false, [40, 40, 40, 40], 17);
+    } catch (_) {
+        // Leave the map at its initial center/zoom if fit view is unavailable.
+    }
+}
+
+function renderMarkerAMap(AMap, map, artifact) {
+    const overlays = [];
+    for (const marker of artifact.markers) {
+        const overlay = new AMap.Marker({
+            map,
+            position: toAMapPosition(marker.position),
+            title: marker.label,
+        });
+        overlays.push(overlay);
+    }
+    if (artifact.markers.length > 1) {
+        fitMapView(map, overlays);
+    } else {
+        map.setCenter(toAMapPosition(artifact.center));
+        map.setZoom(artifact.zoom);
+    }
+}
+
+function renderRouteAMap(AMap, map, artifact) {
+    const originMarker = new AMap.Marker({
+        map,
+        position: toAMapPosition(artifact.origin),
+        title: artifact.originLabel,
+    });
+    const destinationMarker = new AMap.Marker({
+        map,
+        position: toAMapPosition(artifact.destination),
+        title: artifact.destinationLabel,
+    });
+    const overlays = [originMarker, destinationMarker];
+    if (artifact.polyline.length >= 2) {
+        overlays.push(new AMap.Polyline({
+            map,
+            path: artifact.polyline.map(toAMapPosition),
+            strokeColor: "#4f46e5",
+            strokeOpacity: 0.85,
+            strokeWeight: 6,
+            lineJoin: "round",
+            showDir: true,
+        }));
+    }
+    fitMapView(map, overlays);
+}
+
+async function hydrateAMapCard(card, mapEl, artifact) {
+    let map = null;
+    try {
+        const AMap = await loadAMap();
+        if (!document.body.contains(card)) return;
+
+        mapEl.textContent = "";
+        const center = artifact.kind === "route" ? artifact.origin : artifact.center;
+        map = new AMap.Map(mapEl, {
+            center: toAMapPosition(center),
+            zoom: artifact.kind === "marker" ? artifact.zoom : DEFAULT_MARKER_ZOOM,
+            resizeEnable: true,
+        });
+        liveMapInstances.add(map);
+
+        if (artifact.kind === "route") {
+            renderRouteAMap(AMap, map, artifact);
+        } else {
+            renderMarkerAMap(AMap, map, artifact);
+        }
+
+        window.setTimeout(() => {
+            try {
+                if (document.body.contains(card) && map && typeof map.resize === "function") {
+                    map.resize();
+                }
+            } catch (_) {
+                // Non-fatal resize issue.
+            }
+        }, 0);
+    } catch (_) {
+        if (map) {
+            liveMapInstances.delete(map);
+            try {
+                if (typeof map.destroy === "function") map.destroy();
+            } catch (__) {
+                // Ignore teardown failures after a render error.
+            }
+        }
+        if (document.body.contains(card)) {
+            setMapStatus(mapEl, "Map preview unavailable. Use the AMap link.");
+        }
+    }
+}
+
+function renderArtifactStack(turn, artifactsInput) {
+    const artifacts = normalizeArtifacts(artifactsInput);
+    if (!turn || !artifacts.length) return;
+
+    const stack = document.createElement("div");
+    stack.className = "artifact-stack";
+    const cards = [];
+    for (const artifact of artifacts) {
+        const { card, mapEl } = buildAMapArtifactCard(artifact);
+        stack.appendChild(card);
+        cards.push({ card, mapEl, artifact });
+    }
+
+    turn.classList.add("has-artifacts");
+    turn.appendChild(stack);
+    for (const { card, mapEl, artifact } of cards) {
+        hydrateAMapCard(card, mapEl, artifact);
+    }
+}
+
+function findSseSeparator(buffer) {
+    const lf = buffer.indexOf("\n\n");
+    const crlf = buffer.indexOf("\r\n\r\n");
+    if (lf === -1 && crlf === -1) return null;
+    if (lf === -1) return { index: crlf, length: 4 };
+    if (crlf === -1) return { index: lf, length: 2 };
+    return lf < crlf ? { index: lf, length: 2 } : { index: crlf, length: 4 };
 }
 
 // ---- API calls ----------------------------------------------------------
@@ -368,7 +1004,7 @@ async function restoreSession() {
         clearTranscript();
         renderSessionInfo(history.source_urls, history.source_mode);
         for (const turn of history.turns || []) {
-            appendTurn(turn.role, turn.content);
+            appendTurn(turn.role, turn.content, { artifacts: turn.artifacts });
         }
         showChat();
     } catch (err) {
@@ -412,8 +1048,8 @@ async function sendMessage(text) {
 }
 
 // Consume the SSE token stream from POST /chat/{tid}/message/stream.
-// Renders assistant tokens incrementally; falls back to the final ``done``
-// answer if no token deltas were received (e.g. token streaming disabled).
+// Renders streamed text as plain text while accumulating the final answer;
+// Markdown, KaTeX, and map artifacts are rendered once the stream completes.
 async function streamMessage(message, thinking) {
     const res = await fetch(`${API}/chat/${threadId}/message/stream`, {
         method: "POST",
@@ -428,12 +1064,13 @@ async function streamMessage(message, thinking) {
     let bubble = null;
     let answer = "";
     let streamError = "";
+    const responseArtifacts = new Map();
 
     const ensureBubble = () => {
         if (bubble) return bubble;
         thinking.remove();
         clearError();
-        const turn = appendTurn("assistant", "");
+        const turn = appendTurn("assistant", "", { plain: true });
         bubble = turn.querySelector(".bubble");
         return bubble;
     };
@@ -448,8 +1085,10 @@ async function streamMessage(message, thinking) {
         if (eventType === "token" && typeof payload.token === "string") {
             answer += payload.token;
             const el = ensureBubble();
-            el.innerHTML = renderMarkdownPreview(answer);
+            el.textContent = answer;
             transcript.scrollTop = transcript.scrollHeight;
+        } else if (eventType === "artifact") {
+            collectArtifactsFromPayload(payload, responseArtifacts);
         } else if (eventType === "error") {
             streamError = payload.message || "stream error";
         } else if (eventType === "done") {
@@ -457,6 +1096,7 @@ async function streamMessage(message, thinking) {
             if (!answer && typeof payload.answer === "string") {
                 answer = payload.answer;
             }
+            collectArtifactsFromPayload(payload, responseArtifacts);
         }
     };
 
@@ -469,32 +1109,36 @@ async function streamMessage(message, thinking) {
         buffer += decoder.decode(value, { stream: true });
         // SSE frames are separated by a blank line.
         let sep;
-        while ((sep = buffer.indexOf("\n\n")) !== -1) {
-            const frame = buffer.slice(0, sep);
-            buffer = buffer.slice(sep + 2);
+        while ((sep = findSseSeparator(buffer)) !== null) {
+            const frame = buffer.slice(0, sep.index);
+            buffer = buffer.slice(sep.index + sep.length);
             let eventType = "message";
             let dataStr = "";
-            for (const line of frame.split("\n")) {
+            for (const rawLine of frame.split(/\r?\n/)) {
+                const line = rawLine.trimEnd();
                 if (line.startsWith("event:")) eventType = line.slice(6).trim();
-                else if (line.startsWith("data:")) dataStr += line.slice(5).trim();
+                else if (line.startsWith("data:")) dataStr += line.slice(5).trimStart();
             }
             handleEvent(eventType, dataStr);
         }
     }
 
     thinking.remove();
+    const artifacts = Array.from(responseArtifacts.values());
     if (streamError && !answer) {
         showError(streamError);
-        appendTurn("assistant", "(no reply produced)");
+        appendTurn("assistant", "(no reply produced)", { artifacts });
         return;
     }
     if (!bubble) {
         // No tokens streamed; render the final answer in one shot.
         clearError();
-        appendTurn("assistant", answer || "(no reply produced)");
+        appendTurn("assistant", answer || "(no reply produced)", { artifacts });
     } else {
-        bubble.innerHTML = renderMarkdownPreview(answer);
-        renderMath(bubble);
+        renderFinalAssistantBubble(bubble, answer || "(no reply produced)");
+        const turn = bubble.closest(".turn");
+        renderArtifactStack(turn, artifacts);
+        transcript.scrollTop = transcript.scrollHeight;
     }
 }
 
@@ -599,4 +1243,5 @@ newChatBtn.addEventListener("click", async () => {
     showStart();
 });
 
+window.addEventListener("pagehide", destroyMapInstances);
 document.addEventListener("DOMContentLoaded", restoreSession);

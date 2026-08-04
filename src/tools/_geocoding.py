@@ -1,33 +1,26 @@
-# REFACTOR: Shared place geocoding for the map and directions tools.
-#
-# Open-Meteo's geocoder is a populated-place gazetteer: it resolves cities and
-# towns (with population) but returns nothing for points of interest, campuses,
-# or street addresses. It also needs the right ``language`` — a Chinese query
-# with ``language=en`` finds nothing, which is why "上海" used to fail while
-# "Shanghai" worked. Photon (OSM-backed, no API key) covers POIs and CJK names,
-# so it is queried as the second stage.
-#
-# Photon ranks by text similarity only, so a confident-looking result can be the
-# wrong place entirely ("Eiffel Tower" matches a mountain in Alberta). Every
-# candidate therefore carries a name-coverage score, and callers surface low
-# scores as approximate matches instead of asserting them as the answer.
+# REFACTOR: Shared AMap place geocoding for the map and directions tools.
 from __future__ import annotations
 
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Any
 
-from ._http import JsonRequester, request_json
+from ._amap import (
+    AMAP_COORDINATE_SYSTEM,
+    AMAP_PROVIDER,
+    AMapLookupResult,
+    amap_geocode_address,
+    amap_lookup_districts,
+    amap_search_pois,
+    resolve_amap_web_service_key,
+)
+from ._http import JsonRequester
 
-OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
-PHOTON_GEOCODING_URL = "https://photon.komoot.io/api"
-GEOCODER_USER_AGENT = "langgraph-rag/1.0 (map tool)"
 # A candidate at or above this name coverage is treated as the place asked for.
 CONFIDENT_MATCH_SCORE = 0.6
 
-_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
-_CJK_RUN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]+")
+_CJK_RE = re.compile(r"[㐀-䶿一-鿿]")
+_CJK_RUN_RE = re.compile(r"[㐀-䶿一-鿿]+")
 _LATIN_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9'-]*")
 _LATIN_REQUEST_RE = re.compile(
     r"\b(?:where\s+is|where\s+are|show\s+me|show|find|locate|display|"
@@ -35,7 +28,7 @@ _LATIN_REQUEST_RE = re.compile(
     r"on\s+(?:the|a)\s+map|on\s+map|please)\b",
     re.I,
 )
-_PUNCTUATION_RE = re.compile(r"[，。！？；：、,.!?;:\u3010\u3011\uff08\uff09()\[\]]")
+_PUNCTUATION_RE = re.compile(r"[，。！？；：、,.!?;:【】（）()\[\]]")
 # Words that describe the request rather than the place itself.
 _QUERY_NOISE_TOKENS = frozenset({"the", "of", "in", "at", "on", "map", "location", "where"})
 # Request wording, not place names. "在地图上找出上海的位置" must score on 上海.
@@ -70,11 +63,12 @@ _CJK_NOISE_TERMS = tuple(
         reverse=True,
     )
 )
+_SOURCE_RANK = {"poi": 0, "geocode": 1, "district": 2}
 
 
 @dataclass(frozen=True)
 class GeocodedPlace:
-    """One geocoding candidate with enough context to judge the match."""
+    """One AMap geocoding candidate with enough context to judge the match."""
 
     name: str
     latitude: float
@@ -84,12 +78,18 @@ class GeocodedPlace:
     country: str = ""
     kind: str = ""
     population: int | None = None
-    provider: str = ""
+    provider: str = AMAP_PROVIDER
     match_score: float = 0.0
+    address: str = ""
+    district: str = ""
+    adcode: str = ""
+    amap_id: str = ""
+    source: str = ""
+    coordinate_system: str = AMAP_COORDINATE_SYSTEM
 
     @property
     def label(self) -> str:
-        parts = [self.name, self.state or self.city, self.country]
+        parts = [self.name, self.district, self.city, self.state, self.country]
         seen: list[str] = []
         for part in parts:
             value = (part or "").strip()
@@ -101,149 +101,158 @@ class GeocodedPlace:
     def is_confident(self) -> bool:
         return self.match_score >= CONFIDENT_MATCH_SCORE
 
+    @property
+    def latitude_gcj02(self) -> float:
+        return self.latitude
+
+    @property
+    def longitude_gcj02(self) -> float:
+        return self.longitude
+
 
 def geocode_place(
     query: str,
     *,
     limit: int = 3,
     requester: JsonRequester | None = None,
+    api_key: str | None = None,
+    timeout_seconds: int = 10,
 ) -> list[GeocodedPlace]:
-    """Return ranked geocoding candidates for a place, city, POI, or address.
+    """Return ranked AMap candidates for a place, POI, address, or district.
 
-    Populated places resolve through Open-Meteo first because it is the more
-    authoritative gazetteer for cities. Anything it cannot resolve falls through
-    to Photon, which covers points of interest and non-Latin names.
+    AMap POI text search is tried first because it covers landmarks, campuses,
+    business parks, and many Chinese POIs. If that does not produce a confident
+    match, address geocoding is added; administrative district lookup is the
+    final fallback. Ranking, dedupe, confidence, and ambiguity semantics are the
+    same as the previous shared geocoder.
     """
 
     term = (query or "").strip()
     if not term:
         return []
 
-    # The agent may pass a whole request ("在地图上找出上海的位置", "where is
-    # Shanghai on a map"). Gazetteers match place names, not sentences, so the
-    # request wording is removed before the lookup.
+    key = resolve_amap_web_service_key(api_key)
+    if not key:
+        return []
+
     search_term = clean_place_query(term)
-    candidates = _open_meteo_candidates(search_term, limit=limit, requester=requester)
-    confident = [candidate for candidate in candidates if candidate.is_confident]
-    if not confident:
-        candidates.extend(_photon_candidates(search_term, limit=limit, requester=requester))
+    requested_limit = max(1, int(limit))
+    candidates = _amap_stage_candidates(
+        "poi",
+        search_term,
+        api_key=key,
+        limit=requested_limit,
+        requester=requester,
+        timeout_seconds=timeout_seconds,
+    )
+
+    if not any(candidate.is_confident for candidate in candidates):
+        candidates.extend(
+            _amap_stage_candidates(
+                "geocode",
+                search_term,
+                api_key=key,
+                limit=requested_limit,
+                requester=requester,
+                timeout_seconds=timeout_seconds,
+            )
+        )
+
+    if not any(candidate.is_confident for candidate in candidates):
+        candidates.extend(
+            _amap_stage_candidates(
+                "district",
+                search_term,
+                api_key=key,
+                limit=requested_limit,
+                requester=requester,
+                timeout_seconds=timeout_seconds,
+            )
+        )
 
     ranked = sorted(
         _dedupe(candidates),
-        key=lambda candidate: (-candidate.match_score, 0 if candidate.population else 1),
+        key=lambda candidate: (
+            -candidate.match_score,
+            _SOURCE_RANK.get(candidate.source, 9),
+            0 if candidate.population else 1,
+        ),
     )
-    return ranked[: max(1, int(limit))]
+    return ranked[:requested_limit]
 
 
-def _open_meteo_candidates(
+def _amap_stage_candidates(
+    stage: str,
     term: str,
     *,
+    api_key: str,
     limit: int,
     requester: JsonRequester | None,
+    timeout_seconds: int,
 ) -> list[GeocodedPlace]:
     try:
-        payload = request_json(
-            OPEN_METEO_GEOCODING_URL,
-            params={
-                "name": term,
-                "count": max(1, int(limit)),
-                # Chinese input needs the matching name index; passing "en"
-                # silently returns no results for CJK place names.
-                "language": "zh" if _CJK_RE.search(term) else "en",
-                "format": "json",
-            },
-            requester=requester,
-        )
+        if stage == "poi":
+            raw_results = amap_search_pois(
+                term,
+                api_key=api_key,
+                limit=limit,
+                requester=requester,
+                timeout_seconds=timeout_seconds,
+            )
+        elif stage == "geocode":
+            raw_results = amap_geocode_address(
+                term,
+                api_key=api_key,
+                limit=limit,
+                requester=requester,
+                timeout_seconds=timeout_seconds,
+            )
+        else:
+            raw_results = amap_lookup_districts(
+                term,
+                api_key=api_key,
+                limit=limit,
+                requester=requester,
+                timeout_seconds=timeout_seconds,
+            )
     except Exception:
         return []
 
     places: list[GeocodedPlace] = []
-    for result in payload.get("results") or []:
-        if not isinstance(result, dict):
-            continue
-        place = _place_from_open_meteo(result, term)
+    for result in raw_results:
+        place = _place_from_amap(result, term)
         if place is not None:
             places.append(place)
     return places
 
 
-def _place_from_open_meteo(result: dict[str, Any], term: str) -> GeocodedPlace | None:
-    try:
-        latitude = float(result["latitude"])
-        longitude = float(result["longitude"])
-    except (KeyError, TypeError, ValueError):
-        return None
-
-    name = str(result.get("name") or term)
-    population = result.get("population")
-    return GeocodedPlace(
-        name=name,
-        latitude=latitude,
-        longitude=longitude,
-        city=str(result.get("admin2") or "").strip(),
-        state=str(result.get("admin1") or "").strip(),
-        country=str(result.get("country") or "").strip(),
-        kind=str(result.get("feature_code") or "").strip(),
-        population=int(population) if isinstance(population, (int, float)) else None,
-        provider="open-meteo",
-        match_score=name_match_score(term, name),
-    )
-
-
-def _photon_candidates(
-    term: str,
-    *,
-    limit: int,
-    requester: JsonRequester | None,
-) -> list[GeocodedPlace]:
-    try:
-        payload = request_json(
-            PHOTON_GEOCODING_URL,
-            params={"q": term, "limit": max(1, int(limit))},
-            requester=requester,
-            headers={"User-Agent": GEOCODER_USER_AGENT},
-        )
-    except Exception:
-        return []
-
-    places: list[GeocodedPlace] = []
-    for feature in payload.get("features") or []:
-        if not isinstance(feature, dict):
-            continue
-        place = _place_from_photon(feature, term)
-        if place is not None:
-            places.append(place)
-    return places
-
-
-def _place_from_photon(feature: dict[str, Any], term: str) -> GeocodedPlace | None:
-    geometry = feature.get("geometry")
-    coordinates = geometry.get("coordinates") if isinstance(geometry, dict) else None
-    if not isinstance(coordinates, list) or len(coordinates) < 2:
-        return None
-    try:
-        longitude = float(coordinates[0])
-        latitude = float(coordinates[1])
-    except (TypeError, ValueError):
-        return None
-
-    properties = feature.get("properties")
-    properties = properties if isinstance(properties, dict) else {}
-    name = str(properties.get("name") or "").strip()
+def _place_from_amap(result: AMapLookupResult, term: str) -> GeocodedPlace | None:
+    name = str(result.name or result.address or term).strip()
     if not name:
-        street = str(properties.get("street") or "").strip()
-        house = str(properties.get("housenumber") or "").strip()
-        name = " ".join(part for part in (street, house) if part) or term
+        return None
+
+    match_score = max(
+        name_match_score(term, name),
+        name_match_score(term, result.address),
+        name_match_score(term, result.district),
+        name_match_score(term, result.city),
+    )
     return GeocodedPlace(
         name=name,
-        latitude=latitude,
-        longitude=longitude,
-        city=str(properties.get("city") or properties.get("district") or "").strip(),
-        state=str(properties.get("state") or "").strip(),
-        country=str(properties.get("country") or "").strip(),
-        kind=str(properties.get("osm_value") or "").strip(),
-        provider="photon",
-        match_score=name_match_score(term, name),
+        latitude=result.position.lat,
+        longitude=result.position.lng,
+        city=result.city,
+        state=result.province,
+        country=result.country,
+        kind=result.kind or result.source,
+        provider=result.provider,
+        match_score=match_score,
+        address=result.address,
+        district=result.district,
+        adcode=result.adcode,
+        amap_id=result.amap_id,
+        source=result.source,
+        coordinate_system=AMAP_COORDINATE_SYSTEM,
     )
 
 
@@ -268,9 +277,9 @@ def clean_place_query(query: str) -> str:
 def name_match_score(query: str, name: str) -> float:
     """Return the share of distinctive query terms present in a candidate name.
 
-    CJK text is compared as character bigrams because it is not space
-    separated: "上海金蝶软件园" against "上海浦东软件园祖冲之园" scores partial
-    rather than exact, which is what marks it an approximate match.
+    CJK text is compared as character bigrams because it is not space separated:
+    "上海金蝶软件园" against "上海浦东软件园祖冲之园" scores partial rather than exact,
+    which is what marks it an approximate match.
     """
 
     query_terms = _match_terms(query)
@@ -314,9 +323,6 @@ def _dedupe(places: list[GeocodedPlace]) -> list[GeocodedPlace]:
 
 __all__ = [
     "CONFIDENT_MATCH_SCORE",
-    "GEOCODER_USER_AGENT",
-    "OPEN_METEO_GEOCODING_URL",
-    "PHOTON_GEOCODING_URL",
     "GeocodedPlace",
     "clean_place_query",
     "geocode_place",

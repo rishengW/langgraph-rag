@@ -356,56 +356,92 @@ def test_directions_tool_geocodes_endpoints_and_formats_route():
 
     def requester(url, **kwargs):
         calls.append((url, kwargs))
-        if "geocoding-api" in url:
-            name = kwargs["params"]["name"]
+        if "/place/text" in url:
+            name = kwargs["params"]["keywords"]
             coords = {
-                "Shanghai": (31.23, 121.47, "Shanghai", "China"),
-                "Hangzhou": (30.29, 120.16, "Zhejiang", "China"),
+                "Shanghai": (31.23, 121.47, "上海市", "中国"),
+                "Hangzhou": (30.29, 120.16, "浙江省", "中国"),
             }[name]
-            lat, lon, admin1, country = coords
+            lat, lon, province, country = coords
             return {
-                "results": [
+                "status": "1",
+                "pois": [
                     {
+                        "id": f"B-{name}",
                         "name": name,
-                        "admin1": admin1,
+                        "pname": province,
+                        "cityname": name,
                         "country": country,
-                        "latitude": lat,
-                        "longitude": lon,
+                        "location": f"{lon},{lat}",
+                        "type": "行政地标",
+                    }
+                ],
+            }
+        assert url.endswith("/direction/driving")
+        return {
+            "status": "1",
+            "route": {
+                "paths": [
+                    {
+                        "distance": "165000",
+                        "duration": "7200",
+                        "steps": [{"instruction": "Drive toward Hangzhou"}],
                     }
                 ]
-            }
-        # OSRM route response.
-        assert "/driving/" in url
-        return {
-            "code": "Ok",
-            "routes": [{"distance": 165000.0, "duration": 7200.0}],
+            },
         }
 
     tool = build_directions_tool(
-        Settings(dashscope_api_key="test-key"), requester=requester
+        Settings(dashscope_api_key="test-key", amap_web_service_key="amap-secret"),
+        requester=requester,
     )
     result = tool.invoke(
         {"origin": "Shanghai", "destination": "Hangzhou", "mode": "driving"}
     )
 
-    # The shared geocoder deduplicates repeated label parts, so a city whose
-    # admin1 repeats its name renders as "Shanghai, China" rather than
-    # "Shanghai, Shanghai, China".
-    assert "Directions from Shanghai, China to Hangzhou, Zhejiang, China" in result
+    assert "Directions from Shanghai, 上海市, 中国 to Hangzhou, 浙江省, 中国" in result
+    assert "| Coordinate system | GCJ-02 (AMap) |" in result
     assert "| Distance | 165.0 km |" in result
     assert "| Estimated time | 2 h |" in result
-    # Two geocoding calls + one routing call.
-    assert len(calls) == 3
+    assert "Route steps:" in result
+    assert isinstance(result, str)
+    tool_message = tool.invoke(
+        {
+            "type": "tool_call",
+            "name": "get_directions",
+            "args": {"origin": "Shanghai", "destination": "Hangzhou", "mode": "car"},
+            "id": "call-route",
+        }
+    )
+    assert tool_message.artifact["type"] == "amap"
+    assert tool_message.artifact["kind"] == "route"
+    assert tool_message.artifact["coordinateSystem"] == "gcj02"
+    assert tool_message.artifact["positions"][0] == {"lng": 121.47, "lat": 31.23}
+    # Two AMap POI geocoding calls + one routing call per invocation.
+    assert len(calls) == 6
+    assert all(call[1]["params"]["key"] == "amap-secret" for call in calls)
 
 
-def test_directions_tool_accepts_raw_coordinates_without_geocoding():
+def test_directions_tool_accepts_raw_coordinates_and_converts_wgs84_before_routing():
+    calls = []
+
     def requester(url, **kwargs):
-        # Only the OSRM endpoint should be hit; no geocoding for raw coords.
-        assert "geocoding-api" not in url
-        return {"code": "Ok", "routes": [{"distance": 1000.0, "duration": 600.0}]}
+        calls.append((url, kwargs))
+        if url.endswith("/assistant/coordinate/convert"):
+            locations = kwargs["params"]["locations"]
+            converted = {
+                "121.470000,31.230000": "121.474000,31.234000",
+                "120.160000,30.290000": "120.164000,30.294000",
+            }[locations]
+            return {"status": "1", "locations": converted}
+        assert url.endswith("/direction/driving")
+        assert kwargs["params"]["origin"] == "121.474000,31.234000"
+        assert kwargs["params"]["destination"] == "120.164000,30.294000"
+        return {"status": "1", "route": {"paths": [{"distance": "1000", "duration": "600"}]}}
 
     tool = build_directions_tool(
-        Settings(dashscope_api_key="test-key"), requester=requester
+        Settings(dashscope_api_key="test-key", amap_web_service_key="amap-secret"),
+        requester=requester,
     )
     result = tool.invoke(
         {"origin": "31.23,121.47", "destination": "30.29,120.16"}
@@ -413,20 +449,25 @@ def test_directions_tool_accepts_raw_coordinates_without_geocoding():
 
     assert "| Distance | 1.0 km |" in result
     assert "| Estimated time | 10 min |" in result
+    assert [url for url, _kwargs in calls].count(
+        "https://restapi.amap.com/v3/assistant/coordinate/convert"
+    ) == 2
 
 
 def test_directions_tool_reports_missing_route():
     def requester(url, **kwargs):
-        if "geocoding-api" in url:
+        if "/place/text" in url:
             return {
-                "results": [
-                    {"name": "A", "latitude": 1.0, "longitude": 1.0},
-                ]
+                "status": "1",
+                "pois": [
+                    {"name": "A", "latitude": 1.0, "longitude": 1.0, "location": "1.0,1.0"},
+                ],
             }
-        return {"code": "NoRoute", "message": "no route", "routes": []}
+        return {"status": "1", "route": {"paths": []}}
 
     tool = build_directions_tool(
-        Settings(dashscope_api_key="test-key"), requester=requester
+        Settings(dashscope_api_key="test-key", amap_web_service_key="amap-secret"),
+        requester=requester,
     )
     result = tool.invoke({"origin": "A", "destination": "A"})
 
@@ -438,45 +479,73 @@ def test_directions_tool_error_returns_string_not_raises():
         raise RuntimeError("network down")
 
     tool = build_directions_tool(
-        Settings(dashscope_api_key="test-key"), requester=boom
+        Settings(dashscope_api_key="test-key", amap_web_service_key="amap-secret"),
+        requester=boom,
     )
     result = tool.invoke({"origin": "Shanghai", "destination": "Hangzhou"})
 
     assert "failed" in result.lower()
 
 
-def test_map_tool_geocodes_place_and_returns_osm_link():
+def test_map_tool_geocodes_place_and_returns_amap_link():
     def requester(url, **kwargs):
-        assert "geocoding-api" in url
+        assert url.endswith("/place/text")
+        assert kwargs["params"]["key"] == "amap-secret"
         return {
-            "results": [
+            "status": "1",
+            "pois": [
                 {
+                    "id": "B-PARIS",
                     "name": "Paris",
-                    "admin1": "Ile-de-France",
+                    "pname": "Ile-de-France",
                     "country": "France",
-                    "latitude": 48.8566,
-                    "longitude": 2.3522,
-                    "population": 2138551,
+                    "location": "2.3522,48.8566",
+                    "type": "city",
                 }
-            ]
+            ],
         }
 
-    tool = build_map_tool(Settings(dashscope_api_key="test-key"), requester=requester)
+    tool = build_map_tool(
+        Settings(dashscope_api_key="test-key", amap_web_service_key="amap-secret"),
+        requester=requester,
+    )
     result = tool.invoke({"place": "Paris", "zoom": 12})
 
     assert "Map location for Paris, Ile-de-France, France" in result
     assert "| Latitude | 48.8566 |" in result
     assert "| Longitude | 2.3522 |" in result
-    assert "| Population | 2,138,551 |" in result
-    assert "openstreetmap.org" in result
-    assert "#map=12/48.85660/2.35220" in result
+    assert "| Coordinate system | GCJ-02 (AMap) |" in result
+    assert "uri.amap.com/marker" in result
+    assert "121" not in result
+    assert isinstance(result, str)
+    tool_message = tool.invoke(
+        {
+            "type": "tool_call",
+            "name": "find_on_map",
+            "args": {"place": "Paris", "zoom": 12},
+            "id": "call-map",
+        }
+    )
+    assert tool_message.artifact["type"] == "amap"
+    assert tool_message.artifact["kind"] == "marker"
+    assert tool_message.artifact["provider"] == "amap"
+    assert tool_message.artifact["positions"] == [{"lng": 2.3522, "lat": 48.8566}]
 
 
 def test_map_tool_reports_no_results():
     def requester(url, **kwargs):
-        return {"results": []}
+        if url.endswith("/place/text"):
+            return {"status": "1", "pois": []}
+        if url.endswith("/geocode/geo"):
+            return {"status": "1", "geocodes": []}
+        if url.endswith("/config/district"):
+            return {"status": "1", "districts": []}
+        raise AssertionError(f"unexpected URL: {url}")
 
-    tool = build_map_tool(Settings(dashscope_api_key="test-key"), requester=requester)
+    tool = build_map_tool(
+        Settings(dashscope_api_key="test-key", amap_web_service_key="amap-secret"),
+        requester=requester,
+    )
     result = tool.invoke({"place": "Nowhereville12345"})
 
     assert "No map location found" in result

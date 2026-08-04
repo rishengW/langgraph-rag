@@ -77,6 +77,10 @@ SETTING_ENV_NAMES = {
     "tavily_api_key": "TAVILY_API_KEY",
     "bing_search_api_key": "BING_SEARCH_API_KEY",
     "bing_search_endpoint": "BING_SEARCH_ENDPOINT",
+    "amap_web_service_key": "AMAP_WEB_SERVICE_KEY",
+    "amap_js_api_key": "AMAP_JS_API_KEY",
+    "amap_js_security_code": "AMAP_JS_SECURITY_CODE",
+    "amap_api_timeout_seconds": "AMAP_API_TIMEOUT_SECONDS",
     "weather_enabled": "WEATHER_ENABLED",
     "stock_enabled": "STOCK_ENABLED",
     "currency_enabled": "CURRENCY_ENABLED",
@@ -260,7 +264,13 @@ def load_yaml_config(config_file: str | Path | None = DEFAULT_CONFIG_FILE) -> di
 def _settings_defaults() -> dict[str, Any]:
     defaults: dict[str, Any] = {}
     for item in fields(Settings):
-        if item.name in ("dashscope_api_key", "deepseek_api_key"):
+        if item.name in (
+            "dashscope_api_key",
+            "deepseek_api_key",
+            "amap_web_service_key",
+            "amap_js_api_key",
+            "amap_js_security_code",
+        ):
             continue
         if item.default is not MISSING:
             defaults[item.name] = item.default
@@ -329,6 +339,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "web_search_provider_timeout_seconds",
         "web_search_api_timeout_seconds",
         "web_search_deadline_seconds",
+        "amap_api_timeout_seconds",
         "web_search_top_k",
         "web_search_min_url_score",
         "web_search_max_page_tokens",
@@ -378,6 +389,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
             "web_search_provider_timeout_seconds",
             "web_search_api_timeout_seconds",
             "web_search_deadline_seconds",
+            "amap_api_timeout_seconds",
             "dashscope_max_retries",
             "file_read_max_bytes",
         ):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -44,11 +46,13 @@ class MessageResponse(BaseModel):
     thread_id: str
     answer: str
     error: str | None = None
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class HistoryTurn(BaseModel):
     role: str
     content: str
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class HistoryResponse(BaseModel):

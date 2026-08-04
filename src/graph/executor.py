@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ..llm.sanitize import CitationArtifactFilter
+from .artifacts import extract_artifacts_from_node_output
 from .events import (
+    ArtifactEvent,
     DoneEvent,
     ErrorEvent,
     GraderDecisionEvent,
@@ -77,6 +79,8 @@ class GraphExecutor:
             return
 
         final_output: Mapping[str, Any] | None = None
+        artifacts: list[dict[str, Any]] = []
+        seen_artifact_ids: set[str] = set()
         try:
             graph_stream = (
                 self.graph.stream(inputs)
@@ -94,11 +98,20 @@ class GraphExecutor:
                     continue
                 final_output = output
                 yield from self._events_from_chunk(output)
+                yield from self._artifact_events_from_chunk(
+                    output,
+                    artifacts,
+                    seen_artifact_ids,
+                )
         except Exception as exc:
             yield from self._emit(ErrorEvent(message=str(exc), recoverable=False))
 
         yield from self._emit(
-            DoneEvent(output=dict(final_output or {}), answer=_extract_answer(final_output))
+            DoneEvent(
+                output=dict(final_output or {}),
+                answer=_extract_answer(final_output),
+                artifacts=list(artifacts),
+            )
         )
 
     def _stream_with_tokens(
@@ -118,6 +131,8 @@ class GraphExecutor:
         """
 
         final_output: Mapping[str, Any] | None = None
+        artifacts: list[dict[str, Any]] = []
+        seen_artifact_ids: set[str] = set()
         # One filter per streaming node: a fabricated citation marker can be
         # split across token chunks, so partial markers are buffered until they
         # either complete (and are dropped) or are ruled out (and released).
@@ -145,6 +160,11 @@ class GraphExecutor:
                     continue
                 final_output = chunk
                 yield from self._events_from_chunk(chunk)
+                yield from self._artifact_events_from_chunk(
+                    chunk,
+                    artifacts,
+                    seen_artifact_ids,
+                )
                 if TERMINAL_UPDATE_NODES.intersection(chunk):
                     break
         except Exception as exc:
@@ -152,7 +172,11 @@ class GraphExecutor:
 
         yield from self._flush_token_filters(token_filters)
         yield from self._emit(
-            DoneEvent(output=dict(final_output or {}), answer=_extract_answer(final_output))
+            DoneEvent(
+                output=dict(final_output or {}),
+                answer=_extract_answer(final_output),
+                artifacts=list(artifacts),
+            )
         )
 
     def _flush_token_filters(
@@ -237,6 +261,21 @@ class GraphExecutor:
         grader_event = _grader_event(node, node_output)
         if grader_event is not None:
             yield from self._emit(grader_event)
+
+    def _artifact_events_from_chunk(
+        self,
+        output: Mapping[str, Any],
+        artifacts: list[dict[str, Any]],
+        seen_artifact_ids: set[str],
+    ) -> Iterator[GraphEvent]:
+        for node, node_output in output.items():
+            for artifact in extract_artifacts_from_node_output(node_output):
+                artifact_id = str(artifact.get("id") or "")
+                if not artifact_id or artifact_id in seen_artifact_ids:
+                    continue
+                seen_artifact_ids.add(artifact_id)
+                artifacts.append(artifact)
+                yield from self._emit(ArtifactEvent(artifacts=[artifact], node=node))
 
     def _emit(self, event: GraphEvent) -> Iterator[GraphEvent]:
         if self.metrics is not None:

@@ -84,6 +84,19 @@ DASHSCOPE_API_KEY=your_key_here
 DEEPSEEK_API_KEY=your_key_here    # optional, only if LLM_PROVIDER=deepseek
 ```
 
+To enable the AMap-backed map and directions tools and render their map cards
+in chat, also configure an AMap Web Service key plus a JS API key and security
+code. The Web Service key and security code remain server-side; only the JS API
+key is returned to the browser.
+
+```text
+AMAP_WEB_SERVICE_KEY=your_amap_web_service_key_here
+AMAP_JS_API_KEY=your_amap_js_api_key_here
+AMAP_JS_SECURITY_CODE=your_amap_js_security_code_here
+MAP_ENABLED=true
+DIRECTIONS_ENABLED=true
+```
+
 ## Configuration
 
 Settings are loaded with this precedence:
@@ -135,8 +148,12 @@ Key settings:
 | `CURRENCY_ENABLED` | `false` | Frankfurter currency-conversion tool |
 | `WIKIPEDIA_ENABLED` | `false` | MediaWiki summary tool |
 | `WIKIPEDIA_USER_AGENT` | `langgraph-rag/1.0 (configure)` | Required when `WIKIPEDIA_ENABLED=true` |
-| `DIRECTIONS_ENABLED` | `false` | OSRM route/distance/time tool |
-| `MAP_ENABLED` | `false` | Open-Meteo + OpenStreetMap place locator tool |
+| `DIRECTIONS_ENABLED` | `false` | AMap route/distance/time tool; requires `AMAP_WEB_SERVICE_KEY` |
+| `MAP_ENABLED` | `false` | AMap POI/address/district locator; requires `AMAP_WEB_SERVICE_KEY` |
+| `AMAP_WEB_SERVICE_KEY` | - | Server-only AMap Web Service key used by map and directions tools |
+| `AMAP_JS_API_KEY` | - | Browser-visible AMap JS API key used for chat map cards |
+| `AMAP_JS_SECURITY_CODE` | - | Server-only JS security code injected by the same-origin AMap proxy |
+| `AMAP_API_TIMEOUT_SECONDS` | `10` | Timeout for AMap Web Service and proxy requests (minimum 1 second) |
 | `MATH_ENABLED` | `false` | SymPy symbolic math tool (calculus, algebra, limits, series) |
 | `STATISTICS_ENABLED` | `false` | Descriptive statistics tool (stdlib) |
 | `LINALG_ENABLED` | `false` | Linear algebra / matrix tool (SymPy) |
@@ -225,8 +242,8 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `get_stock_quote` | `src/tools/stock.py` | `STOCK_ENABLED=true` | yfinance / Yahoo Finance, no API key |
 | `convert_currency` | `src/tools/currency.py` | `CURRENCY_ENABLED=true` | Frankfurter API (201 currencies), no API key |
 | `search_wikipedia` | `src/tools/wikipedia_tool.py` | `WIKIPEDIA_ENABLED=true` | MediaWiki API summary + URL, set `WIKIPEDIA_USER_AGENT` |
-| `get_directions` | `src/tools/directions.py` | `DIRECTIONS_ENABLED=true` | OSRM route/distance/time between two places (free-flow, no live traffic), no API key |
-| `find_on_map` | `src/tools/map_tool.py` | `MAP_ENABLED=true` | Coordinates + OpenStreetMap link via Open-Meteo (cities) and Photon (POIs, CJK names), no API key |
+| `get_directions` | `src/tools/directions.py` | `DIRECTIONS_ENABLED=true` | AMap driving/walking/cycling route, distance, time, and GCJ-02 map artifact; requires `AMAP_WEB_SERVICE_KEY` |
+| `find_on_map` | `src/tools/map_tool.py` | `MAP_ENABLED=true` | AMap POI/address/district lookup, GCJ-02 coordinates, and map artifact; requires `AMAP_WEB_SERVICE_KEY` |
 | `solve_math` | `src/tools/math_tool.py` | `MATH_ENABLED=true` | SymPy derivatives/integrals/solve/simplify/limits/series, no API key |
 | `compute_statistics` | `src/tools/statistics_tool.py` | `STATISTICS_ENABLED=true` | Mean/median/mode/variance/stdev/quartiles (stdlib), no API key |
 | `linear_algebra` | `src/tools/linalg_tool.py` | `LINALG_ENABLED=true` | Matrix det/inverse/transpose/multiply/eigenvalues, solve Ax=b (SymPy) |

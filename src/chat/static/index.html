@@ -263,6 +263,121 @@
             margin: 0 24px 14px;
         }
 
+        .turn.has-artifacts {
+            flex-direction: column;
+        }
+        .artifact-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: min(100%, 680px);
+        }
+        .amap-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(31, 41, 55, 0.08);
+            overflow: hidden;
+        }
+        .amap-card__header {
+            align-items: center;
+            display: flex;
+            gap: 12px;
+            justify-content: space-between;
+            padding: 10px 12px;
+        }
+        .amap-card__title {
+            color: #111827;
+            font-size: 13px;
+            font-weight: 700;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .amap-card__fallback {
+            color: #4f46e5;
+            flex: 0 0 auto;
+            font-size: 12px;
+            font-weight: 600;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+        .amap-card__map {
+            align-items: center;
+            background: #eef2ff;
+            color: #4b5563;
+            display: flex;
+            justify-content: center;
+            min-height: 260px;
+            width: 100%;
+        }
+        .amap-card__status {
+            font-size: 13px;
+            padding: 16px;
+            text-align: center;
+        }
+        .amap-card__labels {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 10px 12px 12px;
+        }
+        .amap-card__chip {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 999px;
+            color: #374151;
+            font-size: 11px;
+            line-height: 1.35;
+            padding: 4px 8px;
+        }
+
+        @media (max-width: 640px) {
+            body { padding: 0; }
+            .app {
+                border-radius: 0;
+                height: 100vh;
+                max-width: none;
+            }
+            header,
+            .composer {
+                padding-left: 14px;
+                padding-right: 14px;
+            }
+            header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+            .transcript {
+                padding: 14px;
+            }
+            .turn {
+                max-width: 96%;
+            }
+            .composer {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .composer textarea {
+                flex-basis: calc(100% - 54px);
+            }
+            .composer #sendBtn {
+                flex: 1 0 100%;
+            }
+            .session-info {
+                display: block;
+            }
+            .amap-card__header {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 4px;
+            }
+            .amap-card__map {
+                min-height: 220px;
+            }
+        }
+
         .hidden { display: none !important; }
     </style>
     <!-- KaTeX: typeset LaTeX math (\\[...\\], \\(...\\), $$...$$) in agent
@@ -313,6 +428,6 @@
         </section>
     </div>
 
-    <script src="/static/script.js?v=5"></script>
+    <script src="/static/script.js?v=7"></script>
 </body>
 </html>

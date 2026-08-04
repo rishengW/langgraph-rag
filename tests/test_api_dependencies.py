@@ -192,13 +192,14 @@ def test_chat_app_uses_app_state_session_registry(monkeypatch, isolated_settings
             "thread_id": thread_id,
             "answer": "chat answer",
             "error": None,
+            "artifacts": [],
         }
 
         history = client.get(f"/chat/{thread_id}/history")
         assert history.status_code == 200
         assert history.json()["turns"] == [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "chat answer"},
+            {"role": "user", "content": "Hello", "artifacts": []},
+            {"role": "assistant", "content": "chat answer", "artifacts": []},
         ]
 
         deleted = client.delete(f"/chat/{thread_id}")

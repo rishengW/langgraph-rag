@@ -26,6 +26,13 @@ Required secrets, including `DASHSCOPE_API_KEY`, belong in `.env` or process
 environment variables. Do not put secrets in YAML config files, Chroma backups,
 screenshots, test fixtures, or documentation examples.
 
+`AMAP_WEB_SERVICE_KEY` and `AMAP_JS_SECURITY_CODE` are server-side secrets.
+`AMAP_JS_API_KEY` is intentionally browser-visible and should be restricted in
+the AMap console to the application's deployed origins. The chat UI sends AMap
+JS service traffic through `/_AMapService`; that route validates relative paths,
+uses fixed AMap upstream hosts, overrides caller-supplied security codes, refuses
+redirects, and bounds query and response sizes.
+
 The old notebook had hard-coded keys that were removed from this Python project.
 Assume any key that appeared in a notebook, chat transcript, or repository
 history has been compromised and rotate it.

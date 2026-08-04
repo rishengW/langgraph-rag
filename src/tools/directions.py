@@ -1,30 +1,44 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
+from ._amap import (
+    AMapPosition,
+    AMapRoute,
+    amap_route,
+    build_amap_navigation_uri,
+    build_route_artifact,
+    convert_wgs84_to_gcj02,
+    normalize_travel_mode,
+    parse_latlon,
+    safe_amap_error,
+)
 from ._geocoding import geocode_place
-from ._http import JsonRequester, request_json
+from ._http import JsonRequester
 
 if TYPE_CHECKING:
     from ..config import Settings
 
-OSRM_ROUTE_API_URL = "https://router.project-osrm.org/route/v1"
 
-# OSRM's public demo server is built with the car profile. We expose a mode
-# field for forward compatibility, but map every mode onto the supported
-# "driving" profile so a self-hosted OSRM with foot/bike profiles can be
-# swapped in via OSRM_ROUTE_API_URL without changing the tool contract.
-_PROFILE_BY_MODE = {
-    "driving": "driving",
-    "car": "driving",
-    "walking": "foot",
-    "foot": "foot",
-    "cycling": "bike",
-    "bike": "bike",
-}
+@dataclass(frozen=True)
+class ResolvedRoutePoint:
+    """One route endpoint resolved to AMap GCJ-02 coordinates."""
+
+    label: str
+    position: AMapPosition
+    raw_wgs84: AMapPosition | None = None
+
+
+@dataclass(frozen=True)
+class DirectionsLookupResult:
+    """Internal content/artifact result for directions."""
+
+    content: str
+    artifact: dict[str, object] | None = None
 
 
 class DirectionsInput(BaseModel):
@@ -47,37 +61,41 @@ class DirectionsInput(BaseModel):
 
 
 def build_directions_tool(
-    _settings: Settings,
+    settings: Settings,
     *,
     requester: JsonRequester | None = None,
 ) -> BaseTool:
-    """Create an OSRM-backed driving/walking/cycling directions tool."""
+    """Create an AMap-backed driving/walking/cycling directions tool."""
 
     def _run_directions(
         origin: str,
         destination: str,
         mode: str = "driving",
-    ) -> str:
-        return get_directions(
+    ) -> tuple[str, dict[str, object] | None]:
+        result = get_directions_result(
             origin=origin,
             destination=destination,
             mode=mode,
+            settings=settings,
             requester=requester,
         )
+        return result.content, result.artifact
 
     return StructuredTool.from_function(
         func=_run_directions,
         name="get_directions",
         description=(
             "Get the route, distance, and estimated travel time between two "
-            "places. USE THIS FIRST for directions, how far apart two locations "
-            "are, how long a trip takes, or which roads to take, instead of a "
-            "web search. Accepts city/place names, points of interest, "
-            "addresses (including Chinese names), or 'latitude,longitude'. "
-            "Distances and durations are free-flow estimates and exclude live "
-            "traffic."
+            "places using AMap. USE THIS FIRST for directions, how far apart two "
+            "locations are, how long a trip takes, or which roads to take, instead "
+            "of a web search. Accepts city/place names, points of interest, "
+            "addresses (including Chinese names), or raw 'latitude,longitude' WGS84 "
+            "coordinates. Supports driving, walking, and cycling aliases only; "
+            "transit directions are not supported. Distances and durations are "
+            "free-flow estimates and exclude live traffic."
         ),
         args_schema=DirectionsInput,
+        response_format="content_and_artifact",
     )
 
 
@@ -87,101 +105,195 @@ def get_directions(
     destination: str,
     mode: str = "driving",
     requester: JsonRequester | None = None,
+    api_key: str | None = None,
+    timeout_seconds: int = 10,
 ) -> str:
+    """Return a string directions result for compatibility with direct callers."""
+
+    return get_directions_result(
+        origin=origin,
+        destination=destination,
+        mode=mode,
+        requester=requester,
+        api_key=api_key,
+        timeout_seconds=timeout_seconds,
+    ).content
+
+
+def get_directions_result(
+    *,
+    origin: str,
+    destination: str,
+    mode: str = "driving",
+    settings: Settings | None = None,
+    requester: JsonRequester | None = None,
+    api_key: str | None = None,
+    timeout_seconds: int | None = None,
+) -> DirectionsLookupResult:
     start = (origin or "").strip()
     end = (destination or "").strip()
     if not start or not end:
-        return "Directions require both an origin and a destination."
+        return DirectionsLookupResult("Directions require both an origin and a destination.")
 
-    profile = _PROFILE_BY_MODE.get(mode.strip().lower(), "driving")
+    travel_mode = normalize_travel_mode(mode)
+    if travel_mode is None:
+        return DirectionsLookupResult(
+            "Transit directions are not supported. Use driving, walking, or cycling."
+        )
+
+    service_key = api_key if api_key is not None else str(getattr(settings, "amap_web_service_key", ""))
+    timeout = timeout_seconds
+    if timeout is None:
+        timeout = int(getattr(settings, "amap_api_timeout_seconds", 10) or 10)
 
     try:
-        start_label, start_lat, start_lon = _resolve_point(start, requester=requester)
-        end_label, end_lat, end_lon = _resolve_point(end, requester=requester)
-    except Exception as exc:
-        return f"Directions lookup failed: {exc}"
-
-    coords = f"{start_lon:f},{start_lat:f};{end_lon:f},{end_lat:f}"
-    url = f"{OSRM_ROUTE_API_URL}/{profile}/{coords}"
-    try:
-        payload = request_json(
-            url,
-            params={"overview": "false", "alternatives": "false", "steps": "false"},
+        start_point = _resolve_point(
+            start,
+            api_key=service_key,
             requester=requester,
+            timeout_seconds=timeout,
+        )
+        end_point = _resolve_point(
+            end,
+            api_key=service_key,
+            requester=requester,
+            timeout_seconds=timeout,
         )
     except Exception as exc:
-        return f"Directions lookup failed for {start_label} to {end_label}: {exc}"
+        return DirectionsLookupResult(f"Directions lookup failed: {safe_amap_error(exc)}")
 
-    return _format_directions(start_label, end_label, mode.strip().lower(), payload)
+    fallback_url = build_amap_navigation_uri(
+        start_point.position,
+        end_point.position,
+        origin_name=start_point.label,
+        destination_name=end_point.label,
+        mode=travel_mode,
+    )
+
+    try:
+        route = amap_route(
+            start_point.position,
+            end_point.position,
+            mode=travel_mode,
+            api_key=service_key,
+            requester=requester,
+            timeout_seconds=timeout,
+        )
+    except Exception as exc:
+        content = (
+            f"Directions lookup failed for {start_point.label} to {end_point.label}: "
+            f"{safe_amap_error(exc)}\n\nAMap route link: {fallback_url}"
+        )
+        artifact = build_route_artifact(
+            start_point.position,
+            end_point.position,
+            route=None,
+            fallback_url=fallback_url,
+            mode=travel_mode,
+            origin_label=start_point.label,
+            destination_label=end_point.label,
+        )
+        return DirectionsLookupResult(content=content, artifact=artifact)
+
+    if route is None:
+        content = f"No route found from {start_point.label} to {end_point.label}.\n\nAMap route link: {fallback_url}"
+    else:
+        content = _format_directions(
+            start_point.label,
+            end_point.label,
+            travel_mode,
+            route,
+            fallback_url,
+        )
+    artifact = build_route_artifact(
+        start_point.position,
+        end_point.position,
+        route=route,
+        fallback_url=fallback_url,
+        mode=travel_mode,
+        origin_label=start_point.label,
+        destination_label=end_point.label,
+    )
+    return DirectionsLookupResult(content=content, artifact=artifact)
 
 
 def _resolve_point(
     location: str,
     *,
+    api_key: str,
     requester: JsonRequester | None,
-) -> tuple[str, float, float]:
-    """Resolve a place name or 'lat,lon' string to (label, lat, lon)."""
+    timeout_seconds: int,
+) -> ResolvedRoutePoint:
+    """Resolve a place name or raw 'lat,lon' string to GCJ-02 AMap coordinates."""
 
-    coord = _parse_coordinates(location)
-    if coord is not None:
-        lat, lon = coord
-        return f"{lat:g},{lon:g}", lat, lon
+    raw_wgs84 = parse_latlon(location)
+    if raw_wgs84 is not None:
+        position = convert_wgs84_to_gcj02(
+            raw_wgs84,
+            api_key=api_key,
+            requester=requester,
+            timeout_seconds=timeout_seconds,
+        )
+        return ResolvedRoutePoint(
+            label=f"{raw_wgs84.lat:g},{raw_wgs84.lng:g}",
+            position=position,
+            raw_wgs84=raw_wgs84,
+        )
 
-    # Shared geocoder so route endpoints can be points of interest, addresses,
-    # or non-Latin place names rather than city names only.
-    candidates = geocode_place(location, limit=1, requester=requester)
+    # Shared AMap geocoder so route endpoints can be points of interest,
+    # addresses, districts, or non-Latin place names rather than city names only.
+    candidates = geocode_place(
+        location,
+        limit=1,
+        requester=requester,
+        api_key=api_key,
+        timeout_seconds=timeout_seconds,
+    )
     if not candidates:
         raise ValueError(f"no matching location found for {location!r}")
 
     best = candidates[0]
-    return best.label, best.latitude, best.longitude
-
-
-def _parse_coordinates(value: str) -> tuple[float, float] | None:
-    if "," not in value:
-        return None
-    lat_str, _, lon_str = value.partition(",")
-    try:
-        lat = float(lat_str.strip())
-        lon = float(lon_str.strip())
-    except ValueError:
-        return None
-    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
-        return None
-    return lat, lon
+    return ResolvedRoutePoint(
+        label=best.label,
+        position=AMapPosition(lng=best.longitude, lat=best.latitude),
+    )
 
 
 def _format_directions(
     start_label: str,
     end_label: str,
     mode: str,
-    payload: dict[str, Any],
+    route: AMapRoute,
+    fallback_url: str,
 ) -> str:
-    code = str(payload.get("code") or "")
-    routes = payload.get("routes") or []
-    if code and code != "Ok":
-        message = payload.get("message") or code
-        return f"No route found from {start_label} to {end_label}: {message}"
-    if not routes:
-        return f"No route found from {start_label} to {end_label}."
-
-    route = routes[0] if isinstance(routes[0], dict) else {}
-    distance_m = route.get("distance")
-    duration_s = route.get("duration")
-
     rows: list[tuple[str, str]] = [
         ("From", start_label),
         ("To", end_label),
         ("Mode", mode or "driving"),
+        ("Coordinate system", "GCJ-02 (AMap)"),
     ]
-    if isinstance(distance_m, (int, float)):
-        rows.append(("Distance", f"{distance_m / 1000:.1f} km"))
-    if isinstance(duration_s, (int, float)):
-        rows.append(("Estimated time", _format_duration(float(duration_s))))
+    if route.distance_m is not None:
+        rows.append(("Distance", f"{route.distance_m / 1000:.1f} km"))
+    if route.duration_s is not None:
+        rows.append(("Estimated time", _format_duration(route.duration_s)))
+    rows.append(("Map", fallback_url))
 
-    return f"Directions from {start_label} to {end_label}:\n\n" + _markdown_table(
-        ["Detail", "Value"], rows
-    )
+    sections = [
+        f"Directions from {start_label} to {end_label}:",
+        "",
+        _markdown_table(["Detail", "Value"], rows),
+    ]
+
+    instructions = [step.instruction for step in route.steps if step.instruction]
+    if instructions:
+        sections.extend(
+            [
+                "",
+                "Route steps:",
+                *[f"{index}. {instruction}" for index, instruction in enumerate(instructions[:8], 1)],
+            ]
+        )
+    return "\n".join(sections)
 
 
 def _format_duration(seconds: float) -> str:
@@ -206,6 +318,9 @@ def _markdown_table(headers: list[str], rows: list[tuple[str, ...]]) -> str:
 
 __all__ = [
     "DirectionsInput",
+    "DirectionsLookupResult",
+    "ResolvedRoutePoint",
     "build_directions_tool",
     "get_directions",
+    "get_directions_result",
 ]

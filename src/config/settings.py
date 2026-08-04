@@ -68,6 +68,10 @@ class Settings:
     tavily_api_key: str = ""
     bing_search_api_key: str = ""
     bing_search_endpoint: str = "https://api.bing.microsoft.com/v7.0/search"
+    amap_web_service_key: str = ""
+    amap_js_api_key: str = ""
+    amap_js_security_code: str = ""
+    amap_api_timeout_seconds: int = 10
     # REFACTOR: Use one canonical web-search fetch default and expose URL load concurrency.
     web_search_top_k: int = 6
     web_search_min_url_score: int = 45

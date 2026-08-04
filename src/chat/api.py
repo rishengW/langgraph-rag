@@ -27,10 +27,15 @@ from pathlib import Path
 from typing import Annotated, Any, TypeAlias
 
 from fastapi import Depends, FastAPI, File, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import HumanMessage
 
+from ..api.amap_proxy import (
+    AMapProxyError,
+    build_amap_client_config,
+    fetch_amap_proxy_response,
+)
 from ..api.auth import require_api_key
 from ..api.dependencies import (
     chat_readiness_response,
@@ -56,6 +61,7 @@ from ..api.streaming import format_sse
 from ..config import Settings, load_cors_allow_origins, load_settings
 from ..core.web_search import discover_urls_from_web
 from ..errors import RAGError, ResourceNotFoundError, RetrieverError
+from ..graph.artifacts import extract_amap_artifacts_from_messages
 from ..graph.builder import build_lightweight_graph
 from ..graph.events import ErrorEvent
 from ..graph.executor import GraphExecutor
@@ -102,9 +108,10 @@ def _parse_urls(raw: str | list[str] | None) -> list[str] | None:
 
 
 def _serialize_messages(messages: Iterable[Any]) -> list[HistoryTurn]:
-    """Convert LangChain message objects to the wire format."""
+    """Convert LangChain messages into visible turns with attached map artifacts."""
 
     turns: list[HistoryTurn] = []
+    pending_artifacts: list[dict[str, Any]] = []
     for msg in messages:
         kind = getattr(msg, "type", None) or msg.__class__.__name__.lower()
         content = getattr(msg, "content", str(msg))
@@ -118,16 +125,32 @@ def _serialize_messages(messages: Iterable[Any]) -> list[HistoryTurn]:
             role = "system"
         else:
             role = kind
-        # Tool messages and empty AI messages (tool-call carriers) are
-        # uninteresting to the UI; skip them so the transcript stays clean.
-        # System messages (e.g. injected upload-context notes) are internal
-        # guidance for the model and must not appear in the user transcript.
-        if role in ("tool", "system"):
+
+        if role == "tool":
+            pending_artifacts.extend(extract_amap_artifacts_from_messages([msg]))
             continue
-        if role == "assistant" and not (content or "").strip():
+        if role == "system":
             continue
+        if role == "user":
+            # A new human turn is a hard boundary: never attach a stale tool
+            # artifact to a later assistant response.
+            pending_artifacts = []
+        if role == "assistant":
+            tool_calls = getattr(msg, "tool_calls", None)
+            if tool_calls or not (content or "").strip():
+                continue
+
         turn_content = content if isinstance(content, str) else str(content)
-        turns.append(HistoryTurn(role=role, content=turn_content))
+        artifacts = pending_artifacts if role == "assistant" else []
+        turns.append(
+            HistoryTurn(
+                role=role,
+                content=turn_content,
+                artifacts=list(artifacts),
+            )
+        )
+        if role == "assistant":
+            pending_artifacts = []
     return turns
 
 
@@ -567,6 +590,44 @@ def create_app(
 
         return chat_readiness_response(request)
 
+    @app.get("/chat/config")
+    async def chat_client_config(settings: SettingsDep) -> JSONResponse:
+        """Return the browser-safe AMap client configuration only."""
+
+        return JSONResponse(
+            content=build_amap_client_config(settings),
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/_AMapService/{proxied_path:path}", response_model=None)
+    async def amap_service_proxy(
+        proxied_path: str,
+        request: Request,
+        settings: SettingsDep,
+    ) -> Response:
+        """Forward one bounded request to AMap's fixed JS API service hosts."""
+
+        try:
+            result = await asyncio.to_thread(
+                fetch_amap_proxy_response,
+                proxied_path,
+                request.query_params.multi_items(),
+                security_code=settings.amap_js_security_code,
+                timeout_seconds=settings.amap_api_timeout_seconds,
+            )
+        except AMapProxyError as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": str(exc)},
+                headers={"Cache-Control": "no-store"},
+            )
+        return Response(
+            content=result.content,
+            media_type=result.media_type,
+            status_code=result.status_code,
+            headers={"Cache-Control": "no-store"},
+        )
+
     # ---- chat endpoints -------------------------------------------------
     @app.post(
         "/chat",
@@ -780,7 +841,12 @@ def create_app(
                 f"Chat invocation error in thread {thread_id}: {exc}",
                 exc_info=True,
             )
-            return MessageResponse(thread_id=thread_id, answer="", error=str(exc))
+            return MessageResponse(
+                thread_id=thread_id,
+                answer="",
+                error=str(exc),
+                artifacts=[],
+            )
 
         session = _sync_graph_owned_web_sources(
             session=session,
@@ -793,6 +859,7 @@ def create_app(
         # the user's own question (the rewrite node may append an AIMessage
         # carrying the question text as a fallback) or a prior turn's reply.
         new_messages = messages[prev_count:] if prev_count <= len(messages) else messages
+        artifacts = extract_amap_artifacts_from_messages(new_messages)
 
         # The assistant's reply is the last AI message with non-empty content
         # that is NOT a tool-call carrier.
@@ -813,6 +880,7 @@ def create_app(
                 thread_id=thread_id,
                 answer="",
                 error="No assistant reply was produced.",
+                artifacts=artifacts,
             )
             try:
                 after_turn(
@@ -823,7 +891,11 @@ def create_app(
                 logger.debug("memory extraction after-turn hook failed", exc_info=True)
             return response
 
-        response = MessageResponse(thread_id=thread_id, answer=answer)
+        response = MessageResponse(
+            thread_id=thread_id,
+            answer=answer,
+            artifacts=artifacts,
+        )
         try:
             after_turn(
                 getattr(fastapi_request.app.state, "extraction_runtime", None),

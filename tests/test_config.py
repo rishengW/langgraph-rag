@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from src.config.loader import (
+    _settings_defaults,
     load_settings,
     load_yaml_config,
     parse_csv_list,
@@ -120,6 +121,54 @@ def test_web_search_and_page_load_defaults_align_with_yaml():
     )
     assert settings.rerank_strategy == "lexical"
     assert defaults["rerank_strategy"] == settings.rerank_strategy
+    assert settings.amap_api_timeout_seconds == 10
+    assert defaults["amap_api_timeout_seconds"] == settings.amap_api_timeout_seconds
+    assert "amap_web_service_key" not in defaults
+    assert "amap_js_api_key" not in defaults
+    assert "amap_js_security_code" not in defaults
+
+
+def test_amap_secret_settings_are_env_only_and_timeout_is_configurable(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "\n".join(
+            [
+                "amap_web_service_key: yaml-secret",
+                "amap_js_api_key: yaml-js-secret",
+                "amap_js_security_code: yaml-security-secret",
+                "amap_api_timeout_seconds: 0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("AMAP_WEB_SERVICE_KEY", "env-amap-web")
+    monkeypatch.setenv("AMAP_JS_API_KEY", "env-amap-js")
+    monkeypatch.setenv("AMAP_JS_SECURITY_CODE", "env-amap-security")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=config_file)
+    defaults = _settings_defaults()
+
+    assert settings.amap_web_service_key == "env-amap-web"
+    assert settings.amap_js_api_key == "env-amap-js"
+    assert settings.amap_js_security_code == "env-amap-security"
+    assert settings.amap_api_timeout_seconds == 1
+    assert "amap_web_service_key" not in defaults
+    assert "amap_js_api_key" not in defaults
+    assert "amap_js_security_code" not in defaults
+    assert defaults["amap_api_timeout_seconds"] == 10
+
+
+def test_env_example_documents_amap_settings():
+    env_example = Path(".env.example").read_text(encoding="utf-8")
+
+    for name in (
+        "AMAP_WEB_SERVICE_KEY",
+        "AMAP_JS_API_KEY",
+        "AMAP_JS_SECURITY_CODE",
+        "AMAP_API_TIMEOUT_SECONDS",
+    ):
+        assert name in env_example, f"{name} missing from .env.example"
 
 
 def test_load_settings_from_env_file(tmp_path, monkeypatch):
@@ -212,6 +261,7 @@ def test_load_settings_accepts_page_load_max_concurrency_env(tmp_path, monkeypat
     monkeypatch.setenv("WEB_SEARCH_MIN_URL_SCORE", "-10")
     monkeypatch.setenv("WEB_SEARCH_PROVIDER_TIMEOUT_SECONDS", "0")
     monkeypatch.setenv("WEB_SEARCH_DEADLINE_SECONDS", "-10")
+    monkeypatch.setenv("AMAP_API_TIMEOUT_SECONDS", "0")
 
     settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
 
@@ -223,6 +273,7 @@ def test_load_settings_accepts_page_load_max_concurrency_env(tmp_path, monkeypat
     assert settings.web_search_min_url_score == 0
     assert settings.web_search_provider_timeout_seconds == 1
     assert settings.web_search_deadline_seconds == 1
+    assert settings.amap_api_timeout_seconds == 1
 
 
 def test_load_settings_accepts_and_clamps_chat_context_bounds(tmp_path, monkeypatch):

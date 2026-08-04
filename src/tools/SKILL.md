@@ -32,7 +32,7 @@ guessing.
 | Input schema | `pydantic.BaseModel` per tool (validated by LangChain) |
 | HTTP helper | `src/tools/_http.py:request_json` (injectable `requester=` for tests) |
 | Default HTTP client | `requests.get` (sync) |
-| Enablement | Per-tool feature flag in `Settings`: `weather_enabled`, `stock_enabled`, `currency_enabled`, `wikipedia_enabled` (all default `False`) |
+| Enablement | Per-tool feature flag in `Settings`, including `map_enabled` and `directions_enabled` (all default `False`) |
 | Wiring sites | **TWO** functions in `src/graph/builder.py`: `_resolve_tools` (heavy/RAG graph) AND `_resolve_lightweight_tools` (lightweight web-search graph) |
 | LLM-facing prompt | `AGENT_SYSTEM_PROMPT` in `src/llm/prompts.py` lists every tool the agent should know about |
 | Live web search tool | Separate path under `src/web_search/tool.py` (`live_web_search`) — not part of this module |
@@ -43,10 +43,11 @@ guessing.
 src/tools/
 ├── __init__.py         # Re-exports input schemas and build_*_tool factories
 ├── _http.py            # request_json — tiny injectable HTTP wrapper
-├── _geocoding.py       # Shared place lookup: Open-Meteo cities + Photon POIs
+├── _amap.py            # AMap API, coordinate, route, URI, and artifact primitives
+├── _geocoding.py       # Shared AMap POI/address/district lookup and ranking
 ├── currency.py         # convert_currency + Frankfurter exchange-rate API
-├── directions.py       # get_directions + shared geocoder and OSRM routing
-├── map_tool.py         # find_on_map + shared geocoder and OpenStreetMap links
+├── directions.py       # get_directions + AMap routing and map artifacts
+├── map_tool.py         # find_on_map + AMap links and marker artifacts
 ├── stock.py            # get_stock_quote + yfinance ticker lookup
 ├── weather.py          # get_weather + Open-Meteo geocoding/forecast
 └── wikipedia_tool.py   # search_wikipedia + Wikipedia MediaWiki API
@@ -58,20 +59,20 @@ src/tools/
 
 1. `clean_place_query` removes request wording so a whole sentence
    ("在地图上找出上海的位置", "where is Shanghai on a map") becomes a place name.
-2. Open-Meteo runs first for populated places, with `language=zh` for CJK input.
-   Passing `language=en` returns nothing for Chinese place names.
-3. Anything Open-Meteo cannot resolve confidently falls through to Photon
-   (`photon.komoot.io`), which covers points of interest, campuses, and
-   non-Latin names. No API key; send a descriptive `User-Agent`.
+2. AMap POI text search runs first for landmarks, campuses, businesses, and
+   populated places. An unconfident result falls through to address geocoding,
+   then administrative-district lookup.
+3. All returned AMap coordinates are GCJ-02. Raw `latitude,longitude` inputs to
+   the directions tool are treated as WGS84 and converted through AMap before
+   routing.
 4. Each candidate carries a `match_score` (share of query terms present in the
    candidate name). Below `CONFIDENT_MATCH_SCORE` the map tool labels the result
    an APPROXIMATE MATCH; equally scored same-name places in different
    countries are labelled AMBIGUOUS. Both labels tell the agent to verify with a
    web search instead of asserting the coordinates.
 
-Photon ranks by text similarity with no notion of prominence, so a plausible
-name can be the wrong place ("Eiffel Tower" matches a peak in Alberta). Never
-present a low-scoring or tied candidate as a confirmed location.
+AMap candidates are still ranked by local name coverage. Never present a
+low-scoring or tied candidate as a confirmed location.
 
 ## Currently Available Tools
 
@@ -80,8 +81,8 @@ present a low-scoring or tied candidate as a confirmed location.
 | `convert_currency` | `currency.py` | `api.frankfurter.dev` | HTTP JSON | `CURRENCY_ENABLED` |
 | `get_stock_quote` | `stock.py` | `yfinance` Python library | yfinance internals | `STOCK_ENABLED` |
 | `get_weather` | `weather.py` | Open-Meteo (geocoding + forecast) | HTTP JSON (two calls) | `WEATHER_ENABLED` |
-| `find_on_map` | `map_tool.py` | Open-Meteo + Photon geocoding | HTTP JSON (one or two calls) | `MAP_ENABLED` |
-| `get_directions` | `directions.py` | Shared geocoder + OSRM routing | HTTP JSON (two or three calls) | `DIRECTIONS_ENABLED` |
+| `find_on_map` | `map_tool.py` | AMap POI/address/district lookup | HTTP JSON (one to three calls) | `MAP_ENABLED` |
+| `get_directions` | `directions.py` | Shared AMap lookup + AMap routing | HTTP JSON (three or more calls) | `DIRECTIONS_ENABLED` |
 | `search_wikipedia` | `wikipedia_tool.py` | `en.wikipedia.org/w/api.php` | HTTP JSON (two calls) | `WIKIPEDIA_ENABLED` |
 
 ## Tool Authoring Pattern

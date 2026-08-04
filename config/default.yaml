@@ -66,6 +66,7 @@ currency_enabled: false
 wikipedia_enabled: false
 directions_enabled: false
 map_enabled: false
+amap_api_timeout_seconds: 10
 math_enabled: false
 statistics_enabled: false
 linalg_enabled: false

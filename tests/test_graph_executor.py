@@ -3,6 +3,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 from src.graph.events import (
+    ArtifactEvent,
     DoneEvent,
     ErrorEvent,
     GraderDecisionEvent,
@@ -204,3 +205,91 @@ def test_graph_executor_records_metrics_from_emitted_events():
     assert snapshot.retriever_average_docs == 2
     assert snapshot.grade_distribution == {"yes": 1}
     assert snapshot.rewrite_count_distribution == {1: 1}
+
+
+AMAP_MARKER_ARTIFACT = {
+    "type": "amap",
+    "version": 1,
+    "kind": "marker",
+    "coordinateSystem": "gcj02",
+    "provider": "amap",
+    "title": "Shanghai",
+    "lng": 121.4737,
+    "lat": 31.2304,
+}
+
+
+class ArtifactGraph:
+    def invoke(self, inputs, config=None):
+        return {"messages": ["final output"]}
+
+    def stream(self, inputs, config=None):
+        tool_message = ToolMessage(
+            content="map result",
+            tool_call_id="call-map",
+            artifact=AMAP_MARKER_ARTIFACT,
+        )
+        # Duplicate update chunks can be replayed by callers; artifacts should
+        # be emitted and accumulated only once while lifecycle behavior remains.
+        yield {"tools": {"messages": [tool_message]}}
+        yield {"tools": {"messages": [tool_message]}}
+        yield {"generate": {"messages": [AIMessage(content="final answer")]}}
+
+
+def test_graph_executor_emits_artifact_before_later_ai_answer_and_done_accumulates():
+    events = list(GraphExecutor(ArtifactGraph()).stream({"question": "map"}))
+
+    artifact_events = [event for event in events if isinstance(event, ArtifactEvent)]
+    assert len(artifact_events) == 1
+    assert artifact_events[0].node == "tools"
+    assert len(artifact_events[0].artifacts) == 1
+    artifact = artifact_events[0].artifacts[0]
+    assert artifact["tool_call_id"] == "call-map"
+    assert artifact["kind"] == "marker"
+    assert artifact["markers"][0]["position"] == {"lat": 31.2304, "lng": 121.4737}
+    assert artifact["url"].startswith("https://uri.amap.com/marker?")
+
+    artifact_index = events.index(artifact_events[0])
+    generate_start_index = next(
+        index
+        for index, event in enumerate(events)
+        if isinstance(event, NodeStartEvent) and event.node == "generate"
+    )
+    assert artifact_index < generate_start_index
+
+    done = events[-1]
+    assert isinstance(done, DoneEvent)
+    assert done.answer == "final answer"
+    assert done.artifacts == [artifact]
+
+
+class TokenArtifactGraph:
+    def invoke(self, inputs, config=None):
+        return {"messages": ["final output"]}
+
+    def stream(self, inputs, config=None, *, stream_mode=None):
+        tool_message = ToolMessage(
+            content="map result",
+            tool_call_id="call-map",
+            artifact=AMAP_MARKER_ARTIFACT,
+        )
+        yield ("updates", {"tools": {"messages": [tool_message]}})
+        yield ("updates", {"tools": {"messages": [tool_message]}})
+        yield ("messages", (AIMessageChunk(content="final "), {"langgraph_node": "generate"}))
+        yield ("messages", (AIMessageChunk(content="answer"), {"langgraph_node": "generate"}))
+        yield ("updates", {"generate": {"messages": [AIMessage(content="final answer")]}})
+
+
+def test_graph_executor_token_stream_emits_and_accumulates_artifacts_once():
+    from src.graph.events import TokenEvent
+
+    events = list(GraphExecutor(TokenArtifactGraph()).stream({"question": "map"}, stream_tokens=True))
+
+    artifact_events = [event for event in events if isinstance(event, ArtifactEvent)]
+    assert len(artifact_events) == 1
+    assert artifact_events[0].node == "tools"
+    tokens = [event.token for event in events if isinstance(event, TokenEvent)]
+    assert tokens == ["final ", "answer"]
+    assert isinstance(events[-1], DoneEvent)
+    assert events[-1].artifacts == artifact_events[0].artifacts
+    assert events[-1].answer == "final answer"

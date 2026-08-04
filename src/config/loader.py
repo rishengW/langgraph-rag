@@ -100,6 +100,14 @@ SETTING_ENV_NAMES = {
     "memory_context_max_chars": "MEMORY_CONTEXT_MAX_CHARS",
     "memory_default_scope": "MEMORY_DEFAULT_SCOPE",
     "memory_auto_recall_enabled": "MEMORY_AUTO_RECALL_ENABLED",
+    "memory_extraction_enabled": "MEMORY_EXTRACTION_ENABLED",
+    "memory_extraction_on_session_start": "MEMORY_EXTRACTION_ON_SESSION_START",
+    "memory_extraction_turn_interval": "MEMORY_EXTRACTION_TURN_INTERVAL",
+    "memory_extraction_max_candidates": "MEMORY_EXTRACTION_MAX_CANDIDATES",
+    "memory_extraction_max_transcript_chars": "MEMORY_EXTRACTION_MAX_TRANSCRIPT_CHARS",
+    "memory_extraction_timeout_seconds": "MEMORY_EXTRACTION_TIMEOUT_SECONDS",
+    "memory_extraction_max_concurrency": "MEMORY_EXTRACTION_MAX_CONCURRENCY",
+    "memory_extraction_max_session_age_hours": "MEMORY_EXTRACTION_MAX_SESSION_AGE_HOURS",
     "wikipedia_max_summary_chars": "WIKIPEDIA_MAX_SUMMARY_CHARS",
     "wikipedia_user_agent": "WIKIPEDIA_USER_AGENT",
     "page_load_timeout": "PAGE_LOAD_TIMEOUT",
@@ -130,6 +138,12 @@ _MEMORY_INT_RANGES: dict[str, tuple[int, int]] = {
     "memory_max_record_chars": (1, 10_000),
     "memory_recall_top_k": (1, 50),
     "memory_context_max_chars": (1, 20_000),
+    "memory_extraction_turn_interval": (1, 1_000),
+    "memory_extraction_max_candidates": (1, 20),
+    "memory_extraction_max_transcript_chars": (200, 100_000),
+    "memory_extraction_timeout_seconds": (1, 600),
+    "memory_extraction_max_concurrency": (1, 16),
+    "memory_extraction_max_session_age_hours": (1, 8_760),
 }
 
 MEMORY_SCOPES = ("global", "session")
@@ -402,6 +416,8 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "file_read_enabled",
         "memory_enabled",
         "memory_auto_recall_enabled",
+        "memory_extraction_enabled",
+        "memory_extraction_on_session_start",
         "document_quality_filter_enabled",
     ):
         return parse_bool(value, bool(default))

@@ -127,6 +127,16 @@ class Settings:
     memory_context_max_chars: int = 2000
     memory_default_scope: str = "global"
     memory_auto_recall_enabled: bool = True
+    # Automatic memory extraction (self-updating memory). Off by default: when
+    # off there is no extra LLM call, checkpoint read, or memory write.
+    memory_extraction_enabled: bool = False
+    memory_extraction_on_session_start: bool = True
+    memory_extraction_turn_interval: int = 10
+    memory_extraction_max_candidates: int = 5
+    memory_extraction_max_transcript_chars: int = 8000
+    memory_extraction_timeout_seconds: int = 60
+    memory_extraction_max_concurrency: int = 2
+    memory_extraction_max_session_age_hours: int = 168
     wikipedia_max_summary_chars: int = 1500
     wikipedia_user_agent: str = "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
     page_load_timeout: int = 15

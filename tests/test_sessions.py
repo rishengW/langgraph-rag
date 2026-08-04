@@ -352,6 +352,98 @@ def test_registry_restores_session_from_metadata(mock_settings):
     assert registry.get("restored-thread", touch=False) is session
 
 
+def test_extraction_watermark_round_trips_and_survives_registry_touch(
+    mock_settings,
+    tmp_path,
+):
+    session = ChatSession(
+        thread_id="watermark-thread",
+        graph="graph",
+        settings=mock_settings,
+        source_urls=["https://example.com/watermark"],
+        source_mode="explicit",
+        created_at=1.0,
+        last_accessed_at=2.0,
+        isolated_chroma=True,
+        extraction_watermark=17,
+    )
+    metadata = SessionMetadata.from_session(session)
+    assert metadata.config["extraction_watermark"] == 17
+
+    storage = SQLiteStorage(tmp_path / "watermark-sessions.sqlite3")
+    storage.save(metadata)
+    persisted = storage.load(session.thread_id)
+    assert persisted == metadata
+
+    registry = ChatSessionRegistry(
+        cleanup=lambda restored: None,
+        storage=storage,
+        time_func=lambda: 10.0,
+    )
+    assert persisted is not None
+    restored = registry.restore(graph="graph", settings=mock_settings, metadata=persisted)
+    assert restored.extraction_watermark == 17
+
+    assert registry.get(session.thread_id) is restored
+    touched = storage.load(session.thread_id)
+    assert touched is not None
+    assert touched.config["extraction_watermark"] == 17
+
+
+def test_legacy_session_metadata_defaults_watermark_and_schema_stays_stable(
+    mock_settings,
+    tmp_path,
+):
+    storage = SQLiteStorage(tmp_path / "legacy-sessions.sqlite3")
+    legacy = SessionMetadata(
+        thread_id="legacy-thread",
+        source_urls=["https://example.com/legacy"],
+        source_mode="explicit",
+        created_at=1.0,
+        last_accessed_at=2.0,
+        chroma_dir=str(mock_settings.chroma_dir),
+        isolated_chroma=True,
+        config={"collection_name": mock_settings.collection_name},
+    )
+    storage.save(legacy)
+
+    loaded = storage.load(legacy.thread_id)
+    assert loaded == legacy
+    assert loaded is not None
+    assert "extraction_watermark" not in loaded.config
+
+    registry = ChatSessionRegistry(
+        cleanup=lambda session: None,
+        storage=storage,
+        time_func=lambda: 2.0,
+    )
+    restored = registry.restore(graph="graph", settings=mock_settings, metadata=loaded)
+    assert restored.extraction_watermark == 0
+    assert registry.get(legacy.thread_id) is restored
+    resaved = storage.load(legacy.thread_id)
+    assert resaved == SessionMetadata(
+        thread_id=legacy.thread_id,
+        source_urls=legacy.source_urls,
+        source_mode=legacy.source_mode,
+        created_at=legacy.created_at,
+        last_accessed_at=legacy.last_accessed_at,
+        chroma_dir=legacy.chroma_dir,
+        isolated_chroma=legacy.isolated_chroma,
+        config={
+            "collection_name": mock_settings.collection_name,
+            "extraction_watermark": 0,
+        },
+    )
+
+    constructed_without_watermark = ChatSession(
+        thread_id="old-constructor",
+        graph="graph",
+        settings=mock_settings,
+    )
+    assert constructed_without_watermark.extraction_watermark == 0
+    assert SQLiteStorage.SCHEMA_VERSION == 1
+
+
 def test_sqlite_storage_writes_schema_version(tmp_path):
     db_path = tmp_path / "sessions.sqlite3"
     SQLiteStorage(db_path)
@@ -398,16 +490,12 @@ def test_sqlite_memory_saver_serializes_writes_under_lock(tmp_path, monkeypatch)
     # ``super().put_writes`` is running, ``self._lock`` must be held.
     # If a future change reverts the lock scoping, this test fires
     # immediately without depending on timing.
-    import threading
-
     from langgraph.checkpoint.memory import MemorySaver
 
     db_path = tmp_path / "checkpoints.sqlite3"
     saver = SQLiteMemorySaver(db_path)
 
     held_during_super: list[bool] = []
-    config = {"configurable": {"thread_id": "lock-test"}}
-
     real_put = MemorySaver.put
     real_put_writes = MemorySaver.put_writes
 

@@ -22,6 +22,7 @@ class ChatSession:
     # Tool-ready relative paths already injected into the conversation as an
     # upload-context note, so later turns do not re-announce the same files.
     announced_uploads: set[str] = field(default_factory=set)
+    extraction_watermark: int = 0
 
     def __post_init__(self) -> None:
         if self.last_accessed_at is None:

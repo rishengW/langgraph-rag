@@ -44,6 +44,7 @@ class SessionMetadata:
             isolated_chroma=session.isolated_chroma,
             config={
                 "collection_name": session.settings.collection_name,
+                "extraction_watermark": int(session.extraction_watermark or 0),
             },
         )
 

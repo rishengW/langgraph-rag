@@ -57,6 +57,7 @@ from ..config import Settings, load_cors_allow_origins, load_settings
 from ..core.web_search import discover_urls_from_web
 from ..errors import RAGError, ResourceNotFoundError, RetrieverError
 from ..graph.builder import build_lightweight_graph
+from ..graph.events import ErrorEvent
 from ..graph.executor import GraphExecutor
 from ..graph.metrics import MetricsCollector, MetricsSnapshot
 from ..graph.nodes.condense import condense_followup_question
@@ -71,6 +72,11 @@ from ..sessions import (
 )
 from ..utils.urls import parse_url_input
 from .graph import build_chat_graph
+from .memory_hooks import (
+    after_turn,
+    build_extraction_runtime,
+    on_session_start,
+)
 from .uploads import (
     UploadError,
     build_upload_context_note,
@@ -475,6 +481,7 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        extraction_runtime = None
         try:
             logger.info("Loading settings for chat app...")
             settings = (
@@ -500,11 +507,22 @@ def create_app(
                 settings,
                 checkpointer,
             )
+            extraction_runtime = build_extraction_runtime(
+                settings,
+                checkpointer=checkpointer,
+                registry=registry,
+                storage=storage,
+            )
+            app.state.extraction_runtime = extraction_runtime
             logger.info("Chat app ready with %d restored session(s)", restored)
         except Exception as exc:
             logger.error(f"Failed to initialize chat app: {exc}")
             raise
-        yield
+        try:
+            yield
+        finally:
+            if extraction_runtime is not None:
+                extraction_runtime.scheduler.shutdown()
 
     app = FastAPI(
         title="only Subcribers Chat API",
@@ -695,6 +713,15 @@ def create_app(
         if source_mode == "defaults" and (search_error or build_failed_for_web_search):
             note = "web_search_failed"
 
+        try:
+            on_session_start(
+                getattr(app.state, "extraction_runtime", None),
+                new_thread_id=session.thread_id,
+            )
+        except Exception:
+            # The hook is deliberately best-effort; a session response must win.
+            logger.debug("memory extraction session-start hook failed", exc_info=True)
+
         return StartChatResponse(
             thread_id=session.thread_id,
             source_urls=session.source_urls,
@@ -782,13 +809,29 @@ def create_app(
                 break
 
         if not answer:
-            return MessageResponse(
+            response = MessageResponse(
                 thread_id=thread_id,
                 answer="",
                 error="No assistant reply was produced.",
             )
+            try:
+                after_turn(
+                    getattr(fastapi_request.app.state, "extraction_runtime", None),
+                    thread_id=thread_id,
+                )
+            except Exception:
+                logger.debug("memory extraction after-turn hook failed", exc_info=True)
+            return response
 
-        return MessageResponse(thread_id=thread_id, answer=answer)
+        response = MessageResponse(thread_id=thread_id, answer=answer)
+        try:
+            after_turn(
+                getattr(fastapi_request.app.state, "extraction_runtime", None),
+                thread_id=thread_id,
+            )
+        except Exception:
+            logger.debug("memory extraction after-turn hook failed", exc_info=True)
+        return response
 
     @app.post(
         "/chat/{thread_id}/message/stream",
@@ -826,11 +869,16 @@ def create_app(
             # REFACTOR: ``tokens`` (default True) enables per-token ``TokenEvent``
             # deltas from the answer nodes in addition to node lifecycle events.
             # Pass ``?tokens=false`` to fall back to node-update-only streaming.
+            completed = False
+            failed = False
             try:
                 for event in executor.stream(
                     inputs, config=config, stream_tokens=tokens
                 ):
+                    if isinstance(event, ErrorEvent):
+                        failed = True
                     yield format_sse(event)
+                completed = not failed
             finally:
                 try:
                     snapshot = session.graph.get_state(config)
@@ -846,6 +894,21 @@ def create_app(
                         session.thread_id,
                         exc,
                     )
+                if completed:
+                    try:
+                        after_turn(
+                            getattr(
+                                fastapi_request.app.state,
+                                "extraction_runtime",
+                                None,
+                            ),
+                            thread_id=thread_id,
+                        )
+                    except Exception:
+                        logger.debug(
+                            "memory extraction after-turn hook failed",
+                            exc_info=True,
+                        )
 
         return StreamingResponse(event_iter(), media_type="text/event-stream")
 

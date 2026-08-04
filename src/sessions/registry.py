@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import Settings
+from ..memory.watermark import WATERMARK_KEY, coerce_watermark
 from .models import ChatSession
 from .storage import SessionMetadata, StorageBackend
 
@@ -157,6 +158,7 @@ class ChatSessionRegistry:
             created_at=metadata.created_at,
             last_accessed_at=metadata.last_accessed_at,
             isolated_chroma=metadata.isolated_chroma,
+            extraction_watermark=coerce_watermark(metadata.config.get(WATERMARK_KEY)),
         )
         with self._lock:
             self._sessions[session.thread_id] = session

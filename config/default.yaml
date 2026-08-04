@@ -85,6 +85,15 @@ memory_recall_top_k: 5
 memory_context_max_chars: 2000
 memory_default_scope: "global"
 memory_auto_recall_enabled: true
+# Automatic memory extraction. Off by default; one extra LLM call per extraction.
+memory_extraction_enabled: false
+memory_extraction_on_session_start: true
+memory_extraction_turn_interval: 10
+memory_extraction_max_candidates: 5
+memory_extraction_max_transcript_chars: 8000
+memory_extraction_timeout_seconds: 60
+memory_extraction_max_concurrency: 2
+memory_extraction_max_session_age_hours: 168
 wikipedia_max_summary_chars: 1500
 wikipedia_user_agent: "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
 page_load_timeout: 15

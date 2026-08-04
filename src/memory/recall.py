@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 #: other message the chat agent adds to a turn.
 MEMORY_NOTE_LABEL = "LONG-TERM MEMORY (recalled):"
 
+#: Zero-width marker appended to the label so automatic extraction can identify
+#: an injected recall note without inspecting its text, and therefore never
+#: re-extract a recalled memory into a new record. Zero-width so the text the
+#: model reads is unchanged.
+MEMORY_NOTE_MARKER = "\u200b\u200b"
+
 TRUNCATION_MARKER = " ... [truncated]"
 
 #: Cap on tracked threads so a long-lived server cannot grow the budget map
@@ -98,11 +104,12 @@ def build_memory_note(
         if not ranked:
             return None
 
-        budget = max(1, int(max_chars) - len(MEMORY_NOTE_LABEL) - 1)
+        overhead = len(MEMORY_NOTE_LABEL) + len(MEMORY_NOTE_MARKER) + 1
+        budget = max(1, int(max_chars) - overhead)
         body = format_records(ranked, max_chars=budget)
         if not body:
             return None
-        return f"{MEMORY_NOTE_LABEL}\n{body}"
+        return f"{MEMORY_NOTE_LABEL}{MEMORY_NOTE_MARKER}\n{body}"
     except Exception as exc:  # noqa: BLE001 - a bad store must not break a turn
         logger.warning("skipping long-term memory recall for this turn: %s", exc)
         return None
@@ -216,6 +223,7 @@ def _budget_key(thread_id: str | None) -> str:
 __all__ = [
     "MEMORY_BUDGET",
     "MEMORY_NOTE_LABEL",
+    "MEMORY_NOTE_MARKER",
     "TRUNCATION_MARKER",
     "MemoryCallBudget",
     "build_memory_note",

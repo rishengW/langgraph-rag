@@ -7,10 +7,12 @@ Mirrors how ``src/sessions/`` owns its own storage.
 
 from __future__ import annotations
 
+from .extraction import ExtractionCandidate, ExtractionOutcome, MemoryExtractor
 from .models import (
     CATEGORIES,
     DEFAULT_CATEGORY,
     DEFAULT_STORE_PATH,
+    EXTRACTION_TAG_PREFIX,
     ID_PATTERN,
     MAX_FORGET_DELETES,
     MAX_QUERY_CHARS,
@@ -32,6 +34,7 @@ from .models import (
 from .recall import (
     MEMORY_BUDGET,
     MEMORY_NOTE_LABEL,
+    MEMORY_NOTE_MARKER,
     MemoryCallBudget,
     build_memory_note,
     build_turn_messages,
@@ -46,6 +49,7 @@ from .relevance import (
     searchable_text,
     timestamp_epoch,
 )
+from .scheduler import ExtractionScheduler
 from .secrets import SECRET_PATTERNS, find_secret_in_any, find_secret_match
 from .serialization import CorruptDocumentError, parse_document, serialize_document
 from .store import (
@@ -61,19 +65,44 @@ from .store import (
     reset_store_cache,
     resolve_store_path,
 )
+from .transcript import (
+    ASSISTANT_LABEL,
+    MAX_SLICE_MESSAGES,
+    TRUNCATION_MARKER,
+    USER_LABEL,
+    count_turns,
+    is_memory_note,
+    message_role,
+    normalize_message_content,
+    render_slice,
+    select_slice,
+)
+from .watermark import (
+    MAX_WATERMARK,
+    WATERMARK_KEY,
+    InMemoryWatermarkStore,
+    WatermarkStore,
+    coerce_watermark,
+)
 
 __all__ = [
     "CATEGORIES",
     "DEFAULT_CATEGORY",
     "DEFAULT_STORE_PATH",
+    "EXTRACTION_TAG_PREFIX",
+    "ExtractionCandidate",
+    "ExtractionOutcome",
+    "ExtractionScheduler",
     "ID_PATTERN",
     "MAX_FORGET_DELETES",
     "MAX_QUERY_CHARS",
     "MAX_QUERY_TERMS",
+    "MAX_SLICE_MESSAGES",
     "MAX_SCOPE_ID_CHARS",
     "MAX_TAGS",
     "MAX_TAG_CHARS",
     "MAX_TOOL_CALLS_PER_TURN",
+    "MAX_WATERMARK",
     "MIN_TERM_CHARS",
     "RECORD_FIELDS",
     "SCHEMA_VERSION",
@@ -81,6 +110,7 @@ __all__ = [
     "SECRET_PATTERNS",
     "MEMORY_BUDGET",
     "MEMORY_NOTE_LABEL",
+    "MEMORY_NOTE_MARKER",
     "CorruptDocumentError",
     "ForgetOutcome",
     "MemoryCallBudget",
@@ -91,11 +121,20 @@ __all__ = [
     "MemoryScope",
     "MemoryStore",
     "MemoryStoreError",
+    "MemoryExtractor",
     "MemoryWriteError",
     "RecallOutcome",
     "SaveOutcome",
+    "ASSISTANT_LABEL",
+    "TRUNCATION_MARKER",
+    "USER_LABEL",
+    "WATERMARK_KEY",
+    "WatermarkStore",
+    "InMemoryWatermarkStore",
     "build_memory_note",
     "build_turn_messages",
+    "coerce_watermark",
+    "count_turns",
     "derive_query_terms",
     "find_secret_in_any",
     "find_secret_match",
@@ -103,14 +142,19 @@ __all__ = [
     "format_records",
     "get_memory_store",
     "in_scope_records",
+    "is_memory_note",
+    "message_role",
+    "normalize_message_content",
     "normalize_content",
     "parse_document",
     "rank_records",
     "relevance_score",
     "reset_store_cache",
     "resolve_store_path",
+    "render_slice",
     "searchable_text",
     "serialize_document",
+    "select_slice",
     "timestamp_epoch",
     "utc_now_iso",
 ]

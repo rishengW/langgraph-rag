@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import os
 from pathlib import Path
 
@@ -583,3 +584,188 @@ def test_memory_settings_from_yaml(tmp_path, monkeypatch):
     assert settings.memory_max_records == 77
     assert settings.memory_default_scope == "session"
     assert settings.memory_auto_recall_enabled is False
+
+
+# ---- automatic memory extraction settings ----------------------------------
+
+EXTRACTION_SETTING_NAMES = (
+    "memory_extraction_enabled",
+    "memory_extraction_on_session_start",
+    "memory_extraction_turn_interval",
+    "memory_extraction_max_candidates",
+    "memory_extraction_max_transcript_chars",
+    "memory_extraction_timeout_seconds",
+    "memory_extraction_max_concurrency",
+    "memory_extraction_max_session_age_hours",
+)
+
+EXTRACTION_INT_RANGES = {
+    "MEMORY_EXTRACTION_TURN_INTERVAL": (1, 1000),
+    "MEMORY_EXTRACTION_MAX_CANDIDATES": (1, 20),
+    "MEMORY_EXTRACTION_MAX_TRANSCRIPT_CHARS": (200, 100000),
+    "MEMORY_EXTRACTION_TIMEOUT_SECONDS": (1, 600),
+    "MEMORY_EXTRACTION_MAX_CONCURRENCY": (1, 16),
+    "MEMORY_EXTRACTION_MAX_SESSION_AGE_HOURS": (1, 8760),
+}
+
+
+def test_extraction_defaults_align_with_yaml():
+    defaults = load_yaml_config("config/default.yaml")
+    settings = Settings(dashscope_api_key="test-key")
+
+    assert settings.memory_extraction_enabled is False
+    assert settings.memory_extraction_on_session_start is True
+    assert settings.memory_extraction_turn_interval == 10
+    assert settings.memory_extraction_max_candidates == 5
+    assert settings.memory_extraction_max_transcript_chars == 8000
+    assert settings.memory_extraction_timeout_seconds == 60
+    assert settings.memory_extraction_max_concurrency == 2
+    assert settings.memory_extraction_max_session_age_hours == 168
+
+    for name in EXTRACTION_SETTING_NAMES:
+        assert name in defaults, f"{name} missing from config/default.yaml"
+        assert defaults[name] == getattr(settings, name), name
+
+
+def test_extraction_settings_are_documented():
+    env_example = Path(".env.example").read_text(encoding="utf-8")
+    yaml_text = Path("config/default.yaml").read_text(encoding="utf-8")
+
+    for name in EXTRACTION_SETTING_NAMES:
+        assert name.upper() in env_example, f"{name.upper()} missing from .env.example"
+        assert name in yaml_text, f"{name} missing from config/default.yaml"
+
+
+def test_env_example_documents_extraction_ranges():
+    env_example = Path(".env.example").read_text(encoding="utf-8")
+
+    for env_name, (low, high) in EXTRACTION_INT_RANGES.items():
+        assert f"{low}-{high}" in env_example, f"range for {env_name} not documented"
+
+
+def test_load_settings_accepts_extraction_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("MEMORY_EXTRACTION_ENABLED", "true")
+    monkeypatch.setenv("MEMORY_EXTRACTION_ON_SESSION_START", "false")
+    monkeypatch.setenv("MEMORY_EXTRACTION_TURN_INTERVAL", "4")
+    monkeypatch.setenv("MEMORY_EXTRACTION_MAX_CANDIDATES", "7")
+    monkeypatch.setenv("MEMORY_EXTRACTION_MAX_TRANSCRIPT_CHARS", "1200")
+    monkeypatch.setenv("MEMORY_EXTRACTION_TIMEOUT_SECONDS", "15")
+    monkeypatch.setenv("MEMORY_EXTRACTION_MAX_CONCURRENCY", "3")
+    monkeypatch.setenv("MEMORY_EXTRACTION_MAX_SESSION_AGE_HOURS", "24")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.memory_extraction_enabled is True
+    assert settings.memory_extraction_on_session_start is False
+    assert settings.memory_extraction_turn_interval == 4
+    assert settings.memory_extraction_max_candidates == 7
+    assert settings.memory_extraction_max_transcript_chars == 1200
+    assert settings.memory_extraction_timeout_seconds == 15
+    assert settings.memory_extraction_max_concurrency == 3
+    assert settings.memory_extraction_max_session_age_hours == 24
+
+
+@pytest.mark.parametrize("env_name", [
+    "MEMORY_EXTRACTION_ENABLED",
+    "MEMORY_EXTRACTION_ON_SESSION_START",
+])
+@pytest.mark.parametrize("raw,expected", [
+    ("true", True),
+    ("1", True),
+    ("YES", True),
+    ("on", True),
+    ("false", False),
+    ("0", False),
+    ("maybe", False),
+    ("", False),
+])
+def test_extraction_boolean_accepted_values(
+    tmp_path, monkeypatch, env_name, raw, expected
+):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv(env_name, raw)
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert getattr(settings, env_name.lower()) is expected
+
+
+@pytest.mark.parametrize("env_name,low,high", [
+    (name, low, high) for name, (low, high) in EXTRACTION_INT_RANGES.items()
+])
+def test_load_settings_rejects_out_of_range_extraction_ints(
+    tmp_path, monkeypatch, env_name, low, high
+):
+    """Out-of-range extraction bounds fail the load instead of being clamped."""
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+
+    for offending in (str(low - 1), str(high + 1)):
+        monkeypatch.setenv(env_name, offending)
+
+        with pytest.raises(ValueError) as excinfo:
+            load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+        message = str(excinfo.value)
+        assert env_name.lower() in message
+        assert offending.lstrip("-") in message
+        assert str(low) in message and str(high) in message
+
+
+@pytest.mark.parametrize("env_name", sorted(EXTRACTION_INT_RANGES))
+def test_load_settings_rejects_non_integer_extraction_ints(
+    tmp_path, monkeypatch, env_name
+):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv(env_name, "not-a-number")
+
+    with pytest.raises(ValueError) as excinfo:
+        load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    message = str(excinfo.value)
+    assert env_name.lower() in message
+    assert "not-a-number" in message
+
+
+def test_transcript_and_record_char_bounds_are_independent(tmp_path, monkeypatch):
+    """No cross-field constraint: the two caps bound different things."""
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("MEMORY_EXTRACTION_MAX_TRANSCRIPT_CHARS", "200")
+    monkeypatch.setenv("MEMORY_MAX_RECORD_CHARS", "10000")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.memory_extraction_max_transcript_chars == 200
+    assert settings.memory_max_record_chars == 10000
+
+
+def test_extraction_settings_from_yaml(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "\n".join(
+            [
+                "memory_extraction_enabled: true",
+                "memory_extraction_on_session_start: false",
+                "memory_extraction_turn_interval: 3",
+                "memory_extraction_max_concurrency: 1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=config_file)
+
+    assert settings.memory_extraction_enabled is True
+    assert settings.memory_extraction_on_session_start is False
+    assert settings.memory_extraction_turn_interval == 3
+    assert settings.memory_extraction_max_concurrency == 1
+
+
+def test_no_extraction_model_setting_exists():
+    """A dedicated extraction model is out of scope for this version."""
+
+    names = {field.name for field in dataclasses.fields(Settings)}
+    assert not {n for n in names if n.startswith("memory_extraction") and "model" in n}

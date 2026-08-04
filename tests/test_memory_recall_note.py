@@ -10,12 +10,14 @@ from src.config.settings import Settings
 from src.memory.models import MAX_TOOL_CALLS_PER_TURN
 from src.memory.recall import (
     MEMORY_NOTE_LABEL,
+    MEMORY_NOTE_MARKER,
     MemoryCallBudget,
     build_memory_note,
     build_turn_messages,
     format_records,
 )
 from src.memory.store import MemoryStore, reset_store_cache
+from src.memory.transcript import is_memory_note
 
 TS = "2026-07-01T00:00:00+00:00"
 
@@ -42,6 +44,10 @@ def test_note_carries_the_label_ids_and_content(store):
 
     assert note is not None
     assert note.startswith(MEMORY_NOTE_LABEL)
+    assert note.startswith(f"{MEMORY_NOTE_LABEL}{MEMORY_NOTE_MARKER}")
+    assert note.replace(MEMORY_NOTE_MARKER, "") == (
+        f"{MEMORY_NOTE_LABEL}\n{format_records(store.read(), max_chars=2000)}"
+    )
     assert saved.record_id in note
     assert "Prefers metric units" in note
 
@@ -270,6 +276,7 @@ def test_turn_messages_place_memory_before_upload_and_question(tmp_path, store):
 
     assert roles(messages) == ["SystemMessage", "SystemMessage", "HumanMessage"]
     assert messages[0].content.startswith(MEMORY_NOTE_LABEL)
+    assert is_memory_note(messages[0])
     assert "Uploaded files" in messages[1].content
     assert messages[2].content == "which units do I prefer?"
     reset_store_cache()

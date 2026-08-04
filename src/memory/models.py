@@ -34,6 +34,10 @@ MAX_FORGET_DELETES: Final[int] = 10
 MAX_SCOPE_ID_CHARS: Final[int] = 200
 MAX_TOOL_CALLS_PER_TURN: Final[int] = 10
 
+#: Prefix for the provenance tag applied to automatically extracted records, so
+#: they can be listed or bulk-removed without inspecting their content.
+EXTRACTION_TAG_PREFIX: Final[str] = "auto:"
+
 #: 32 lowercase hex characters, i.e. ``uuid4().hex``.
 ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"\A[0-9a-f]{32}\Z")
 
@@ -112,6 +116,7 @@ __all__ = [
     "MAX_SCOPE_ID_CHARS",
     "MAX_TAGS",
     "MAX_TAG_CHARS",
+    "EXTRACTION_TAG_PREFIX",
     "MAX_TOOL_CALLS_PER_TURN",
     "MIN_TERM_CHARS",
     "RECORD_FIELDS",

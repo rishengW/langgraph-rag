@@ -27,6 +27,7 @@ Parent: `SKILL.md` (root). Siblings: `src/qa/SKILL.md`, `src/api/SKILL.md`,
 | HTTP endpoints | `POST /chat`, `POST /chat/{thread_id}/message`, `POST /chat/{thread_id}/message/stream`, `GET /chat/{thread_id}/history`, `DELETE /chat/{thread_id}`, `GET /health`, `GET /ready`, `GET /metrics` |
 | Static UI | `src/chat/static/index.html` + `script.js` (chat-style transcript) |
 | Memory | LangGraph `MemorySaver` per thread, optionally backed by `SQLiteMemorySaver` |
+| Memory extraction | `memory_hooks.on_session_start` + `memory_hooks.after_turn` |
 | Session metadata | Optional `SQLiteStorage` under `.chroma/chat/sessions.sqlite3` |
 | Source persistence | Explicit-source Chroma under `.chroma/chat/<thread_id>/`; lightweight web URLs in session metadata |
 
@@ -36,7 +37,8 @@ Parent: `SKILL.md` (root). Siblings: `src/qa/SKILL.md`, `src/api/SKILL.md`,
 src/chat/
 ├── __init__.py     # Package docstring (deprecated re-export shim notice)
 ├── api.py          # FastAPI app: create_app() + endpoints + lifespan + session restore
-├── main.py        # CLI: serve + graph-owned lightweight chat REPL
+├── main.py         # CLI: serve + graph-owned lightweight chat REPL
+├── memory_hooks.py # Extraction runtime, watermark adapter, and trigger hooks
 ├── graph.py        # build_chat_graph wrapper around src/graph/builder
 ├── nodes.py        # Re-exports condense/agent/grade/rewrite/generate from src/graph/nodes
 ├── sessions.py     # Re-exports ChatSession/ChatSessionRegistry from src/sessions
@@ -45,6 +47,9 @@ src/chat/
     ├── index.html  # Chat-style transcript with composer + start screen
     └── script.js   # localStorage-backed thread restoration + streaming-friendly client
 ```
+
+`memory_hooks.py` owns the automatic extraction runtime, persisted watermark
+adapter, previous-session trigger, and completed-round trigger.
 
 > Several files here are deprecation shims that re-export from canonical
 > modules (`src/graph/`, `src/sessions/`, `src/api/`). Emit
@@ -114,6 +119,12 @@ DELETE /chat/{tid}
   ↓ registry.delete(tid)  (also removes the per-thread Chroma dir for isolated sessions)
 ```
 
+Session creation calls `on_session_start` after registry metadata is persisted
+and schedules at most one eligible previous session. Completed non-streaming,
+streaming, and CLI turns call `after_turn` only after the graph checkpoint is
+available; due work is handed to the background scheduler before the reply path
+returns.
+
 ## Chat-Specific Graph
 
 `build_chat_graph(settings, rebuild_vectorstore, checkpointer)` calls
@@ -156,6 +167,12 @@ On startup, lifespan calls `_restore_persisted_sessions` which:
 
 This means chat survives server restart: open `/chat/{tid}/history` for an
 old thread and the transcript comes back.
+
+When automatic memory extraction is enabled, lifespan creates one
+`ExtractionRuntime` from the shared checkpoint saver, registry, and metadata
+storage. Both trigger hooks are best-effort. The daemon-thread scheduler is
+shut down without joining when the app or REPL exits, so extraction cannot hold
+up a response or process shutdown.
 
 ## Web UI
 
@@ -202,4 +219,5 @@ old thread and the transcript comes back.
 - `src/sessions/` — `ChatSession`, `ChatSessionRegistry`, `SQLiteStorage`, `SQLiteMemorySaver`, `_settings_for_session`.
 - `src/api/` — auth, CORS, error handlers, streaming, dependencies, request/response models.
 - `src/core/web_search` (deprecated re-export) → `src/web_search.discover_urls_from_web`.
+- `src/memory/` provides `MemoryExtractor`, `ExtractionScheduler`, transcript slicing, and watermark helpers.
 - External: `fastapi`, `uvicorn`, `langchain_core.messages.HumanMessage`.

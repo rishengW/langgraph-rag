@@ -13,6 +13,7 @@ import argparse
 import os
 import sys
 from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import replace
 
 from ..config import load_settings, secret_fingerprint
@@ -23,6 +24,7 @@ from ..core.web_search import (
 from ..graph.events import DoneEvent, ErrorEvent, TokenEvent
 from ..graph.executor import GraphExecutor
 from ..memory.recall import build_turn_messages
+from .memory_hooks import after_turn, build_extraction_runtime
 
 
 def _print_urls(label: str, urls: Iterable[str]) -> None:
@@ -162,6 +164,10 @@ def _repl(args: argparse.Namespace) -> None:
 
     thread_id = "cli"
     config = {"configurable": {"thread_id": thread_id}}
+    extraction_runtime = build_extraction_runtime(
+        settings,
+        checkpointer=checkpointer,
+    )
 
     print("\nReady. Type your question, or 'exit' / Ctrl-D to quit.\n")
     while True:
@@ -203,6 +209,7 @@ def _repl(args: argparse.Namespace) -> None:
             answer = ""
             streamed_any = False
             printed_prefix = False
+            turn_failed = False
             # Same turn builder as the FastAPI path, so the CLI gets identical
             # memory selection, placement, and character limits.
             inputs: dict[str, object] = {
@@ -244,7 +251,11 @@ def _repl(args: argparse.Namespace) -> None:
                     if not answer and event.answer:
                         answer = event.answer
                 elif isinstance(event, ErrorEvent):
+                    turn_failed = True
                     print(f"\nError: {event.message}")
+        except KeyboardInterrupt:
+            print()
+            break
         except Exception as exc:
             print(f"Error: {exc}")
             continue
@@ -255,6 +266,12 @@ def _repl(args: argparse.Namespace) -> None:
         else:
             print(f"Assistant: {answer or '(no reply produced)'}\n")
 
+        if not turn_failed:
+            with suppress(Exception):
+                after_turn(extraction_runtime, thread_id=thread_id)
+
+    if extraction_runtime is not None:
+        extraction_runtime.scheduler.shutdown()
     print("Bye.")
 
 

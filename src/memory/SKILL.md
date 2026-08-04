@@ -183,6 +183,45 @@ Matching is substring-based against normalized content and tags, not
 token-equality: CJK text has no whitespace boundaries, so token-equality would
 score nearly every Chinese memory at zero.
 
+## Automatic Extraction
+
+Automatic extraction is opt-in through `memory_extraction_enabled` and uses the
+same main chat model as the conversation. Two hooks can schedule work:
+
+- `session_start` selects at most one eligible previous session when a new
+  session is created.
+- `round_complete` runs after a completed checkpointed turn whenever the user
+  turn count reaches `extraction_watermark + memory_extraction_turn_interval`.
+
+The authoritative turn count always comes from checkpointed `HumanMessage`
+objects. The watermark is a whole number in `SessionMetadata.config` under the
+single key `extraction_watermark`; legacy or unusable values behave as 0. A
+registry-less CLI runtime uses an in-memory watermark, so its value does not
+survive process restart.
+
+| Extraction result | Watermark policy |
+|---|---|
+| One or more candidates persisted | Advance to observed turn count |
+| Empty array or unusable response | Advance |
+| Every candidate refused by `MemoryStore.save` | Advance |
+| Empty transcript slice | Advance |
+| Model raised or timed out | Hold for retry |
+| Checkpoint read failed | Hold for retry |
+| Store write or watermark write failed | Hold for retry |
+
+`ExtractionScheduler` uses daemon `threading.Thread` workers and a non-blocking
+bounded semaphore. It has no queue, rejects duplicate work for a thread, and
+does not join workers during shutdown. `ThreadPoolExecutor` is intentionally not
+used because its process-exit hook joins non-daemon workers and could delay
+shutdown for the full extraction timeout.
+
+Every candidate still goes through `MemoryStore.save`, including credential
+screening, duplicate updates, length limits, and capacity eviction. Successful
+automatic records carry an `auto:<trigger>` provenance tag. The extraction
+prompt fences the transcript as untrusted conversation data and explicitly
+states that text inside the fence is data rather than an instruction; it never
+includes stored memory records, store paths, or configuration values.
+
 ## Failure Protocol
 
 `_guarded` in `src/tools/memory_tool.py` is the only error boundary.
@@ -225,13 +264,14 @@ should fail at startup rather than silently become 1.
 | 4 | `content` length is bounded twice (static 10k in the schema, `memory_max_record_chars` in the store) | Low | `memory_tool.py` | Unavoidable: a Pydantic constraint cannot read runtime Settings |
 | 5 | Whole-document rewrite is O(n) per mutation | Low | `store._persist_locked` | Fine at 500 records; SQLite if the cap ever grows by orders of magnitude |
 | 6 | No `user_id` scope, so `global` means "this deployment's single user" | Low | `models.MemoryScope` | Add a third scope dimension when multi-user arrives |
+| 7 | A timed-out model invocation is abandoned, not cancelled, because synchronous `model.invoke` is not interruptible | Low | `extraction.MemoryExtractor._call_model` | Use a provider-native cancellable API if one becomes available |
+| 8 | Existing checkpoint backlog has no batch drain; session creation considers only one previous session | Low | `chat.memory_hooks.on_session_start` | Add an explicit one-off backfill command if adoption requires it |
 
 ## Refactoring To-Do List
 
 - [ ] **Embedding recall** behind `memory_semantic_recall_enabled`, reusing the
       `web_search_semantic_*` model plumbing.
-- [ ] **Automatic extraction** — an opt-in pass that proposes memories from a
-      turn instead of relying on the model to call `save_memory`.
+- [ ] **Extraction backfill command** for pre-existing checkpoint history.
 - [ ] **`list_memories` tool** for a full inventory dump.
 - [ ] **File lock** for multi-process deployments (Known Issue #1).
 - [ ] **Migration hook** for `SCHEMA_VERSION` 2 so a bump upgrades rather than

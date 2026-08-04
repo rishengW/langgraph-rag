@@ -225,12 +225,15 @@ def build_lightweight_graph(
     if not tools:
         raise ValueError("providers.tools or settings are required for web_search")
     workflow.add_node("web_search", ToolNode(list(tools)))
-    workflow.add_node("search_queries", search_queries_factory(tools))
-    # Conditional-expansion nodes. The decompose -> search_queries -> merge
+    # Newer LangGraph releases reject a node name that is also a state key.
+    # Keep ``search_queries`` as the public state field and give the internal
+    # execution node a distinct name.
+    workflow.add_node("execute_search_queries", search_queries_factory(tools))
+    # Conditional-expansion nodes. The decompose -> execute_search_queries -> merge
     # -> web_answer chain is the first-attempt path; the expand node re-enters
-    # search_queries when the first web_answer run produced
+    # execute_search_queries when the first web_answer run produced
     # no readable content (post-web_answer edge -> "expand"). After
-    # expansion, search_queries -> merge -> web_answer runs a second time
+    # expansion, execute_search_queries -> merge -> web_answer runs a second time
     # with the combined first-attempt + expanded URLs. State field
     # ``expansion_attempted`` is set to True by ``expand`` so the
     # post-web_answer edge does not loop back to expand a second time.
@@ -274,19 +277,19 @@ def build_lightweight_graph(
         LIGHTWEIGHT_AGENT_EDGE_MAP,
     )
     # REFACTOR: Deterministic edges for the conditional-expansion path.
-    # ``decompose -> search_queries`` executes the bounded first query batch.
-    # ``search_queries -> merge -> web_answer`` collapses the first-attempt
+    # ``decompose -> execute_search_queries`` executes the bounded first query batch.
+    # ``execute_search_queries -> merge -> web_answer`` collapses the first-attempt
     # URLs into ``source_urls`` and grounds the answer. ``expand ->
-    # search_queries`` re-enters the search fan-out after a first-attempt
+    # execute_search_queries`` re-enters the search fan-out after a first-attempt
     # failure (the post-web_answer edge routes to "expand" when no
     # readable content was found and expansion has not yet been
     # attempted). The non-web-search tool case is still handled by the
     # ``web_search`` conditional edge (route_after_lightweight_tool
     # returns "agent" for non-live_web_search tools, preserving the
     # existing regression test for weather/stock/currency/wikipedia).
-    workflow.add_edge("decompose", "search_queries")
-    workflow.add_edge("expand", "search_queries")
-    workflow.add_edge("search_queries", "merge")
+    workflow.add_edge("decompose", "execute_search_queries")
+    workflow.add_edge("expand", "execute_search_queries")
+    workflow.add_edge("execute_search_queries", "merge")
     workflow.add_edge("merge", "web_answer")
     workflow.add_conditional_edges(
         "web_search",

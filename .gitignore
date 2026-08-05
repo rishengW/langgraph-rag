@@ -26,8 +26,9 @@ memory/long_term_memory.json.corrupt-*
 # Generated artifacts
 graph.png
 
-# Local readiness audit
+# Local project notes
 COMPANY_READINESS_GAPS.md
+CHANGELOG.md
 
 # OS noise
 .DS_Store

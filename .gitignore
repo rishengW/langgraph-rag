@@ -30,6 +30,10 @@ graph.png
 COMPANY_READINESS_GAPS.md
 CHANGELOG.md
 PROBLEMS_DETECTED.md
+SSL_FIX.md
+
+# Local skill notes at any directory depth
+SKILL.md
 
 # OS noise
 .DS_Store

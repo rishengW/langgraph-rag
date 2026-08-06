@@ -701,7 +701,7 @@ def _route_paths(payload: dict[str, Any]) -> list[Any]:
             return paths
         route = data.get("route")
         if isinstance(route, dict) and isinstance(route.get("paths"), list):
-            return route["paths"]
+            return list(route["paths"])
     return []
 
 

@@ -63,6 +63,24 @@ function safeHref(url) {
     return "";
 }
 
+// Validates a same-origin download path. Returns the value unescaped: it is
+// assigned via the DOM `.href` property, which does not take HTML entities, so
+// escaping here would corrupt any "&" in the path. Safety comes from rejecting
+// every scheme and protocol-relative form below, leaving only "/..." paths.
+function safeDownloadHref(url) {
+    const value = String(url || "").trim();
+    if (!value) return "";
+    if (value.startsWith("//")) return "";
+    if (!value.startsWith("/")) return "";
+    if (/^\w+:/.test(value)) return "";
+    const colonIndex = value.indexOf(":");
+    const slashIndex = value.indexOf("/");
+    if (colonIndex !== -1 && (slashIndex === -1 || colonIndex < slashIndex)) {
+        return "";
+    }
+    return value;
+}
+
 function renderInlineMarkdown(text) {
     const codeTokens = [];
     let value = String(text).replace(/`([^`]+)`/g, (_match, code) => {
@@ -632,11 +650,40 @@ function normalizeAMapArtifact(raw) {
     return null;
 }
 
+function normalizeFileArtifact(raw) {
+    if (!isPlainObject(raw)) return null;
+    if (raw.type !== "file" || raw.version !== 1) return null;
+    if (raw.kind !== "download") return null;
+    if (raw.provider !== "chat_upload") return null;
+
+    const filename = String(raw.filename || "").trim();
+    if (!filename) return null;
+
+    const sizeBytes = Number(raw.sizeBytes);
+    if (!Number.isFinite(sizeBytes) || sizeBytes < 0) return null;
+
+    const url = safeDownloadHref(raw.url);
+    if (!url) return null;
+
+    return {
+        type: "file",
+        version: 1,
+        kind: "download",
+        provider: "chat_upload",
+        filename,
+        sizeBytes,
+        url,
+    };
+}
+
 function positionKey(position) {
     return [position.lng, position.lat];
 }
 
 function artifactDedupeKey(artifact) {
+    if (artifact.type === "file") {
+        return JSON.stringify(["file", 1, "download", artifact.url, artifact.sizeBytes]);
+    }
     if (artifact.kind === "marker") {
         return JSON.stringify([
             "amap",
@@ -666,7 +713,7 @@ function normalizeArtifacts(input) {
     const artifacts = new Map();
     for (const rawArtifact of rawArtifacts) {
         if (artifacts.size >= MAX_ARTIFACTS_PER_TURN) break;
-        const artifact = normalizeAMapArtifact(rawArtifact);
+        const artifact = normalizeAMapArtifact(rawArtifact) || normalizeFileArtifact(rawArtifact);
         if (!artifact) continue;
         const key = artifactDedupeKey(artifact);
         if (!artifacts.has(key)) {
@@ -904,6 +951,47 @@ async function hydrateAMapCard(card, mapEl, artifact) {
     }
 }
 
+function formatFileSize(sizeBytes) {
+    if (sizeBytes < 1024) return `${sizeBytes} B`;
+    if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function buildFileArtifactCard(artifact) {
+    const card = document.createElement("article");
+    card.className = "file-card";
+    card.dataset.kind = artifact.kind;
+
+    // The card is a flex row: this body column stacks the name over the meta
+    // line, leaving the download link to sit at the far end.
+    const body = document.createElement("div");
+    body.className = "file-card__body";
+
+    const name = document.createElement("div");
+    name.className = "file-card__name";
+    name.textContent = artifact.filename;
+    name.title = artifact.filename;
+    body.appendChild(name);
+
+    const meta = document.createElement("div");
+    meta.className = "file-card__meta";
+    meta.textContent = `Word document - ${formatFileSize(artifact.sizeBytes)}`;
+    body.appendChild(meta);
+
+    card.appendChild(body);
+
+    const link = document.createElement("a");
+    link.className = "file-card__download";
+    // Assigning to .href (not innerHTML) so the validated path is used as-is.
+    link.href = artifact.url;
+    link.download = artifact.filename;
+    link.rel = "noopener noreferrer";
+    link.textContent = "Download";
+    card.appendChild(link);
+
+    return card;
+}
+
 function renderArtifactStack(turn, artifactsInput) {
     const artifacts = normalizeArtifacts(artifactsInput);
     if (!turn || !artifacts.length) return;
@@ -912,6 +1000,12 @@ function renderArtifactStack(turn, artifactsInput) {
     stack.className = "artifact-stack";
     const cards = [];
     for (const artifact of artifacts) {
+        // File artifacts are static download cards; only AMap cards need a
+        // map instance hydrated after they are attached to the document.
+        if (artifact.type === "file") {
+            stack.appendChild(buildFileArtifactCard(artifact));
+            continue;
+        }
         const { card, mapEl } = buildAMapArtifactCard(artifact);
         stack.appendChild(card);
         cards.push({ card, mapEl, artifact });

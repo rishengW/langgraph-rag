@@ -18,6 +18,7 @@ Endpoints
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import shutil
 from collections.abc import AsyncIterator, Iterable, Iterator
@@ -61,7 +62,7 @@ from ..api.streaming import format_sse
 from ..config import Settings, load_cors_allow_origins, load_settings
 from ..core.web_search import discover_urls_from_web
 from ..errors import RAGError, ResourceNotFoundError, RetrieverError
-from ..graph.artifacts import extract_amap_artifacts_from_messages
+from ..graph.artifacts import extract_artifacts_from_messages
 from ..graph.builder import build_lightweight_graph
 from ..graph.events import ErrorEvent
 from ..graph.executor import GraphExecutor
@@ -84,15 +85,30 @@ from .memory_hooks import (
     on_session_start,
 )
 from .uploads import (
+    ALLOWED_UPLOAD_SUFFIXES,
     UploadError,
     build_upload_context_note,
     list_session_uploads,
+    sanitize_filename,
     save_upload,
     session_upload_dir,
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Content types for session-file downloads. Anything absent falls back to
+# application/octet-stream so an unexpected type is never served as inline
+# HTML/script by a browser.
+DOWNLOAD_MEDIA_TYPES = {
+    ".csv": "text/csv",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".log": "text/plain",
+    ".md": "text/markdown",
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 
 SettingsDep: TypeAlias = Annotated[Settings, Depends(get_config)]
 SessionRegistryDep: TypeAlias = Annotated[ChatSessionRegistry, Depends(get_session_registry)]
@@ -108,7 +124,7 @@ def _parse_urls(raw: str | list[str] | None) -> list[str] | None:
 
 
 def _serialize_messages(messages: Iterable[Any]) -> list[HistoryTurn]:
-    """Convert LangChain messages into visible turns with attached map artifacts."""
+    """Convert LangChain messages into visible turns with attached artifacts."""
 
     turns: list[HistoryTurn] = []
     pending_artifacts: list[dict[str, Any]] = []
@@ -127,7 +143,7 @@ def _serialize_messages(messages: Iterable[Any]) -> list[HistoryTurn]:
             role = kind
 
         if role == "tool":
-            pending_artifacts.extend(extract_amap_artifacts_from_messages([msg]))
+            pending_artifacts.extend(extract_artifacts_from_messages([msg]))
             continue
         if role == "system":
             continue
@@ -159,31 +175,86 @@ def _session_database_paths(settings: Settings) -> tuple[Path, Path]:
     return base_dir / "sessions.sqlite3", base_dir / "checkpoints.sqlite3"
 
 
+def _session_edit_root(settings: Settings, thread_id: str) -> Path | None:
+    """Return the per-session upload dir used to confine Word editing.
+
+    Returns ``None`` when there is no thread to scope to, which makes the
+    editing tools unavailable rather than falling back to a shared root.
+    """
+
+    if not thread_id:
+        return None
+    return session_upload_dir(settings, thread_id)
+
+
+def _call_graph_factory(
+    factory: Any,
+    settings: Settings,
+    **kwargs: Any,
+) -> Any:
+    """Call a graph factory with only the keywords its signature accepts.
+
+    The chat API is intentionally compatible with injected legacy factories
+    used by downstream callers and tests. Signature filtering preserves that
+    seam without catching a ``TypeError`` raised from inside the factory.
+    """
+
+    try:
+        signature = inspect.signature(factory)
+    except (TypeError, ValueError):
+        return factory(settings, **kwargs)
+
+    parameters = signature.parameters
+    accepts_kwargs = any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    accepted_names = set(parameters)
+    supported = (
+        kwargs
+        if accepts_kwargs
+        else {name: value for name, value in kwargs.items() if name in accepted_names}
+    )
+    settings_parameter = parameters.get("settings")
+    if (
+        settings_parameter is not None
+        and settings_parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    ):
+        return factory(settings=settings, **supported)
+    return factory(settings, **supported)
+
+
 def _build_chat_graph_for_session(
     settings: Settings,
     rebuild_vectorstore: bool,
     checkpointer: Any,
+    thread_id: str = "",
 ) -> Any:
-    try:
-        return build_chat_graph(
-            settings,
-            rebuild_vectorstore=rebuild_vectorstore,
-            checkpointer=checkpointer,
-        )
-    except TypeError:
-        return build_chat_graph(settings, rebuild_vectorstore=rebuild_vectorstore)
+    session_root = _session_edit_root(settings, thread_id)
+    return _call_graph_factory(
+        build_chat_graph,
+        settings,
+        rebuild_vectorstore=rebuild_vectorstore,
+        checkpointer=checkpointer,
+        session_root=session_root,
+        thread_id=thread_id,
+    )
 
 
 def _build_lightweight_chat_graph_for_session(
     settings: Settings,
     checkpointer: Any,
+    thread_id: str = "",
 ) -> Any:
     """Build the direct web-search chat graph for discovered one-shot URLs."""
 
-    return build_lightweight_graph(
-        settings=settings,
+    return _call_graph_factory(
+        build_lightweight_graph,
+        settings,
         mode="chat",
         checkpointer=checkpointer,
+        session_root=_session_edit_root(settings, thread_id),
+        thread_id=thread_id,
     )
 
 
@@ -201,7 +272,9 @@ def _restore_persisted_sessions(
             # remain session metadata for the UI, but must not become the next
             # turn's implicit source set.
             settings = replace(base_settings, source_urls=[])
-            graph = _build_lightweight_chat_graph_for_session(settings, checkpointer)
+            graph = _build_lightweight_chat_graph_for_session(
+                settings, checkpointer, metadata.thread_id
+            )
         else:
             graph_settings = (
                 replace(base_settings, web_search_enabled=False)
@@ -218,6 +291,7 @@ def _restore_persisted_sessions(
                 settings,
                 rebuild_vectorstore=False,
                 checkpointer=checkpointer,
+                thread_id=metadata.thread_id,
             )
         registry.restore(graph=graph, settings=settings, metadata=metadata)
         restored += 1
@@ -306,7 +380,10 @@ def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
     session.announced_uploads.update(new_paths)
     # Announce the full current set so the model always has every path, even
     # if an earlier note scrolled out of its effective context window.
-    return build_upload_context_note(available)
+    return build_upload_context_note(
+        available,
+        word_edit_enabled=settings.word_edit_enabled,
+    )
 
 
 def _source_refresh_allowed(session: ChatSession, settings: Settings) -> bool:
@@ -465,6 +542,7 @@ async def _refresh_session_sources_from_web(
                     _build_lightweight_chat_graph_for_session,
                     session_settings,
                     checkpointer,
+                    session.thread_id,
                 )
             else:
                 graph = await asyncio.to_thread(
@@ -472,6 +550,7 @@ async def _refresh_session_sources_from_web(
                     session_settings,
                     True,
                     checkpointer,
+                    session.thread_id,
                 )
     except RAGError:
         raise
@@ -710,6 +789,7 @@ def create_app(
                         _build_lightweight_chat_graph_for_session,
                         session_settings,
                         checkpointer,
+                        thread_id,
                     )
                 else:
                     graph = await asyncio.to_thread(
@@ -717,6 +797,7 @@ def create_app(
                         session_settings,
                         isolated,  # rebuild_vectorstore for fresh isolated stores
                         checkpointer,
+                        thread_id,
                     )
         except RAGError:
             raise
@@ -746,6 +827,7 @@ def create_app(
                             session_settings,
                             isolated,
                             checkpointer,
+                            thread_id,
                         )
                 except RAGError:
                     raise
@@ -859,7 +941,7 @@ def create_app(
         # the user's own question (the rewrite node may append an AIMessage
         # carrying the question text as a fallback) or a prior turn's reply.
         new_messages = messages[prev_count:] if prev_count <= len(messages) else messages
-        artifacts = extract_amap_artifacts_from_messages(new_messages)
+        artifacts = extract_artifacts_from_messages(new_messages)
 
         # The assistant's reply is the last AI message with non-empty content
         # that is NOT a tool-call carrier.
@@ -1064,6 +1146,54 @@ def create_app(
             )
 
         return UploadResponse(thread_id=thread_id, files=saved, errors=errors)
+
+    @app.get(
+        "/chat/{thread_id}/files/{filename}",
+        dependencies=[Depends(require_api_key)],
+    )
+    async def download_session_file(
+        thread_id: str,
+        filename: str,
+        fastapi_request: Request,
+        sessions: SessionRegistryDep,
+    ) -> FileResponse:
+        """Serve one file from a chat session's own upload directory.
+
+        Access is bound to the session: an unknown thread is a 404, and the
+        requested name is reduced to a basename and re-checked against the
+        session directory so no path can reach another thread's files.
+        """
+
+        session = sessions.get(thread_id)
+        if session is None:
+            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+
+        settings = get_config(fastapi_request)
+        safe_name = sanitize_filename(filename)
+        if not safe_name or safe_name != filename:
+            raise ResourceNotFoundError(f"Unknown file {filename!r}")
+
+        suffix = Path(safe_name).suffix.lower()
+        if suffix not in ALLOWED_UPLOAD_SUFFIXES:
+            raise ResourceNotFoundError(f"Unknown file {filename!r}")
+
+        upload_dir = session_upload_dir(settings, thread_id)
+        try:
+            base = upload_dir.resolve()
+            target = (base / safe_name).resolve()
+        except OSError:
+            raise ResourceNotFoundError(f"Unknown file {filename!r}") from None
+
+        # Defence in depth: sanitize_filename already strips directory parts,
+        # so the resolved parent must be the session directory itself.
+        if target.parent != base or not target.is_file():
+            raise ResourceNotFoundError(f"Unknown file {filename!r}")
+
+        return FileResponse(
+            target,
+            media_type=DOWNLOAD_MEDIA_TYPES.get(suffix, "application/octet-stream"),
+            filename=safe_name,
+        )
 
     @app.delete("/chat/{thread_id}", dependencies=[Depends(require_api_key)])
     async def delete_chat(

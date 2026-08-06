@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.tools import BaseTool, StructuredTool
@@ -206,7 +207,7 @@ def _format_weather(label: str, payload: dict[str, Any]) -> str:
     return "\n\n".join(sections)
 
 
-def _markdown_table(headers: list[str], rows: list[tuple[str, ...]]) -> str:
+def _markdown_table(headers: list[str], rows: Sequence[tuple[str, ...]]) -> str:
     """Render a GitHub-flavored markdown table from headers and row tuples."""
 
     lines = [

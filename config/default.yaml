@@ -76,6 +76,9 @@ summarize_url_enabled: false
 file_read_enabled: false
 file_read_root: "."
 file_read_max_bytes: 5000000
+# Word .docx editing. Needs file_read_enabled too; writes a new .docx next to
+# the uploaded source and never overwrites it.
+word_edit_enabled: false
 # Chat-agent long-term memory. Off by default; the store file is git-ignored.
 memory_enabled: false
 # Blank means memory/long_term_memory.json relative to the working directory.

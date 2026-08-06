@@ -3,12 +3,15 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage, ToolMessage
 
 from src.graph.artifacts import (
+    MAX_FILE_SIZE_BYTES,
     MAX_MARKERS,
     MAX_POLYLINE_POINTS,
     MAX_STEPS,
+    extract_amap_artifacts_from_messages,
     extract_artifacts_from_messages,
     extract_artifacts_from_node_output,
     normalize_amap_artifact,
+    normalize_file_artifact,
 )
 
 
@@ -301,3 +304,92 @@ def test_extract_artifacts_from_node_output_reads_message_fields():
     assert len(artifacts) == 1
     assert artifacts[0]["tool_call_id"] == "call-1"
     assert artifacts[0]["markers"][0]["position"] == {"lat": 39.9087, "lng": 116.3975}
+
+
+def test_normalize_file_artifact_rebuilds_safe_download_url():
+    raw = {
+        "type": "file",
+        "version": 1,
+        "kind": "download",
+        "provider": "chat_upload",
+        "threadId": "thread-a",
+        "filename": "Q3 report.edited.docx",
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "sizeBytes": 12345,
+        "url": "https://evil.example/steal",
+        "secret": "discard",
+    }
+
+    artifact = normalize_file_artifact(raw, tool_call_id="call-file")
+
+    assert artifact is not None
+    assert artifact["id"].startswith("file-")
+    assert artifact["tool_call_id"] == "call-file"
+    assert artifact["url"] == "/chat/thread-a/files/Q3%20report.edited.docx"
+    assert artifact["sizeBytes"] == 12345
+    assert "secret" not in artifact
+
+
+def test_invalid_file_artifacts_are_rejected_instead_of_rewritten_or_clamped():
+    base = {
+        "type": "file",
+        "version": 1,
+        "kind": "download",
+        "provider": "chat_upload",
+        "threadId": "thread-a",
+        "filename": "report.docx",
+        "sizeBytes": 123,
+    }
+    invalid_cases = [
+        {**base, "version": True},
+        {**base, "kind": "inline"},
+        {**base, "provider": "external"},
+        {**base, "threadId": "../thread-b"},
+        {**base, "threadId": "x" * 65},
+        {**base, "filename": "../report.docx"},
+        {**base, "filename": "folder\\report.docx"},
+        {**base, "filename": "report.txt"},
+        {**base, "sizeBytes": -1},
+        {**base, "sizeBytes": True},
+        {**base, "sizeBytes": 1.5},
+        {**base, "sizeBytes": MAX_FILE_SIZE_BYTES + 1},
+    ]
+
+    assert [normalize_file_artifact(case) for case in invalid_cases] == [None] * len(
+        invalid_cases
+    )
+
+
+def test_generic_extractor_keeps_files_while_legacy_amap_extractor_filters_them():
+    marker = {
+        "type": "amap",
+        "version": 1,
+        "kind": "marker",
+        "coordinateSystem": "gcj02",
+        "provider": "amap",
+        "lng": 116.3975,
+        "lat": 39.9087,
+    }
+    file_artifact = {
+        "type": "file",
+        "version": 1,
+        "kind": "download",
+        "provider": "chat_upload",
+        "threadId": "thread-a",
+        "filename": "report.edited.docx",
+        "sizeBytes": 123,
+    }
+    messages = [
+        ToolMessage(
+            content="created",
+            tool_call_id="call-1",
+            artifact=[marker, file_artifact],
+        )
+    ]
+
+    assert [
+        artifact["type"] for artifact in extract_artifacts_from_messages(messages)
+    ] == ["amap", "file"]
+    assert [
+        artifact["type"] for artifact in extract_amap_artifacts_from_messages(messages)
+    ] == ["amap"]

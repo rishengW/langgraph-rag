@@ -251,7 +251,7 @@ def _do_series(
 
 
 def _do_evaluate(sympy: Any, expr: Any, raw_expr: str) -> str:
-    free_symbols = getattr(expr, "free_symbols", set())
+    free_symbols: Any = getattr(expr, "free_symbols", set())
     if free_symbols:
         names = ", ".join(sorted(str(sym) for sym in free_symbols))
         return (

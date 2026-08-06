@@ -13,7 +13,7 @@ them in sync or the round-trip breaks.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from .models import (
     CATEGORIES,
@@ -99,7 +99,7 @@ def parse_document(
             records.append(record)
 
     document = MemoryDocument(
-        version=int(version),
+        version=cast(int, version),
         updated_at=doc_updated_at,
         records=tuple(records),
     )

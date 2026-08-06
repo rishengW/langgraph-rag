@@ -279,6 +279,48 @@
             box-shadow: 0 8px 20px rgba(31, 41, 55, 0.08);
             overflow: hidden;
         }
+        .file-card {
+            align-items: center;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(31, 41, 55, 0.08);
+            display: flex;
+            gap: 12px;
+            padding: 12px 14px;
+        }
+        .file-card__body {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+        .file-card__name {
+            color: #111827;
+            font-size: 13px;
+            font-weight: 700;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .file-card__meta {
+            color: #6b7280;
+            font-size: 12px;
+        }
+        .file-card__download {
+            background: #4f46e5;
+            border-radius: 8px;
+            color: #fff;
+            flex: 0 0 auto;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: auto;
+            padding: 7px 12px;
+            text-decoration: none;
+        }
+        .file-card__download:hover {
+            background: #4338ca;
+        }
         .amap-card__header {
             align-items: center;
             display: flex;
@@ -428,6 +470,6 @@
         </section>
     </div>
 
-    <script src="/static/script.js?v=7"></script>
+    <script src="/static/script.js?v=8"></script>
 </body>
 </html>

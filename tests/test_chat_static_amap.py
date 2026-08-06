@@ -110,6 +110,19 @@ def test_amap_cards_use_dom_text_and_safe_fallback_links() -> None:
     assert "!url.password" in script
 
 
+def test_file_artifacts_use_validated_download_cards() -> None:
+    script = _script()
+    index = _index()
+
+    assert "function normalizeFileArtifact" in script
+    assert "function buildFileArtifactCard" in script
+    assert 'artifact.type === "file"' in script
+    assert "link.download = artifact.filename" in script
+    assert "safeDownloadHref" in script
+    assert ".file-card" in index
+    assert ".file-card__download" in index
+
+
 def test_maps_are_destroyed_on_transcript_clear_new_chat_and_pagehide() -> None:
     script = _script()
 
@@ -125,4 +138,4 @@ def test_index_has_responsive_amap_styles_and_bumped_script_cache_version() -> N
     assert ".amap-card" in index
     assert ".amap-card__map" in index
     assert "@media (max-width: 640px)" in index
-    assert '<script src="/static/script.js?v=7"></script>' in index
+    assert '<script src="/static/script.js?v=8"></script>' in index

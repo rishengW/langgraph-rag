@@ -24,6 +24,12 @@ from .summarize_tool import SummarizeUrlInput, build_summarize_url_tool
 from .text_file import TextFileInput, build_text_file_tool
 from .weather import WeatherInput, build_weather_tool
 from .wikipedia_tool import WikipediaInput, build_wikipedia_tool
+from .word_edit import (
+    WordEditInput,
+    WordEditOperation,
+    WordInspectInput,
+    build_word_edit_tools,
+)
 from .word_file import WordFileInput, build_word_tool
 
 __all__ = [
@@ -45,7 +51,10 @@ __all__ = [
     "TextFileInput",
     "WeatherInput",
     "WikipediaInput",
+    "WordEditInput",
+    "WordEditOperation",
     "WordFileInput",
+    "WordInspectInput",
     "build_currency_tool",
     "build_datetime_tool",
     "build_directions_tool",
@@ -65,5 +74,6 @@ __all__ = [
     "build_text_file_tool",
     "build_weather_tool",
     "build_wikipedia_tool",
+    "build_word_edit_tools",
     "build_word_tool",
 ]

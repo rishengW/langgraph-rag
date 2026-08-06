@@ -129,7 +129,7 @@ def build_save_memory_tool(
         category: str | None = None,
         tags: list[str] | None = None,
         scope: str | None = None,
-        config: RunnableConfig = None,
+        config: RunnableConfig = None,  # type: ignore[assignment]
     ) -> str:
         thread_id = thread_id_from_config(config)
         return _guarded(
@@ -168,7 +168,7 @@ def build_recall_memory_tool(
 ) -> BaseTool:
     """Create the recall_memory tool."""
 
-    def _run_recall(query: str, config: RunnableConfig = None) -> str:
+    def _run_recall(query: str, config: RunnableConfig = None) -> str:  # type: ignore[assignment]
         thread_id = thread_id_from_config(config)
         return _guarded(
             "recall_memory",
@@ -208,7 +208,7 @@ def build_forget_memory_tool(
     def _run_forget(
         memory_id: str | None = None,
         query: str | None = None,
-        config: RunnableConfig = None,
+        config: RunnableConfig = None,  # type: ignore[assignment]
     ) -> str:
         thread_id = thread_id_from_config(config)
         return _guarded(

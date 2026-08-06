@@ -171,6 +171,21 @@ def test_env_example_documents_amap_settings():
         assert name in env_example, f"{name} missing from .env.example"
 
 
+def test_word_edit_defaults_environment_and_documentation(tmp_path, monkeypatch):
+    defaults = load_yaml_config("config/default.yaml")
+    settings = Settings(dashscope_api_key="test-key")
+
+    assert settings.word_edit_enabled is False
+    assert defaults["word_edit_enabled"] is False
+    assert "WORD_EDIT_ENABLED=false" in Path(".env.example").read_text(encoding="utf-8")
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("WORD_EDIT_ENABLED", "true")
+    loaded = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert loaded.word_edit_enabled is True
+
+
 def test_load_settings_from_env_file(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
     env_file.write_text(

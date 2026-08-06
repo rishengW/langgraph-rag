@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -306,7 +307,7 @@ def _format_duration(seconds: float) -> str:
     return f"{minutes} min"
 
 
-def _markdown_table(headers: list[str], rows: list[tuple[str, ...]]) -> str:
+def _markdown_table(headers: list[str], rows: Sequence[tuple[str, ...]]) -> str:
     lines = [
         "| " + " | ".join(headers) + " |",
         "| " + " | ".join("---" for _ in headers) + " |",

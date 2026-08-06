@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass, field
 from importlib import import_module
+from pathlib import Path
 from typing import Any, Literal, cast
 
 from langgraph.graph import END, START, StateGraph
@@ -110,12 +111,19 @@ def build_graph(
     providers: GraphProviders | None = None,
     rebuild_vectorstore: bool = False,
     checkpointer: Any = _DEFAULT_CHECKPOINTER,
+    session_root: Path | None = None,
+    thread_id: str = "",
 ) -> Any:
     """Compile the QA or chat LangGraph workflow.
 
     Defaults preserve the legacy Settings-based builders. ``providers`` is an
     additive DI surface used by tests and future API wiring to avoid live
     provider construction.
+
+    ``session_root`` and ``thread_id`` scope the session-bound Word editing
+    tools to one chat session's upload directory. They are supplied by the chat
+    layer, which owns the per-thread directory layout; QA mode never passes
+    them, so the editor is never registered there.
     """
 
     if mode not in ("qa", "chat"):
@@ -123,7 +131,17 @@ def build_graph(
 
     providers = providers or GraphProviders()
     nodes = providers.nodes
-    tools = _resolve_tools(settings, providers, rebuild_vectorstore)
+    # The Word editor is chat-only: it needs a per-session upload directory to
+    # confine writes to, which QA mode has no concept of.
+    edit_root = session_root if mode == "chat" else None
+    edit_thread_id = thread_id if mode == "chat" else ""
+    tools = _resolve_tools(
+        settings,
+        providers,
+        rebuild_vectorstore,
+        session_root=edit_root,
+        thread_id=edit_thread_id,
+    )
     question_resolver = qa_question_resolver if mode == "qa" else chat_question_resolver
     state_type = AgentState if mode == "qa" else ChatState
 
@@ -194,12 +212,17 @@ def build_lightweight_graph(
     mode: GraphMode = "qa",
     providers: GraphProviders | None = None,
     checkpointer: Any = _DEFAULT_CHECKPOINTER,
+    session_root: Path | None = None,
+    thread_id: str = "",
 ) -> Any:
     """Compile the lightweight graph for one-shot web-search sources.
 
     This graph deliberately skips the Chroma/retriever/grade/rewrite path. It
     only gives the agent the live web-search tool, then sends either the tool
     output or the existing state source URLs to ``web_answer``.
+
+    ``session_root`` and ``thread_id`` scope the session-bound Word editing
+    tools; they are ignored outside chat mode.
     """
 
     if mode not in ("qa", "chat"):
@@ -207,7 +230,12 @@ def build_lightweight_graph(
 
     providers = providers or GraphProviders()
     nodes = providers.nodes
-    tools = _resolve_lightweight_tools(settings, providers)
+    tools = _resolve_lightweight_tools(
+        settings,
+        providers,
+        session_root=session_root if mode == "chat" else None,
+        thread_id=thread_id if mode == "chat" else "",
+    )
     question_resolver = qa_question_resolver if mode == "qa" else chat_question_resolver
     state_type = AgentState if mode == "qa" else ChatState
 
@@ -312,6 +340,9 @@ def _resolve_tools(
     settings: Settings | None,
     providers: GraphProviders,
     rebuild_vectorstore: bool,
+    *,
+    session_root: Path | None = None,
+    thread_id: str = "",
 ) -> list[Any]:
     if providers.tools is not None:
         return list(providers.tools)
@@ -360,12 +391,25 @@ def _resolve_tools(
         tools.append(tool_module.build_word_tool(settings))
         tools.append(tool_module.build_excel_tool(settings))
         tools.append(tool_module.build_pdf_tool(settings))
+    # Word editing is chat-only: it needs a per-session upload directory to
+    # confine writes to, which ``session_root`` supplies. The factory returns
+    # an empty list when the flag is off or no session root was given.
+    tools.extend(
+        tool_module.build_word_edit_tools(
+            settings,
+            session_root=session_root,
+            thread_id=thread_id,
+        )
+    )
     return tools
 
 
 def _resolve_lightweight_tools(
     settings: Settings | None,
     providers: GraphProviders,
+    *,
+    session_root: Path | None = None,
+    thread_id: str = "",
 ) -> list[Any]:
     if providers.tools is not None:
         return list(providers.tools)
@@ -409,6 +453,15 @@ def _resolve_lightweight_tools(
         tools.append(tool_module.build_word_tool(settings))
         tools.append(tool_module.build_excel_tool(settings))
         tools.append(tool_module.build_pdf_tool(settings))
+    # Keep this in sync with _resolve_tools: a web-search chat session can also
+    # have uploads, so the editor must not silently vanish on this graph.
+    tools.extend(
+        tool_module.build_word_edit_tools(
+            settings,
+            session_root=session_root,
+            thread_id=thread_id,
+        )
+    )
     return tools
 
 

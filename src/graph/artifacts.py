@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 from langchain_core.messages import ToolMessage
 
@@ -19,6 +20,12 @@ AMAP_PROVIDER = "amap"
 AMAP_COORDINATE_SYSTEM = "gcj02"
 AMAP_URI_HOST = "uri.amap.com"
 
+FILE_TYPE = "file"
+FILE_VERSION = 1
+FILE_KIND_DOWNLOAD = "download"
+FILE_PROVIDER = "chat_upload"
+DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
 MAX_TITLE_CHARS = 120
 MAX_LABEL_CHARS = 160
 MAX_ADDRESS_CHARS = 300
@@ -28,6 +35,12 @@ MAX_MARKERS = 20
 MAX_STEPS = 50
 MAX_POLYLINE_POINTS = 500
 MAX_STEP_POLYLINE_POINTS = 100
+MAX_FILENAME_CHARS = 200
+MAX_MIME_CHARS = 120
+MAX_THREAD_ID_CHARS = 64
+MAX_FILE_SIZE_BYTES = 100_000_000
+
+_THREAD_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 _ROUTE_MODES = {
@@ -63,7 +76,16 @@ _MARKER_ROLES = frozenset({"origin", "destination", "waypoint", "marker"})
 def normalize_artifact(value: Any, *, tool_call_id: str = "") -> dict[str, Any] | None:
     """Normalize a graph artifact value, returning only supported safe envelopes."""
 
-    return normalize_amap_artifact(value, tool_call_id=tool_call_id)
+    if not isinstance(value, Mapping):
+        return None
+
+    artifact_type = _token(value.get("type"))
+    if artifact_type == AMAP_TYPE:
+        return normalize_amap_artifact(value, tool_call_id=tool_call_id)
+    elif artifact_type == FILE_TYPE:
+        return normalize_file_artifact(value, tool_call_id=tool_call_id)
+
+    return None
 
 
 def normalize_amap_artifact(value: Any, *, tool_call_id: str = "") -> dict[str, Any] | None:
@@ -97,9 +119,95 @@ def normalize_amap_artifact(value: Any, *, tool_call_id: str = "") -> dict[str, 
     if body is None:
         return None
 
-    artifact_id = _stable_artifact_id(body)
+    artifact_id = _stable_artifact_id(body, prefix="amap-")
     safe_tool_call_id = _bounded_string(tool_call_id, MAX_TOOL_CALL_ID_CHARS)
     return {"id": artifact_id, "tool_call_id": safe_tool_call_id, **body}
+
+
+def normalize_file_artifact(value: Any, *, tool_call_id: str = "") -> dict[str, Any] | None:
+    """Return a safe file artifact envelope or ``None`` for unsupported input.
+
+    The input is treated as untrusted tool output. Only known primitive fields
+    are copied into a rebuilt object; unknown fields are intentionally discarded.
+    The ``url`` field is rebuilt from validated components to prevent arbitrary
+    URLs from being accepted.
+    """
+
+    if not isinstance(value, Mapping):
+        return None
+    if _token(value.get("type")) != FILE_TYPE:
+        return None
+    version = value.get("version")
+    if _is_bool(version) or not isinstance(version, int) or version != FILE_VERSION:
+        return None
+    if _token(value.get("kind")) != FILE_KIND_DOWNLOAD:
+        return None
+    if _token(value.get("provider")) != FILE_PROVIDER:
+        return None
+
+    # Validate threadId: non-empty, bounded, matches pattern
+    raw_thread_id = value.get("threadId")
+    if not isinstance(raw_thread_id, str):
+        return None
+    thread_id = raw_thread_id.strip()
+    if thread_id != raw_thread_id or len(thread_id) > MAX_THREAD_ID_CHARS:
+        return None
+    if not thread_id or not _THREAD_ID_PATTERN.fullmatch(thread_id):
+        return None
+
+    # Validate filename: non-empty, bounded, bare basename only
+    raw_filename = value.get("filename")
+    if not isinstance(raw_filename, str):
+        return None
+    filename = raw_filename.strip()
+    if filename != raw_filename or len(filename) > MAX_FILENAME_CHARS:
+        return None
+    if not filename:
+        return None
+    if "/" in filename or "\\" in filename or "\x00" in filename:
+        return None
+    if filename in (".", ".."):
+        return None
+    if not filename.lower().endswith(".docx"):
+        return None
+
+    # Validate sizeBytes: non-negative int within the transport limit.
+    raw_size = value.get("sizeBytes")
+    if _is_bool(raw_size) or raw_size is None:
+        return None
+    if not isinstance(raw_size, int):
+        return None
+    if raw_size < 0 or raw_size > MAX_FILE_SIZE_BYTES:
+        return None
+    size_bytes = raw_size
+
+    # Validate mimeType: bounded str, optional (default to DOCX)
+    raw_mime = value.get("mimeType")
+    mime_type = _bounded_string(raw_mime, MAX_MIME_CHARS) if isinstance(raw_mime, str) else ""
+    if not mime_type:
+        mime_type = DOCX_MIME_TYPE
+
+    # SECURITY: rebuild URL from validated components, never trust incoming url
+    quoted_thread = quote(thread_id, safe="")
+    quoted_filename = quote(filename, safe="")
+    url = f"/chat/{quoted_thread}/files/{quoted_filename}"
+
+    body: dict[str, Any] = {
+        "type": FILE_TYPE,
+        "version": FILE_VERSION,
+        "kind": FILE_KIND_DOWNLOAD,
+        "provider": FILE_PROVIDER,
+        "threadId": thread_id,
+        "filename": filename,
+        "mimeType": mime_type,
+        "sizeBytes": size_bytes,
+        "url": url,
+    }
+
+    artifact_id = _stable_artifact_id(body, prefix="file-")
+    safe_tool_call_id = _bounded_string(tool_call_id, MAX_TOOL_CALL_ID_CHARS)
+    return {"id": artifact_id, "tool_call_id": safe_tool_call_id, **body}
+
 
 
 def extract_artifacts_from_messages(messages: Any) -> list[dict[str, Any]]:
@@ -161,13 +269,21 @@ def extract_artifacts_from_chunk(output: Mapping[str, Any]) -> list[dict[str, An
 def extract_amap_artifacts_from_messages(messages: Any) -> list[dict[str, Any]]:
     """Extract safe AMap artifacts from ``ToolMessage.artifact`` values in order."""
 
-    return extract_artifacts_from_messages(messages)
+    return [
+        artifact
+        for artifact in extract_artifacts_from_messages(messages)
+        if artifact.get("type") == AMAP_TYPE
+    ]
 
 
 def extract_amap_artifacts_from_node_output(node_output: Any) -> list[dict[str, Any]]:
     """Extract safe AMap artifacts from a LangGraph node output."""
 
-    return extract_artifacts_from_node_output(node_output)
+    return [
+        artifact
+        for artifact in extract_artifacts_from_node_output(node_output)
+        if artifact.get("type") == AMAP_TYPE
+    ]
 
 
 def _normalize_marker_envelope(value: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -570,15 +686,16 @@ def _normalize_route_mode(value: Any) -> str | None:
     return _ROUTE_MODES.get(mode)
 
 
-def _stable_artifact_id(body: Mapping[str, Any]) -> str:
+def _stable_artifact_id(body: Mapping[str, Any], *, prefix: str) -> str:
     payload = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
-    return f"amap-{digest}"
+    return f"{prefix}{digest}"
 
 
 def _iter_artifact_candidates(value: Any) -> Iterable[Any]:
     if isinstance(value, Mapping):
-        if _token(value.get("type")) == AMAP_TYPE:
+        artifact_type = _token(value.get("type"))
+        if artifact_type in {AMAP_TYPE, FILE_TYPE}:
             yield value
             return
         nested = value.get("artifacts")
@@ -681,9 +798,18 @@ __all__ = [
     "AMAP_TYPE",
     "AMAP_VERSION",
     "ArtifactEvent",
+    "DOCX_MIME_TYPE",
+    "FILE_KIND_DOWNLOAD",
+    "FILE_PROVIDER",
+    "FILE_TYPE",
+    "FILE_VERSION",
+    "MAX_FILENAME_CHARS",
+    "MAX_FILE_SIZE_BYTES",
     "MAX_MARKERS",
+    "MAX_MIME_CHARS",
     "MAX_POLYLINE_POINTS",
     "MAX_STEPS",
+    "MAX_THREAD_ID_CHARS",
     "extract_amap_artifacts_from_messages",
     "extract_amap_artifacts_from_node_output",
     "extract_artifacts_from_chunk",
@@ -691,4 +817,5 @@ __all__ = [
     "extract_artifacts_from_node_output",
     "normalize_amap_artifact",
     "normalize_artifact",
+    "normalize_file_artifact",
 ]

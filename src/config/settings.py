@@ -119,6 +119,11 @@ class Settings:
     file_read_enabled: bool = False
     file_read_root: str = "."
     file_read_max_bytes: int = 5_000_000
+    # Word .docx editing. Off by default: it is the only tool that writes
+    # documents, so it stays opt-in on top of file_read_enabled. Edits are
+    # confined to the current chat session's upload directory and always
+    # produce a new file rather than overwriting the uploaded source.
+    word_edit_enabled: bool = False
     # Chat-agent long-term memory. Disabled by default so existing
     # deployments keep their current tool set and touch no memory file.
     memory_enabled: bool = False

@@ -74,11 +74,20 @@ def list_session_uploads(settings: Settings, thread_id: str) -> list[str]:
     return paths
 
 
-def build_upload_context_note(relative_paths: list[str]) -> str:
-    """Build a system-message note telling the LLM which uploads it can read."""
+def build_upload_context_note(
+    relative_paths: list[str],
+    *,
+    word_edit_enabled: bool = False,
+) -> str:
+    """Build a system-message note telling the LLM which uploads it can read.
+
+    When ``word_edit_enabled`` is set, the note also advertises the .docx
+    editing tools and states the inspect-before-edit and explicit-request
+    rules, so the model does not modify a document on its own initiative.
+    """
 
     listing = "\n".join(f"- {path}" for path in relative_paths)
-    return (
+    note = (
         "The user has uploaded the following file(s) to this chat session. "
         "You can read them with the file tools (read_text_file, "
         "read_word_document, read_excel_spreadsheet, read_pdf) by passing the "
@@ -86,6 +95,16 @@ def build_upload_context_note(relative_paths: list[str]) -> str:
         f"{listing}\n"
         "When the user refers to an uploaded file by name, call the matching "
         "file tool with its full path from this list."
+    )
+    if not word_edit_enabled:
+        return note
+    return (
+        f"{note}\n"
+        "For .docx files you may also call inspect_word_document to list their "
+        "numbered paragraphs and table cells, and edit_word_document to apply "
+        "edits. Only edit when the user explicitly asks for a change; always "
+        "call inspect_word_document first and pass the exact current text as "
+        "expected_text. Editing writes a new file and leaves the upload intact."
     )
 
 

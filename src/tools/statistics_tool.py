@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import statistics
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from langchain_core.tools import BaseTool, StructuredTool
@@ -122,7 +123,7 @@ def _fmt(value: float) -> str:
     return f"{value:.6g}"
 
 
-def _markdown_table(headers: list[str], rows: list[tuple[str, ...]]) -> str:
+def _markdown_table(headers: list[str], rows: Sequence[tuple[str, ...]]) -> str:
     lines = [
         "| " + " | ".join(headers) + " |",
         "| " + " | ".join("---" for _ in headers) + " |",

@@ -5,11 +5,14 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
 from src.chat import api as chat_api
+from src.graph.artifacts import normalize_file_artifact
 from src.tools import build_text_file_tool, build_word_tool
+from src.tools.word_edit import WordEditOperation, edit_word_document
 
 _DOCX_DOCUMENT_XML = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -40,11 +43,18 @@ class _FakeGraph:
         return {"messages": list(self.messages)}
 
 
-def _client(monkeypatch, isolated_settings, tmp_path: Path):
+def _client(
+    monkeypatch,
+    isolated_settings,
+    tmp_path: Path,
+    *,
+    word_edit_enabled: bool = False,
+):
     settings = isolated_settings(
         source_urls=["https://chat-default.test"],
         web_search_enabled=False,
         file_read_enabled=True,
+        word_edit_enabled=word_edit_enabled,
         file_read_root=str(tmp_path / "files"),
         file_read_max_bytes=1_000_000,
     )
@@ -210,3 +220,76 @@ def test_delete_thread_removes_uploaded_files(monkeypatch, isolated_settings, tm
         deleted = client.delete(f"/chat/{thread_id}")
         assert deleted.status_code == 200
         assert not upload_dir.exists()
+
+
+def test_upload_edit_artifact_download_and_cleanup(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    docx = pytest.importorskip("docx")
+    buffer = io.BytesIO()
+    document = docx.Document()
+    document.add_paragraph("Original title")
+    document.save(buffer)
+
+    client, settings = _client(
+        monkeypatch,
+        isolated_settings,
+        tmp_path,
+        word_edit_enabled=True,
+    )
+    with client:
+        thread_id = _start_thread(client)
+        upload = client.post(
+            f"/chat/{thread_id}/upload",
+            files={
+                "files": (
+                    "report.docx",
+                    buffer.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+        )
+        assert upload.status_code == 200
+        saved = upload.json()["files"][0]
+
+        session_root = chat_api.session_upload_dir(settings, thread_id)
+        edit = edit_word_document(
+            saved["relative_path"],
+            operations=[
+                WordEditOperation(
+                    action="replace_paragraph",
+                    paragraph_index=0,
+                    expected_text="Original title",
+                    new_text="Updated title",
+                )
+            ],
+            session_root=session_root,
+            file_root=Path(settings.file_read_root),
+            max_bytes=settings.file_read_max_bytes,
+            thread_id=thread_id,
+        )
+        assert edit.artifact is not None, edit.content
+        artifact = normalize_file_artifact(edit.artifact)
+
+        assert artifact is not None
+        download = client.get(artifact["url"])
+        assert download.status_code == 200
+        assert download.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        downloaded = docx.Document(io.BytesIO(download.content))
+        assert downloaded.paragraphs[0].text == "Updated title"
+
+        second_thread = _start_thread(client)
+        assert (
+            client.get(f"/chat/{second_thread}/files/{artifact['filename']}").status_code
+            == 404
+        )
+        assert client.get(f"/chat/{thread_id}/files/missing.docx").status_code == 404
+        assert client.get(f"/chat/unknown/files/{artifact['filename']}").status_code == 404
+
+        deleted = client.delete(f"/chat/{thread_id}")
+        assert deleted.status_code == 200
+        assert not session_root.exists()

@@ -202,6 +202,8 @@ def _do_convert(
             "convert_timezone requires both timezone_name (source) and "
             "to_timezone (target)."
         )
+    assert timezone_name is not None
+    assert to_timezone is not None
     start_dt = _parse_dt(start, field="start")
     if start_dt.tzinfo is None:
         start_dt = start_dt.replace(tzinfo=from_zone)

@@ -10,8 +10,10 @@ from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
 from src.chat import api as chat_api
+from src.chat.uploads import build_upload_context_note
 from src.graph.artifacts import normalize_file_artifact
 from src.tools import build_text_file_tool, build_word_tool
+from src.tools.text_edit import TextEditOperation, create_text_file, edit_text_file
 from src.tools.word_edit import WordEditOperation, edit_word_document
 
 _DOCX_DOCUMENT_XML = (
@@ -49,12 +51,14 @@ def _client(
     tmp_path: Path,
     *,
     word_edit_enabled: bool = False,
+    text_edit_enabled: bool = False,
 ):
     settings = isolated_settings(
         source_urls=["https://chat-default.test"],
         web_search_enabled=False,
         file_read_enabled=True,
         word_edit_enabled=word_edit_enabled,
+        text_edit_enabled=text_edit_enabled,
         file_read_root=str(tmp_path / "files"),
         file_read_max_bytes=1_000_000,
     )
@@ -71,6 +75,23 @@ def _start_thread(client: TestClient) -> str:
     start = client.post("/chat", json={"web_search": False})
     assert start.status_code == 200
     return start.json()["thread_id"]
+
+
+def test_upload_context_advertises_text_editing_only_when_enabled():
+    path = "chat_uploads/thread-a/notes.txt"
+
+    read_only = build_upload_context_note([path])
+    editable = build_upload_context_note([path], text_edit_enabled=True)
+
+    assert "inspect_text_file" not in read_only
+    assert "edit_text_file" not in read_only
+    assert "inspect_word_document" not in editable
+    assert "create_text_file" in editable
+    assert "inspect_text_file" in editable
+    assert "edit_text_file" in editable
+    assert "explicitly asks" in editable
+    assert "expected_text" in editable
+    assert "never overwrite an existing file" in editable
 
 
 def test_upload_injects_context_into_next_turn(monkeypatch, isolated_settings, tmp_path):
@@ -292,4 +313,84 @@ def test_upload_edit_artifact_download_and_cleanup(
 
         deleted = client.delete(f"/chat/{thread_id}")
         assert deleted.status_code == 200
+        assert not session_root.exists()
+
+
+def test_upload_edit_text_artifact_download_and_cleanup(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    client, settings = _client(
+        monkeypatch,
+        isolated_settings,
+        tmp_path,
+        text_edit_enabled=True,
+    )
+    with client:
+        thread_id = _start_thread(client)
+        upload = client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("notes.txt", b"alpha\r\nbeta\r\n", "text/plain")},
+        )
+        assert upload.status_code == 200
+        saved = upload.json()["files"][0]
+
+        session_root = chat_api.session_upload_dir(settings, thread_id)
+        edit = edit_text_file(
+            saved["relative_path"],
+            operations=[
+                TextEditOperation(
+                    action="replace_line",
+                    line_index=1,
+                    expected_text="beta",
+                    new_text="gamma",
+                )
+            ],
+            session_root=session_root,
+            file_root=Path(settings.file_read_root),
+            max_bytes=settings.file_read_max_bytes,
+            thread_id=thread_id,
+        )
+        assert edit.artifact is not None, edit.content
+        artifact = normalize_file_artifact(edit.artifact)
+
+        assert artifact is not None
+        assert artifact["mimeType"] == "text/plain"
+        download = client.get(artifact["url"])
+        assert download.status_code == 200
+        assert download.headers["content-type"].startswith("text/plain")
+        assert download.content == b"alpha\r\ngamma\r\n"
+
+
+def test_create_text_artifact_download_and_cleanup(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    client, settings = _client(
+        monkeypatch,
+        isolated_settings,
+        tmp_path,
+        text_edit_enabled=True,
+    )
+    with client:
+        thread_id = _start_thread(client)
+        session_root = chat_api.session_upload_dir(settings, thread_id)
+        created = create_text_file(
+            "todo",
+            "first\nsecond\n",
+            session_root=session_root,
+            file_root=Path(settings.file_read_root),
+            max_bytes=settings.file_read_max_bytes,
+            thread_id=thread_id,
+        )
+        assert created.artifact is not None, created.content
+        artifact = normalize_file_artifact(created.artifact)
+        assert artifact is not None
+        assert artifact["filename"] == "todo.txt"
+        download = client.get(artifact["url"])
+        assert download.status_code == 200
+        assert download.content == b"first\nsecond\n"
+        assert client.delete(f"/chat/{thread_id}").status_code == 200
         assert not session_root.exists()

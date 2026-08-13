@@ -186,6 +186,47 @@ def test_word_edit_defaults_environment_and_documentation(tmp_path, monkeypatch)
     assert loaded.word_edit_enabled is True
 
 
+def test_text_edit_defaults_environment_and_documentation(tmp_path, monkeypatch):
+    defaults = load_yaml_config("config/default.yaml")
+    settings = Settings(dashscope_api_key="test-key")
+
+    assert settings.text_edit_enabled is False
+    assert defaults["text_edit_enabled"] is False
+    assert "TEXT_EDIT_ENABLED=false" in Path(".env.example").read_text(
+        encoding="utf-8"
+    )
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("TEXT_EDIT_ENABLED", "true")
+    loaded = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert loaded.text_edit_enabled is True
+
+
+def test_excel_create_defaults_environment_and_documentation(tmp_path, monkeypatch):
+    defaults = load_yaml_config("config/default.yaml")
+    settings = Settings(dashscope_api_key="test-key")
+
+    assert settings.excel_create_enabled is False
+    assert settings.excel_node_executable == "node"
+    assert settings.excel_node_modules_path == ""
+    assert defaults["excel_create_enabled"] is False
+    env_example = Path(".env.example").read_text(encoding="utf-8")
+    assert "EXCEL_CREATE_ENABLED=false" in env_example
+    assert "EXCEL_NODE_EXECUTABLE=node" in env_example
+    assert "EXCEL_NODE_MODULES_PATH=" in env_example
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("EXCEL_CREATE_ENABLED", "true")
+    monkeypatch.setenv("EXCEL_NODE_EXECUTABLE", "C:/runtime/node.exe")
+    monkeypatch.setenv("EXCEL_NODE_MODULES_PATH", "C:/runtime/node_modules")
+    loaded = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert loaded.excel_create_enabled is True
+    assert loaded.excel_node_executable == "C:/runtime/node.exe"
+    assert loaded.excel_node_modules_path == "C:/runtime/node_modules"
+
+
 def test_load_settings_from_env_file(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
     env_file.write_text(

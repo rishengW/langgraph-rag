@@ -28,7 +28,7 @@ def build_chat_graph(
     set must call ``build_chat_graph`` again with the appropriate
     settings.
 
-    ``session_root`` and ``thread_id`` confine the session-bound Word
+    ``session_root`` and ``thread_id`` confine session-bound document
     editing tools to one chat session's upload directory. Omitting them
     builds a graph without those tools."""
 

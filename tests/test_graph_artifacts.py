@@ -3,10 +3,12 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage, ToolMessage
 
 from src.graph.artifacts import (
+    DOCX_MIME_TYPE,
     MAX_FILE_SIZE_BYTES,
     MAX_MARKERS,
     MAX_POLYLINE_POINTS,
     MAX_STEPS,
+    TXT_MIME_TYPE,
     extract_amap_artifacts_from_messages,
     extract_artifacts_from_messages,
     extract_artifacts_from_node_output,
@@ -326,8 +328,52 @@ def test_normalize_file_artifact_rebuilds_safe_download_url():
     assert artifact["id"].startswith("file-")
     assert artifact["tool_call_id"] == "call-file"
     assert artifact["url"] == "/chat/thread-a/files/Q3%20report.edited.docx"
+    assert artifact["mimeType"] == DOCX_MIME_TYPE
     assert artifact["sizeBytes"] == 12345
     assert "secret" not in artifact
+
+
+def test_normalize_txt_file_artifact_uses_canonical_mime_and_safe_url():
+    raw = {
+        "type": "file",
+        "version": 1,
+        "kind": "download",
+        "provider": "chat_upload",
+        "threadId": "thread-a",
+        "filename": "meeting notes.edited.TXT",
+        "mimeType": "application/octet-stream",
+        "sizeBytes": 42,
+        "url": "javascript:alert(1)",
+    }
+
+    artifact = normalize_file_artifact(raw)
+
+    assert artifact is not None
+    assert artifact["filename"] == "meeting notes.edited.TXT"
+    assert artifact["mimeType"] == TXT_MIME_TYPE
+    assert artifact["url"] == "/chat/thread-a/files/meeting%20notes.edited.TXT"
+
+
+def test_normalize_xlsx_file_artifact_uses_canonical_mime_and_safe_url():
+    raw = {
+        "type": "file",
+        "version": 1,
+        "kind": "download",
+        "provider": "chat_upload",
+        "threadId": "thread-a",
+        "filename": "Q3 workbook.XLSX",
+        "mimeType": "application/octet-stream",
+        "sizeBytes": 2048,
+        "url": "https://evil.example/steal",
+    }
+
+    artifact = normalize_file_artifact(raw)
+
+    assert artifact is not None
+    assert artifact["mimeType"] == (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert artifact["url"] == "/chat/thread-a/files/Q3%20workbook.XLSX"
 
 
 def test_invalid_file_artifacts_are_rejected_instead_of_rewritten_or_clamped():
@@ -348,7 +394,8 @@ def test_invalid_file_artifacts_are_rejected_instead_of_rewritten_or_clamped():
         {**base, "threadId": "x" * 65},
         {**base, "filename": "../report.docx"},
         {**base, "filename": "folder\\report.docx"},
-        {**base, "filename": "report.txt"},
+        {**base, "filename": "report.pdf"},
+        {**base, "filename": "report.txt.exe"},
         {**base, "sizeBytes": -1},
         {**base, "sizeBytes": True},
         {**base, "sizeBytes": 1.5},

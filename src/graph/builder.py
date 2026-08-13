@@ -120,10 +120,10 @@ def build_graph(
     additive DI surface used by tests and future API wiring to avoid live
     provider construction.
 
-    ``session_root`` and ``thread_id`` scope the session-bound Word editing
+    ``session_root`` and ``thread_id`` scope session-bound document editing
     tools to one chat session's upload directory. They are supplied by the chat
     layer, which owns the per-thread directory layout; QA mode never passes
-    them, so the editor is never registered there.
+    them, so editors are never registered there.
     """
 
     if mode not in ("qa", "chat"):
@@ -131,7 +131,7 @@ def build_graph(
 
     providers = providers or GraphProviders()
     nodes = providers.nodes
-    # The Word editor is chat-only: it needs a per-session upload directory to
+    # Editors are chat-only: they need a per-session upload directory to
     # confine writes to, which QA mode has no concept of.
     edit_root = session_root if mode == "chat" else None
     edit_thread_id = thread_id if mode == "chat" else ""
@@ -221,7 +221,7 @@ def build_lightweight_graph(
     only gives the agent the live web-search tool, then sends either the tool
     output or the existing state source URLs to ``web_answer``.
 
-    ``session_root`` and ``thread_id`` scope the session-bound Word editing
+    ``session_root`` and ``thread_id`` scope session-bound document editing
     tools; they are ignored outside chat mode.
     """
 
@@ -391,11 +391,25 @@ def _resolve_tools(
         tools.append(tool_module.build_word_tool(settings))
         tools.append(tool_module.build_excel_tool(settings))
         tools.append(tool_module.build_pdf_tool(settings))
-    # Word editing is chat-only: it needs a per-session upload directory to
-    # confine writes to, which ``session_root`` supplies. The factory returns
-    # an empty list when the flag is off or no session root was given.
+    # Document editing is chat-only: it needs a per-session upload directory
+    # to confine writes to, which ``session_root`` supplies. Each factory
+    # returns an empty list when its flag is off or no session scope was given.
     tools.extend(
         tool_module.build_word_edit_tools(
+            settings,
+            session_root=session_root,
+            thread_id=thread_id,
+        )
+    )
+    tools.extend(
+        tool_module.build_text_edit_tools(
+            settings,
+            session_root=session_root,
+            thread_id=thread_id,
+        )
+    )
+    tools.extend(
+        tool_module.build_excel_create_tools(
             settings,
             session_root=session_root,
             thread_id=thread_id,
@@ -454,9 +468,23 @@ def _resolve_lightweight_tools(
         tools.append(tool_module.build_excel_tool(settings))
         tools.append(tool_module.build_pdf_tool(settings))
     # Keep this in sync with _resolve_tools: a web-search chat session can also
-    # have uploads, so the editor must not silently vanish on this graph.
+    # have uploads, so editors must not silently vanish on this graph.
     tools.extend(
         tool_module.build_word_edit_tools(
+            settings,
+            session_root=session_root,
+            thread_id=thread_id,
+        )
+    )
+    tools.extend(
+        tool_module.build_text_edit_tools(
+            settings,
+            session_root=session_root,
+            thread_id=thread_id,
+        )
+    )
+    tools.extend(
+        tool_module.build_excel_create_tools(
             settings,
             session_root=session_root,
             thread_id=thread_id,

@@ -4,11 +4,15 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from src.tools.word_edit import (
     DOCX_MIME_TYPE,
+    WordContentBlock,
+    WordCreateInput,
     WordEditOperation,
     build_word_edit_tools,
+    create_word_document,
     edit_word_document,
     inspect_word_document,
 )
@@ -60,6 +64,148 @@ def _edit(
         thread_id=thread_id,
         output_name=output_name,
     )
+
+
+def _create(
+    filename: str,
+    *,
+    blocks: list[WordContentBlock],
+    file_root: Path,
+    session_root: Path,
+    thread_id: str,
+    max_bytes: int = 5_000_000,
+    title: str | None = None,
+    subtitle: str | None = None,
+    author: str | None = None,
+):
+    return create_word_document(
+        filename,
+        blocks=blocks,
+        session_root=session_root,
+        file_root=file_root,
+        max_bytes=max_bytes,
+        thread_id=thread_id,
+        title=title,
+        subtitle=subtitle,
+        author=author,
+    )
+
+
+def test_create_writes_styled_downloadable_docx_with_real_lists_and_table_geometry(
+    document_scope,
+):
+    file_root, session_root, _source, thread_id = document_scope
+
+    result = _create(
+        "../project brief.docx",
+        blocks=[
+            WordContentBlock(kind="heading", text="Overview", level=1),
+            WordContentBlock(
+                kind="paragraph",
+                text="This document was created from structured content.",
+            ),
+            WordContentBlock(kind="bullet_list", items=["Fast", "Safe"]),
+            WordContentBlock(kind="numbered_list", items=["Draft", "Review"]),
+            WordContentBlock(
+                kind="table",
+                rows=[["Owner", "Status"], ["Platform", "Ready"]],
+            ),
+        ],
+        file_root=file_root,
+        session_root=session_root,
+        thread_id=thread_id,
+        title="Project Brief",
+        subtitle="Creation tool smoke test",
+        author="Test Author",
+    )
+
+    assert result.artifact is not None
+    assert result.artifact["filename"] == "project_brief.docx"
+    assert result.artifact["mimeType"] == DOCX_MIME_TYPE
+    assert result.artifact["url"] == "/chat/thread-a/files/project_brief.docx"
+    created_path = session_root / "project_brief.docx"
+
+    created = docx.Document(created_path)
+    assert created.core_properties.title == "Project Brief"
+    assert created.core_properties.author == "Test Author"
+    assert created.sections[0].page_width.inches == pytest.approx(8.5, abs=0.01)
+    assert created.sections[0].page_height.inches == pytest.approx(11.0, abs=0.01)
+    assert [(p.style.name, p.text) for p in created.paragraphs[:4]] == [
+        ("Title", "Project Brief"),
+        ("Subtitle", "Creation tool smoke test"),
+        ("Heading 1", "Overview"),
+        ("Normal", "This document was created from structured content."),
+    ]
+    assert created.tables[0].cell(1, 0).text == "Platform"
+
+    with zipfile.ZipFile(created_path) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+        numbering_xml = archive.read("word/numbering.xml").decode("utf-8")
+    assert document_xml.count("<w:numPr>") == 4
+    assert '<w:numFmt w:val="bullet"' in numbering_xml
+    assert '<w:numFmt w:val="decimal"' in numbering_xml
+    assert '<w:tblW w:w="9360" w:type="dxa"' in document_xml
+    assert '<w:tblInd w:w="120" w:type="dxa"' in document_xml
+    assert '<w:tblLayout w:type="fixed"' in document_xml
+    assert '<w:tblHeader w:val="true"' in document_xml
+
+
+def test_create_is_collision_safe_size_limited_and_session_confined(document_scope):
+    file_root, session_root, _source, thread_id = document_scope
+    blocks = [WordContentBlock(kind="paragraph", text="Hello")]
+
+    first = _create(
+        "brief",
+        blocks=blocks,
+        file_root=file_root,
+        session_root=session_root,
+        thread_id=thread_id,
+    )
+    second = _create(
+        "brief",
+        blocks=blocks,
+        file_root=file_root,
+        session_root=session_root,
+        thread_id=thread_id,
+    )
+    oversized = _create(
+        "too-large",
+        blocks=blocks,
+        file_root=file_root,
+        session_root=session_root,
+        thread_id=thread_id,
+        max_bytes=100,
+    )
+    outside = _create(
+        "outside",
+        blocks=blocks,
+        file_root=file_root,
+        session_root=file_root.parent / "other-session",
+        thread_id=thread_id,
+    )
+
+    assert first.artifact is not None
+    assert second.artifact is not None
+    assert first.artifact["filename"] == "brief.docx"
+    assert second.artifact["filename"] == "brief-2.docx"
+    assert oversized.artifact is None
+    assert "new document is too large" in oversized.content
+    assert not (session_root / "too-large.docx").exists()
+    assert outside.artifact is None
+    assert "outside the configured file root" in outside.content
+
+
+def test_create_block_schema_rejects_invalid_shapes_and_control_characters():
+    with pytest.raises(ValidationError, match="same number of columns"):
+        WordContentBlock(kind="table", rows=[["A", "B"], ["one"]])
+    with pytest.raises(ValidationError, match="non-empty items"):
+        WordContentBlock(kind="bullet_list", items=[])
+
+    with pytest.raises(ValidationError, match="unsupported control characters"):
+        WordCreateInput(
+            filename="bad.docx",
+            blocks=[WordContentBlock(kind="paragraph", text="bad\x00text")],
+        )
 
 
 def test_inspect_lists_numbered_paragraphs_and_table_cells(document_scope):
@@ -302,4 +448,4 @@ def test_tool_registration_requires_flags_session_root_and_thread_id(
             session_root=session_root,
             thread_id="thread-a",
         )
-    ] == ["inspect_word_document", "edit_word_document"]
+    ] == ["create_word_document", "inspect_word_document", "edit_word_document"]

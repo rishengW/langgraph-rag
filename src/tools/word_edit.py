@@ -1,13 +1,13 @@
-"""Session-scoped Word (.docx) inspection and editing tools.
+"""Session-scoped Word (.docx) creation, inspection, and editing tools.
 
-This module is the only tool in the project that *writes* a document, so it is
-deliberately narrower than the read-only reader in ``word_file.py``:
+Writes are deliberately narrower than the read-only reader in ``word_file.py``:
 
-* **Session-bound.** Edits are confined to the current chat thread's upload
+* **Session-bound.** Files are confined to the current chat thread's upload
   directory (``chat_uploads/<thread-id>/``), not the global ``file_read_root``.
   An agent therefore cannot touch another session's documents.
-* **Copy-on-write.** The uploaded source file is never modified. Every edit
-  writes a new ``<name>.edited.docx`` beside it, saved to a temporary file,
+* **No overwrite.** Creations pick a collision-safe filename. Edits write a
+  new ``<name>.edited.docx`` beside the source, which is never modified.
+* **Validated publication.** Every output is saved to a temporary file,
   re-opened to prove it is a valid DOCX, then published atomically.
 * **Optimistic concurrency.** Every destructive operation carries the
   ``expected_text`` the model believes is at the target location. If any
@@ -44,6 +44,11 @@ _SUFFIXES = (".docx",)
 _INSPECT_MAX_CHARS = 20_000
 _MAX_OPERATIONS = 50
 _MAX_TEXT_CHARS = 10_000
+_MAX_CREATE_BLOCKS = 200
+_MAX_CREATE_ITEMS = 100
+_MAX_CREATE_ROWS = 200
+_MAX_CREATE_COLUMNS = 12
+_MAX_CREATE_TEXT_CHARS = 200_000
 
 # ZIP-bomb guards, applied before python-docx parses an uploaded archive.
 _MAX_ZIP_ENTRIES = 512
@@ -180,6 +185,126 @@ class WordInspectInput(BaseModel):
     )
 
 
+class WordContentBlock(BaseModel):
+    """One structured block in a newly created Word document."""
+
+    kind: Literal[
+        "heading",
+        "paragraph",
+        "bullet_list",
+        "numbered_list",
+        "table",
+        "page_break",
+    ] = Field(..., description="The kind of document block to create.")
+    text: str | None = Field(
+        default=None,
+        max_length=_MAX_TEXT_CHARS,
+        description="Text for a heading or paragraph block.",
+    )
+    level: int = Field(
+        default=1,
+        ge=1,
+        le=3,
+        description="Heading level (1-3); used only for heading blocks.",
+    )
+    items: list[str] | None = Field(
+        default=None,
+        max_length=_MAX_CREATE_ITEMS,
+        description="Items for a bullet_list or numbered_list block.",
+    )
+    rows: list[list[str]] | None = Field(
+        default=None,
+        max_length=_MAX_CREATE_ROWS,
+        description=(
+            "Rows for a table block. Every row must have the same number of "
+            "columns; the first row is styled as a header by default."
+        ),
+    )
+    has_header: bool = Field(
+        default=True,
+        description="Whether the first table row should be styled as a header.",
+    )
+
+    @model_validator(mode="after")
+    def _check_block_shape(self) -> WordContentBlock:
+        """Require the payload associated with each block kind."""
+
+        if self.kind in ("heading", "paragraph"):
+            if self.text is None or not self.text.strip():
+                raise ValueError(f"{self.kind} requires non-empty text.")
+        elif self.kind in ("bullet_list", "numbered_list"):
+            if not self.items or any(not item.strip() for item in self.items):
+                raise ValueError(f"{self.kind} requires non-empty items.")
+        elif self.kind == "table":
+            if not self.rows:
+                raise ValueError("table requires at least one row.")
+            column_count = len(self.rows[0])
+            if column_count < 1 or column_count > _MAX_CREATE_COLUMNS:
+                raise ValueError(
+                    f"table rows must contain 1-{_MAX_CREATE_COLUMNS} columns."
+                )
+            if any(len(row) != column_count for row in self.rows):
+                raise ValueError("every table row must have the same number of columns.")
+        return self
+
+
+class WordCreateInput(BaseModel):
+    """Input schema for creating a professionally formatted Word document."""
+
+    filename: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description=(
+            "Bare filename for the new Word document. A .docx suffix is added "
+            "when needed; existing files are never overwritten."
+        ),
+    )
+    title: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional document title shown at the top of the first page.",
+    )
+    subtitle: str | None = Field(
+        default=None,
+        max_length=1_000,
+        description="Optional subtitle shown directly below the title.",
+    )
+    author: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Optional author stored in the document properties.",
+    )
+    blocks: list[WordContentBlock] = Field(
+        ...,
+        min_length=1,
+        max_length=_MAX_CREATE_BLOCKS,
+        description=(
+            "Ordered document content: headings, paragraphs, real bullet or "
+            "numbered lists, tables, and page breaks."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_document_text(self) -> WordCreateInput:
+        """Reject unsafe XML characters and excessive aggregate content."""
+
+        values: list[str] = [self.title or "", self.subtitle or "", self.author or ""]
+        for block in self.blocks:
+            values.append(block.text or "")
+            values.extend(block.items or [])
+            values.extend(cell for row in (block.rows or []) for cell in row)
+
+        total_chars = sum(len(value) for value in values)
+        if total_chars > _MAX_CREATE_TEXT_CHARS:
+            raise ValueError(
+                f"document content exceeds the {_MAX_CREATE_TEXT_CHARS:,}-character limit."
+            )
+        if any(_contains_invalid_xml_characters(value) for value in values):
+            raise ValueError("document text contains unsupported control characters.")
+        return self
+
+
 class WordEditInput(BaseModel):
     """Input schema for the Word document editor."""
 
@@ -231,6 +356,26 @@ def build_word_edit_tools(
     file_root = Path(settings.file_read_root)
     max_bytes = settings.file_read_max_bytes
 
+    def _run_create(
+        filename: str,
+        blocks: list[WordContentBlock],
+        title: str | None = None,
+        subtitle: str | None = None,
+        author: str | None = None,
+    ) -> tuple[str, dict[str, object] | None]:
+        result = create_word_document(
+            filename,
+            blocks=blocks,
+            session_root=session_root,
+            file_root=file_root,
+            max_bytes=max_bytes,
+            thread_id=thread_id,
+            title=title,
+            subtitle=subtitle,
+            author=author,
+        )
+        return result.content, result.artifact
+
     def _run_inspect(path: str, max_chars: int = _INSPECT_MAX_CHARS) -> str:
         return inspect_word_document(
             path,
@@ -255,6 +400,21 @@ def build_word_edit_tools(
             output_name=output_name,
         )
         return result.content, result.artifact
+
+    create_tool = StructuredTool.from_function(
+        func=_run_create,
+        name="create_word_document",
+        description=(
+            "Create a professionally formatted Word .docx file in the current "
+            "chat session and return it as a download. Content is supplied as "
+            "structured headings, paragraphs, real bullet or numbered lists, "
+            "tables, and page breaks. Existing files are never overwritten; a "
+            "numbered filename is chosen on collision. Use only when the user "
+            "explicitly asks to create a Word document."
+        ),
+        args_schema=WordCreateInput,
+        response_format="content_and_artifact",
+    )
 
     inspect_tool = StructuredTool.from_function(
         func=_run_inspect,
@@ -285,7 +445,588 @@ def build_word_edit_tools(
         response_format="content_and_artifact",
     )
 
-    return [inspect_tool, edit_tool]
+    return [create_tool, inspect_tool, edit_tool]
+
+
+def create_word_document(
+    filename: str,
+    *,
+    blocks: list[WordContentBlock],
+    session_root: Path,
+    file_root: Path,
+    max_bytes: int,
+    thread_id: str = "",
+    title: str | None = None,
+    subtitle: str | None = None,
+    author: str | None = None,
+) -> WordEditResult:
+    """Create a styled, session-scoped DOCX and downloadable artifact."""
+
+    output_name = "(unresolved)"
+    try:
+        request = WordCreateInput(
+            filename=filename,
+            blocks=blocks,
+            title=title,
+            subtitle=subtitle,
+            author=author,
+        )
+        if not _THREAD_ID_PATTERN.fullmatch(thread_id):
+            raise WordEditError("a valid chat thread is required to create a document.")
+        directory = _prepare_session_directory(
+            session_root=session_root,
+            file_root=file_root,
+        )
+        stem = _creation_stem(request.filename)
+        document = _build_created_document(
+            blocks=request.blocks,
+            title=request.title,
+            subtitle=request.subtitle,
+            author=request.author,
+        )
+        target = _reserve_created_output_path(directory=directory, stem=stem)
+        output_name = target.name
+        published = _write_created_document(
+            document,
+            target=target,
+            max_bytes=max_bytes,
+        )
+        size_bytes = published.stat().st_size
+    except (OSError, ValueError, WordEditError) as exc:
+        logger.info(
+            "word_create failed: thread=%s output=%s reason=%s",
+            thread_id or "(none)",
+            output_name,
+            type(exc).__name__,
+        )
+        return WordEditResult(content=f"Could not create Word document: {exc}")
+
+    logger.info(
+        "word_create succeeded: thread=%s output=%s blocks=%d bytes=%d",
+        thread_id,
+        published.name,
+        len(request.blocks),
+        size_bytes,
+    )
+    return WordEditResult(
+        content=(
+            f"Created {published.name} in this chat session with "
+            f"{len(request.blocks)} content block(s). The Word document is available "
+            "to download."
+        ),
+        artifact=build_file_artifact(
+            thread_id=thread_id,
+            filename=published.name,
+            size_bytes=size_bytes,
+        ),
+    )
+
+
+def _contains_invalid_xml_characters(value: str) -> bool:
+    """Return whether text contains a character XML 1.0 cannot represent."""
+
+    return any(
+        not (
+            code in (0x09, 0x0A, 0x0D)
+            or 0x20 <= code <= 0xD7FF
+            or 0xE000 <= code <= 0xFFFD
+            or 0x10000 <= code <= 0x10FFFF
+        )
+        for code in map(ord, value)
+    )
+
+
+def _prepare_session_directory(*, session_root: Path, file_root: Path) -> Path:
+    """Create and validate the current session directory under the file root."""
+
+    try:
+        root = file_root.expanduser().resolve()
+        directory = session_root.expanduser().resolve()
+    except OSError as exc:
+        raise WordEditError(f"could not resolve the session directory: {exc}") from exc
+    if directory == root or not _is_within(directory, root):
+        raise WordEditError("the output directory is outside the configured file root.")
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise WordEditError(f"could not create the session directory: {exc}") from exc
+    if not directory.is_dir():
+        raise WordEditError("the session output path is not a directory.")
+    return directory
+
+
+def _creation_stem(filename: str) -> str:
+    """Sanitize a requested creation name and return its filename stem."""
+
+    requested = Path(str(filename or "")).name
+    if requested.lower().endswith(".docx"):
+        requested = requested[: -len(".docx")]
+    cleaned = _SAFE_NAME.sub("_", requested.strip().strip("."))[:150]
+    if not cleaned:
+        raise WordEditError("a usable .docx filename is required.")
+    return cleaned
+
+
+def _reserve_created_output_path(*, directory: Path, stem: str) -> Path:
+    """Exclusively reserve a collision-safe filename for a new document."""
+
+    for variant in range(1, _MAX_OUTPUT_VARIANTS + 1):
+        name = f"{stem}.docx" if variant == 1 else f"{stem}-{variant}.docx"
+        candidate = directory / name
+        try:
+            candidate.touch(exist_ok=False)
+            return candidate
+        except FileExistsError:
+            continue
+        except OSError as exc:
+            raise WordEditError(f"could not create the output file: {exc}") from exc
+    raise WordEditError(
+        f"too many files named {stem!r} already exist in this session; "
+        "download or remove some before creating another."
+    )
+
+
+def _build_created_document(
+    *,
+    blocks: list[WordContentBlock],
+    title: str | None,
+    subtitle: str | None,
+    author: str | None,
+) -> Any:
+    """Build a DOCX using the explicit standard-business style preset."""
+
+    try:
+        import docx
+        from docx.enum.section import WD_ORIENT
+        from docx.shared import Inches
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise WordEditError(
+            "python-docx is not installed; run 'pip install python-docx' to "
+            "enable Word document creation."
+        ) from exc
+
+    document = docx.Document()
+    section = document.sections[0]
+    section.orientation = WD_ORIENT.PORTRAIT
+    section.page_width = Inches(8.5)
+    section.page_height = Inches(11)
+    section.top_margin = Inches(1)
+    section.right_margin = Inches(1)
+    section.bottom_margin = Inches(1)
+    section.left_margin = Inches(1)
+    section.header_distance = Inches(0.492)
+    section.footer_distance = Inches(0.492)
+
+    _configure_created_styles(document)
+    _configure_page_footer(section)
+    document.core_properties.title = (title or _title_from_blocks(blocks)).strip()
+    if author and author.strip():
+        document.core_properties.author = author.strip()
+
+    if title and title.strip():
+        paragraph = document.add_paragraph(style="Title")
+        paragraph.add_run(title.strip())
+    if subtitle and subtitle.strip():
+        paragraph = document.add_paragraph(style="Subtitle")
+        paragraph.add_run(subtitle.strip())
+
+    for block in blocks:
+        if block.kind == "heading":
+            paragraph = document.add_paragraph(style=f"Heading {block.level}")
+            paragraph.add_run((block.text or "").strip())
+        elif block.kind == "paragraph":
+            document.add_paragraph((block.text or "").strip(), style="Normal")
+        elif block.kind in ("bullet_list", "numbered_list"):
+            num_id = _add_numbering_definition(
+                document,
+                ordered=block.kind == "numbered_list",
+            )
+            for item in block.items or []:
+                paragraph = document.add_paragraph(style="Normal")
+                paragraph.add_run(item.strip())
+                _apply_list_numbering(paragraph, num_id=num_id)
+        elif block.kind == "table":
+            _add_created_table(
+                document,
+                rows=block.rows or [],
+                has_header=block.has_header,
+            )
+        else:
+            _add_created_page_break(document)
+
+    return document
+
+
+def _title_from_blocks(blocks: list[WordContentBlock]) -> str:
+    """Return a useful core-property title when no visible title is supplied."""
+
+    for block in blocks:
+        if block.kind == "heading" and block.text:
+            return block.text
+    return "Word document"
+
+
+def _configure_created_styles(document: Any) -> None:
+    """Apply exact typography and paragraph rhythm to named Word styles."""
+
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.shared import Pt, RGBColor
+
+    styles = document.styles
+
+    def configure(
+        name: str,
+        *,
+        font: str = "Calibri",
+        size: float,
+        color: str,
+        bold: bool = False,
+        italic: bool = False,
+        before: float = 0,
+        after: float = 0,
+        line_spacing: float = 1.0,
+        keep_with_next: bool = False,
+        alignment: Any = WD_ALIGN_PARAGRAPH.LEFT,
+    ) -> None:
+        style = styles[name]
+        style.font.name = font
+        style._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:ascii"), font)
+        style._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:hAnsi"), font)
+        style.font.size = Pt(size)
+        style.font.color.rgb = RGBColor.from_string(color)
+        style.font.bold = bold
+        style.font.italic = italic
+        paragraph = style.paragraph_format
+        paragraph.alignment = alignment
+        paragraph.space_before = Pt(before)
+        paragraph.space_after = Pt(after)
+        paragraph.line_spacing = line_spacing
+        paragraph.keep_with_next = keep_with_next
+        paragraph.widow_control = True
+
+    configure("Normal", size=11, color="202124", after=6, line_spacing=1.10)
+    configure(
+        "Title",
+        size=24,
+        color="1F3A5F",
+        bold=True,
+        after=4,
+        line_spacing=1.0,
+        keep_with_next=True,
+    )
+    configure(
+        "Subtitle",
+        size=12,
+        color="5F6368",
+        italic=True,
+        after=18,
+        line_spacing=1.0,
+        keep_with_next=True,
+    )
+    configure(
+        "Heading 1",
+        size=16,
+        color="2E74B5",
+        bold=True,
+        before=16,
+        after=8,
+        line_spacing=1.0,
+        keep_with_next=True,
+    )
+    configure(
+        "Heading 2",
+        size=13,
+        color="2E74B5",
+        bold=True,
+        before=12,
+        after=6,
+        line_spacing=1.0,
+        keep_with_next=True,
+    )
+    configure(
+        "Heading 3",
+        size=12,
+        color="1F4D78",
+        bold=True,
+        before=8,
+        after=4,
+        line_spacing=1.0,
+        keep_with_next=True,
+    )
+
+
+def _configure_page_footer(section: Any) -> None:
+    """Add a restrained, right-aligned PAGE field to the section footer."""
+
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Pt, RGBColor
+
+    paragraph = section.footer.paragraphs[0]
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    paragraph.paragraph_format.space_before = Pt(0)
+    paragraph.paragraph_format.space_after = Pt(0)
+    prefix = paragraph.add_run("Page ")
+    prefix.font.name = "Calibri"
+    prefix.font.size = Pt(9)
+    prefix.font.color.rgb = RGBColor.from_string("6B7280")
+    field = OxmlElement("w:fldSimple")
+    field.set(qn("w:instr"), "PAGE")
+    run = OxmlElement("w:r")
+    properties = OxmlElement("w:rPr")
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), "6B7280")
+    size = OxmlElement("w:sz")
+    size.set(qn("w:val"), "18")
+    properties.extend((color, size))
+    text = OxmlElement("w:t")
+    text.text = "1"
+    run.extend((properties, text))
+    field.append(run)
+    paragraph._p.append(field)
+
+
+def _add_created_page_break(document: Any) -> None:
+    """Append a Word-native page break without relying on untyped convenience APIs."""
+
+    from docx.enum.text import WD_BREAK
+
+    paragraph = document.add_paragraph(style="Normal")
+    paragraph.add_run().add_break(WD_BREAK.PAGE)
+
+
+def _add_numbering_definition(document: Any, *, ordered: bool) -> int:
+    """Create a real level-zero list definition and return its numId."""
+
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    numbering = document.part.numbering_part.element
+    abstract_ids = [
+        int(element.get(qn("w:abstractNumId")))
+        for element in numbering.findall(qn("w:abstractNum"))
+    ]
+    num_ids = [
+        int(element.get(qn("w:numId")))
+        for element in numbering.findall(qn("w:num"))
+    ]
+    abstract_id = max(abstract_ids, default=-1) + 1
+    num_id = max(num_ids, default=0) + 1
+
+    abstract = OxmlElement("w:abstractNum")
+    abstract.set(qn("w:abstractNumId"), str(abstract_id))
+    multi_level = OxmlElement("w:multiLevelType")
+    multi_level.set(qn("w:val"), "singleLevel")
+    abstract.append(multi_level)
+
+    level = OxmlElement("w:lvl")
+    level.set(qn("w:ilvl"), "0")
+    start = OxmlElement("w:start")
+    start.set(qn("w:val"), "1")
+    num_format = OxmlElement("w:numFmt")
+    num_format.set(qn("w:val"), "decimal" if ordered else "bullet")
+    level_text = OxmlElement("w:lvlText")
+    level_text.set(qn("w:val"), "%1." if ordered else "\u2022")
+    justification = OxmlElement("w:lvlJc")
+    justification.set(qn("w:val"), "left")
+    paragraph_properties = OxmlElement("w:pPr")
+    tabs = OxmlElement("w:tabs")
+    tab = OxmlElement("w:tab")
+    tab.set(qn("w:val"), "num")
+    tab.set(qn("w:pos"), "720")
+    tabs.append(tab)
+    indent = OxmlElement("w:ind")
+    indent.set(qn("w:left"), "720")
+    indent.set(qn("w:hanging"), "360")
+    spacing = OxmlElement("w:spacing")
+    spacing.set(qn("w:after"), "160")
+    spacing.set(qn("w:line"), "280")
+    spacing.set(qn("w:lineRule"), "auto")
+    paragraph_properties.extend((tabs, indent, spacing))
+    level.extend((start, num_format, level_text, justification, paragraph_properties))
+    abstract.append(level)
+    numbering.append(abstract)
+
+    instance = OxmlElement("w:num")
+    instance.set(qn("w:numId"), str(num_id))
+    reference = OxmlElement("w:abstractNumId")
+    reference.set(qn("w:val"), str(abstract_id))
+    instance.append(reference)
+    numbering.append(instance)
+    return num_id
+
+
+def _apply_list_numbering(paragraph: Any, *, num_id: int) -> None:
+    """Attach a paragraph to a real numbering definition."""
+
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    properties = paragraph._p.get_or_add_pPr()
+    existing = properties.find(qn("w:numPr"))
+    if existing is not None:
+        properties.remove(existing)
+    num_properties = OxmlElement("w:numPr")
+    level = OxmlElement("w:ilvl")
+    level.set(qn("w:val"), "0")
+    number = OxmlElement("w:numId")
+    number.set(qn("w:val"), str(num_id))
+    num_properties.extend((level, number))
+    properties.append(num_properties)
+
+
+def _add_created_table(document: Any, *, rows: list[list[str]], has_header: bool) -> None:
+    """Add an explicitly sized table with fixed geometry and readable cells."""
+
+    from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Pt, RGBColor
+
+    table = document.add_table(rows=len(rows), cols=len(rows[0]))
+    table.autofit = False
+    table.style = "Table Grid"
+    widths = _table_column_widths(rows)
+    _set_table_geometry(table, widths=widths)
+
+    for row_index, values in enumerate(rows):
+        row = table.rows[row_index]
+        if has_header and row_index == 0:
+            row_properties = row._tr.get_or_add_trPr()
+            repeat = OxmlElement("w:tblHeader")
+            repeat.set(qn("w:val"), "true")
+            row_properties.append(repeat)
+        for column_index, value in enumerate(values):
+            cell = row.cells[column_index]
+            cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+            paragraph = cell.paragraphs[0]
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            paragraph.paragraph_format.space_before = Pt(0)
+            paragraph.paragraph_format.space_after = Pt(0)
+            paragraph.paragraph_format.line_spacing = 1.0
+            run = paragraph.add_run(str(value))
+            run.font.name = "Calibri"
+            run.font.size = Pt(9.5)
+            run.font.color.rgb = RGBColor.from_string("202124")
+            if has_header and row_index == 0:
+                run.bold = True
+                shading = cell._tc.get_or_add_tcPr().find(qn("w:shd"))
+                if shading is None:
+                    shading = OxmlElement("w:shd")
+                    cell._tc.get_or_add_tcPr().append(shading)
+                shading.set(qn("w:fill"), "F2F4F7")
+
+    after = document.add_paragraph(style="Normal")
+    after.paragraph_format.space_after = Pt(0)
+
+
+def _table_column_widths(rows: list[list[str]]) -> list[int]:
+    """Allocate the 9360-DXA content width according to column content."""
+
+    column_count = len(rows[0])
+    if column_count == 1:
+        return [9360]
+    weights = []
+    for column in range(column_count):
+        longest = max(len(str(row[column])) for row in rows)
+        weights.append(max(6.0, min(40.0, longest**0.5 * 5.0)))
+    total_weight = sum(weights)
+    minimum = min(900, 9360 // column_count)
+    flexible = 9360 - minimum * column_count
+    widths = [minimum + round(flexible * weight / total_weight) for weight in weights]
+    widths[-1] += 9360 - sum(widths)
+    return widths
+
+
+def _set_table_geometry(table: Any, *, widths: list[int]) -> None:
+    """Make tblW, tblInd, tblGrid, and every tcW agree in DXA units."""
+
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    properties = table._tbl.tblPr
+
+    def replace_property(tag: str, attributes: dict[str, str]) -> None:
+        existing = properties.find(qn(tag))
+        if existing is not None:
+            properties.remove(existing)
+        element = OxmlElement(tag)
+        for name, value in attributes.items():
+            element.set(qn(name), value)
+        properties.append(element)
+
+    replace_property("w:tblW", {"w:w": "9360", "w:type": "dxa"})
+    replace_property("w:tblInd", {"w:w": "120", "w:type": "dxa"})
+    replace_property("w:tblLayout", {"w:type": "fixed"})
+
+    grid = table._tbl.tblGrid
+    for child in list(grid):
+        grid.remove(child)
+    for width in widths:
+        column = OxmlElement("w:gridCol")
+        column.set(qn("w:w"), str(width))
+        grid.append(column)
+
+    for row in table.rows:
+        for cell, width in zip(row.cells, widths, strict=True):
+            cell_properties = cell._tc.get_or_add_tcPr()
+            cell_width = cell_properties.find(qn("w:tcW"))
+            if cell_width is None:
+                cell_width = OxmlElement("w:tcW")
+                cell_properties.append(cell_width)
+            cell_width.set(qn("w:w"), str(width))
+            cell_width.set(qn("w:type"), "dxa")
+            margins = cell_properties.find(qn("w:tcMar"))
+            if margins is None:
+                margins = OxmlElement("w:tcMar")
+                cell_properties.append(margins)
+            for side, amount in (("top", 80), ("start", 120), ("bottom", 80), ("end", 120)):
+                margin = margins.find(qn(f"w:{side}"))
+                if margin is None:
+                    margin = OxmlElement(f"w:{side}")
+                    margins.append(margin)
+                margin.set(qn("w:w"), str(amount))
+                margin.set(qn("w:type"), "dxa")
+
+
+def _write_created_document(document: Any, *, target: Path, max_bytes: int) -> Path:
+    """Save a new DOCX through a validated temporary file and publish it."""
+
+    try:
+        handle, temp_name = tempfile.mkstemp(
+            prefix=".word_create-",
+            suffix=".docx.tmp",
+            dir=str(target.parent),
+        )
+    except OSError as exc:
+        target.unlink(missing_ok=True)
+        raise WordEditError(f"could not create a temporary file: {exc}") from exc
+
+    os.close(handle)
+    temp_path = Path(temp_name)
+    try:
+        document.save(str(temp_path))
+        output_size = temp_path.stat().st_size
+        if output_size > max_bytes:
+            raise WordEditError(
+                f"the new document is too large ({output_size:,} bytes; "
+                f"limit {max_bytes:,} bytes)."
+            )
+        _guard_archive(temp_path)
+        _load_document(temp_path)
+        os.replace(temp_path, target)
+    except WordEditError:
+        temp_path.unlink(missing_ok=True)
+        target.unlink(missing_ok=True)
+        raise
+    except (OSError, ValueError) as exc:
+        temp_path.unlink(missing_ok=True)
+        target.unlink(missing_ok=True)
+        raise WordEditError(f"could not save the new document: {exc}") from exc
+    return target
 
 
 def inspect_word_document(
@@ -855,12 +1596,15 @@ __all__ = [
     "FILE_ARTIFACT_TYPE",
     "FILE_ARTIFACT_VERSION",
     "WordEditError",
+    "WordContentBlock",
+    "WordCreateInput",
     "WordEditInput",
     "WordEditOperation",
     "WordEditResult",
     "WordInspectInput",
     "build_file_artifact",
     "build_word_edit_tools",
+    "create_word_document",
     "edit_word_document",
     "inspect_word_document",
     "session_file_url",

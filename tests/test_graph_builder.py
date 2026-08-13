@@ -7,6 +7,7 @@ from langchain_core.tools import tool
 from src.graph.builder import (
     GraphNodeOverrides,
     GraphProviders,
+    _resolve_lightweight_tools,
     _resolve_tools,
     build_graph,
 )
@@ -246,6 +247,296 @@ def test_resolve_tools_preserves_provider_tools_override(isolated_settings):
     )
 
     assert tools == [explicit_tool]
+
+
+def test_resolve_tools_registers_text_editor_with_session_scope(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    import src.core.retriever as retriever_module
+    import src.tools as tools_module
+
+    settings = isolated_settings(
+        web_search_enabled=False,
+        file_read_enabled=True,
+        text_edit_enabled=True,
+    )
+    retriever_tool = object()
+    editor_tools = [object(), object()]
+    calls = []
+
+    monkeypatch.setattr(
+        retriever_module,
+        "build_retriever_tool",
+        lambda _settings, rebuild=False: retriever_tool,
+    )
+    monkeypatch.setattr(tools_module, "build_text_file_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_word_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_excel_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_pdf_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_word_edit_tools", lambda *args, **kwargs: [])
+
+    def fake_build_text_edit_tools(
+        resolved_settings,
+        *,
+        session_root=None,
+        thread_id="",
+    ):
+        calls.append((resolved_settings, session_root, thread_id))
+        return editor_tools
+
+    monkeypatch.setattr(
+        tools_module,
+        "build_text_edit_tools",
+        fake_build_text_edit_tools,
+    )
+    session_root = tmp_path / "chat_uploads" / "thread-a"
+
+    tools = _resolve_tools(
+        settings,
+        GraphProviders(),
+        rebuild_vectorstore=False,
+        session_root=session_root,
+        thread_id="thread-a",
+    )
+
+    assert tools[-2:] == editor_tools
+    assert calls == [(settings, session_root, "thread-a")]
+
+
+def test_resolve_tools_registers_word_creator_with_session_scope(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    import src.core.retriever as retriever_module
+    import src.tools as tools_module
+
+    settings = isolated_settings(
+        web_search_enabled=False,
+        file_read_enabled=True,
+        word_edit_enabled=True,
+    )
+    retriever_tool = object()
+    word_tools = [object(), object(), object()]
+    calls = []
+
+    monkeypatch.setattr(
+        retriever_module,
+        "build_retriever_tool",
+        lambda _settings, rebuild=False: retriever_tool,
+    )
+    monkeypatch.setattr(tools_module, "build_text_file_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_word_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_excel_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_pdf_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_text_edit_tools", lambda *args, **kwargs: [])
+
+    def fake_build_word_edit_tools(
+        resolved_settings,
+        *,
+        session_root=None,
+        thread_id="",
+    ):
+        calls.append((resolved_settings, session_root, thread_id))
+        return word_tools
+
+    monkeypatch.setattr(
+        tools_module,
+        "build_word_edit_tools",
+        fake_build_word_edit_tools,
+    )
+    session_root = tmp_path / "chat_uploads" / "thread-a"
+
+    tools = _resolve_tools(
+        settings,
+        GraphProviders(),
+        rebuild_vectorstore=False,
+        session_root=session_root,
+        thread_id="thread-a",
+    )
+
+    assert tools[-3:] == word_tools
+    assert calls == [(settings, session_root, "thread-a")]
+
+
+def test_lightweight_tools_registers_text_editor_with_session_scope(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    import src.tools as tools_module
+    import src.web_search as web_search_module
+
+    settings = isolated_settings(
+        file_read_enabled=True,
+        text_edit_enabled=True,
+    )
+    web_tool = object()
+    editor_tools = [object(), object()]
+    calls = []
+    monkeypatch.setattr(
+        web_search_module,
+        "build_web_search_tool",
+        lambda _settings: web_tool,
+    )
+    monkeypatch.setattr(tools_module, "build_word_edit_tools", lambda *args, **kwargs: [])
+
+    def fake_build_text_edit_tools(
+        resolved_settings,
+        *,
+        session_root=None,
+        thread_id="",
+    ):
+        calls.append((resolved_settings, session_root, thread_id))
+        return editor_tools
+
+    monkeypatch.setattr(
+        tools_module,
+        "build_text_edit_tools",
+        fake_build_text_edit_tools,
+    )
+    session_root = tmp_path / "chat_uploads" / "thread-a"
+
+    tools = _resolve_lightweight_tools(
+        settings,
+        GraphProviders(),
+        session_root=session_root,
+        thread_id="thread-a",
+    )
+
+    assert tools[0] is web_tool
+    assert tools[-2:] == editor_tools
+    assert calls == [(settings, session_root, "thread-a")]
+
+
+def test_lightweight_tools_registers_word_creator_with_session_scope(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    import src.tools as tools_module
+    import src.web_search as web_search_module
+
+    settings = isolated_settings(file_read_enabled=True, word_edit_enabled=True)
+    web_tool = object()
+    word_tools = [object(), object(), object()]
+    calls = []
+    monkeypatch.setattr(
+        web_search_module,
+        "build_web_search_tool",
+        lambda _settings: web_tool,
+    )
+    monkeypatch.setattr(tools_module, "build_text_edit_tools", lambda *args, **kwargs: [])
+
+    def fake_build_word_edit_tools(
+        resolved_settings,
+        *,
+        session_root=None,
+        thread_id="",
+    ):
+        calls.append((resolved_settings, session_root, thread_id))
+        return word_tools
+
+    monkeypatch.setattr(
+        tools_module,
+        "build_word_edit_tools",
+        fake_build_word_edit_tools,
+    )
+    session_root = tmp_path / "chat_uploads" / "thread-a"
+
+    tools = _resolve_lightweight_tools(
+        settings,
+        GraphProviders(),
+        session_root=session_root,
+        thread_id="thread-a",
+    )
+
+    assert tools[0] is web_tool
+    assert tools[-3:] == word_tools
+    assert calls == [(settings, session_root, "thread-a")]
+
+
+def test_resolve_tools_registers_excel_creator_with_session_scope(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    import src.core.retriever as retriever_module
+    import src.tools as tools_module
+
+    settings = isolated_settings(
+        web_search_enabled=False,
+        file_read_enabled=True,
+        excel_create_enabled=True,
+    )
+    retriever_tool = object()
+    excel_tools = [object()]
+    calls = []
+    monkeypatch.setattr(
+        retriever_module,
+        "build_retriever_tool",
+        lambda _settings, rebuild=False: retriever_tool,
+    )
+    monkeypatch.setattr(tools_module, "build_text_file_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_word_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_excel_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_pdf_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_word_edit_tools", lambda *args, **kwargs: [])
+    monkeypatch.setattr(tools_module, "build_text_edit_tools", lambda *args, **kwargs: [])
+
+    def fake_build_excel_create_tools(resolved_settings, *, session_root=None, thread_id=""):
+        calls.append((resolved_settings, session_root, thread_id))
+        return excel_tools
+
+    monkeypatch.setattr(tools_module, "build_excel_create_tools", fake_build_excel_create_tools)
+    session_root = tmp_path / "chat_uploads" / "thread-a"
+
+    tools = _resolve_tools(
+        settings,
+        GraphProviders(),
+        rebuild_vectorstore=False,
+        session_root=session_root,
+        thread_id="thread-a",
+    )
+
+    assert tools[-1:] == excel_tools
+    assert calls == [(settings, session_root, "thread-a")]
+
+
+def test_lightweight_tools_registers_excel_creator_with_session_scope(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    import src.tools as tools_module
+    import src.web_search as web_search_module
+
+    settings = isolated_settings(file_read_enabled=False, excel_create_enabled=True)
+    web_tool = object()
+    excel_tools = [object()]
+    calls = []
+    monkeypatch.setattr(web_search_module, "build_web_search_tool", lambda _settings: web_tool)
+    monkeypatch.setattr(tools_module, "build_word_edit_tools", lambda *args, **kwargs: [])
+    monkeypatch.setattr(tools_module, "build_text_edit_tools", lambda *args, **kwargs: [])
+
+    def fake_build_excel_create_tools(resolved_settings, *, session_root=None, thread_id=""):
+        calls.append((resolved_settings, session_root, thread_id))
+        return excel_tools
+
+    monkeypatch.setattr(tools_module, "build_excel_create_tools", fake_build_excel_create_tools)
+    session_root = tmp_path / "chat_uploads" / "thread-a"
+
+    tools = _resolve_lightweight_tools(
+        settings,
+        GraphProviders(),
+        session_root=session_root,
+        thread_id="thread-a",
+    )
+
+    assert tools == [web_tool, *excel_tools]
+    assert calls == [(settings, session_root, "thread-a")]
 
 
 def test_legacy_graph_wrappers_delegate_to_shared_builder(monkeypatch, mock_settings):

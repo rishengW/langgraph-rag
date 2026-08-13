@@ -25,6 +25,8 @@ FILE_VERSION = 1
 FILE_KIND_DOWNLOAD = "download"
 FILE_PROVIDER = "chat_upload"
 DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+TXT_MIME_TYPE = "text/plain"
+XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 MAX_TITLE_CHARS = 120
 MAX_LABEL_CHARS = 160
@@ -41,6 +43,11 @@ MAX_THREAD_ID_CHARS = 64
 MAX_FILE_SIZE_BYTES = 100_000_000
 
 _THREAD_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+_FILE_MIME_TYPES = {
+    ".docx": DOCX_MIME_TYPE,
+    ".txt": TXT_MIME_TYPE,
+    ".xlsx": XLSX_MIME_TYPE,
+}
 
 
 _ROUTE_MODES = {
@@ -168,7 +175,9 @@ def normalize_file_artifact(value: Any, *, tool_call_id: str = "") -> dict[str, 
         return None
     if filename in (".", ".."):
         return None
-    if not filename.lower().endswith(".docx"):
+    suffix = f".{filename.rpartition('.')[2].lower()}"
+    mime_type = _FILE_MIME_TYPES.get(suffix)
+    if mime_type is None:
         return None
 
     # Validate sizeBytes: non-negative int within the transport limit.
@@ -180,12 +189,6 @@ def normalize_file_artifact(value: Any, *, tool_call_id: str = "") -> dict[str, 
     if raw_size < 0 or raw_size > MAX_FILE_SIZE_BYTES:
         return None
     size_bytes = raw_size
-
-    # Validate mimeType: bounded str, optional (default to DOCX)
-    raw_mime = value.get("mimeType")
-    mime_type = _bounded_string(raw_mime, MAX_MIME_CHARS) if isinstance(raw_mime, str) else ""
-    if not mime_type:
-        mime_type = DOCX_MIME_TYPE
 
     # SECURITY: rebuild URL from validated components, never trust incoming url
     quoted_thread = quote(thread_id, safe="")
@@ -810,6 +813,8 @@ __all__ = [
     "MAX_POLYLINE_POINTS",
     "MAX_STEPS",
     "MAX_THREAD_ID_CHARS",
+    "TXT_MIME_TYPE",
+    "XLSX_MIME_TYPE",
     "extract_amap_artifacts_from_messages",
     "extract_amap_artifacts_from_node_output",
     "extract_artifacts_from_chunk",

@@ -176,7 +176,7 @@ def _session_database_paths(settings: Settings) -> tuple[Path, Path]:
 
 
 def _session_edit_root(settings: Settings, thread_id: str) -> Path | None:
-    """Return the per-session upload dir used to confine Word editing.
+    """Return the per-session upload dir used to confine document editing.
 
     Returns ``None`` when there is no thread to scope to, which makes the
     editing tools unavailable rather than falling back to a shared root.
@@ -383,6 +383,7 @@ def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
     return build_upload_context_note(
         available,
         word_edit_enabled=settings.word_edit_enabled,
+        text_edit_enabled=settings.text_edit_enabled,
     )
 
 

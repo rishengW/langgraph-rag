@@ -22,6 +22,19 @@ const MAX_ARTIFACTS_PER_TURN = 4;
 const MAX_MARKERS_PER_ARTIFACT = 12;
 const MAX_POLYLINE_POINTS = 500;
 const DEFAULT_MARKER_ZOOM = 13;
+const MAX_DOWNLOAD_FILENAME_CHARS = 200;
+const MAX_DOWNLOAD_SIZE_BYTES = 100_000_000;
+const FILE_DOWNLOAD_TYPES = Object.freeze({
+    ".docx": Object.freeze({
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        label: "Word document",
+    }),
+    ".txt": Object.freeze({ mimeType: "text/plain", label: "Text file" }),
+    ".xlsx": Object.freeze({
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        label: "Excel workbook",
+    }),
+});
 
 const startScreen = document.getElementById("startScreen");
 const chatScreen = document.getElementById("chatScreen");
@@ -656,21 +669,40 @@ function normalizeFileArtifact(raw) {
     if (raw.kind !== "download") return null;
     if (raw.provider !== "chat_upload") return null;
 
-    const filename = String(raw.filename || "").trim();
-    if (!filename) return null;
+    if (typeof raw.threadId !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(raw.threadId)) {
+        return null;
+    }
 
-    const sizeBytes = Number(raw.sizeBytes);
-    if (!Number.isFinite(sizeBytes) || sizeBytes < 0) return null;
+    if (typeof raw.filename !== "string") return null;
+    const filename = raw.filename.trim();
+    if (filename !== raw.filename || !filename || filename.length > MAX_DOWNLOAD_FILENAME_CHARS) {
+        return null;
+    }
+    if (filename === "." || filename === ".." || /[\\/\u0000]/.test(filename)) return null;
+
+    const suffixIndex = filename.lastIndexOf(".");
+    const suffix = suffixIndex >= 0 ? filename.slice(suffixIndex).toLowerCase() : "";
+    const fileType = FILE_DOWNLOAD_TYPES[suffix];
+    if (!fileType || raw.mimeType !== fileType.mimeType) return null;
+
+    const sizeBytes = raw.sizeBytes;
+    if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0 || sizeBytes > MAX_DOWNLOAD_SIZE_BYTES) {
+        return null;
+    }
 
     const url = safeDownloadHref(raw.url);
-    if (!url) return null;
+    const expectedUrl = `/chat/${encodeURIComponent(raw.threadId)}/files/${encodeURIComponent(filename)}`;
+    if (!url || url !== expectedUrl) return null;
 
     return {
         type: "file",
         version: 1,
         kind: "download",
         provider: "chat_upload",
+        threadId: raw.threadId,
         filename,
+        mimeType: fileType.mimeType,
+        label: fileType.label,
         sizeBytes,
         url,
     };
@@ -975,7 +1007,7 @@ function buildFileArtifactCard(artifact) {
 
     const meta = document.createElement("div");
     meta.className = "file-card__meta";
-    meta.textContent = `Word document - ${formatFileSize(artifact.sizeBytes)}`;
+    meta.textContent = `${artifact.label} - ${formatFileSize(artifact.sizeBytes)}`;
     body.appendChild(meta);
 
     card.appendChild(body);

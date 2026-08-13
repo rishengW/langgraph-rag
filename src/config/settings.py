@@ -119,11 +119,19 @@ class Settings:
     file_read_enabled: bool = False
     file_read_root: str = "."
     file_read_max_bytes: int = 5_000_000
-    # Word .docx editing. Off by default: it is the only tool that writes
-    # documents, so it stays opt-in on top of file_read_enabled. Edits are
-    # confined to the current chat session's upload directory and always
-    # produce a new file rather than overwriting the uploaded source.
+    # Word .docx creation and editing. Off by default and opt-in on top of
+    # file_read_enabled. Writes are confined to the current chat session's
+    # upload directory and never overwrite an existing file.
     word_edit_enabled: bool = False
+    # Excel .xlsx creation. Uses a configured Node runtime and node_modules
+    # directory containing @oai/artifact-tool; output stays session-scoped.
+    excel_create_enabled: bool = False
+    excel_node_executable: str = "node"
+    excel_node_modules_path: str = ""
+    # Plain-text .txt creation and editing. Like Word editing, this is an opt-in write tool
+    # layered on top of file_read_enabled. Edits are session-scoped and always
+    # produce a new file rather than overwriting the uploaded source.
+    text_edit_enabled: bool = False
     # Chat-agent long-term memory. Disabled by default so existing
     # deployments keep their current tool set and touch no memory file.
     memory_enabled: bool = False

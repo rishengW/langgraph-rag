@@ -163,7 +163,11 @@ Key settings:
 | `FILE_READ_ENABLED` | `false` | Local file-reading tools (.txt/.md/.log/.csv, .docx, .xlsx, .pdf) + chat uploads |
 | `FILE_READ_ROOT` | `.` | Root directory the file tools and uploads are confined to |
 | `FILE_READ_MAX_BYTES` | `5000000` | Maximum readable/uploadable file size in bytes |
-| `WORD_EDIT_ENABLED` | `false` | Word .docx editing; needs FILE_READ_ENABLED too; edits stay in session uploads |
+| `WORD_EDIT_ENABLED` | `false` | Word .docx creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
+| `EXCEL_CREATE_ENABLED` | `false` | Excel .xlsx creation; needs FILE_READ_ENABLED and the artifact-tool Node runtime |
+| `EXCEL_NODE_EXECUTABLE` | `node` | Loader-provided Node.js executable used for Excel creation |
+| `EXCEL_NODE_MODULES_PATH` | - | Loader-provided `node_modules` directory containing `@oai/artifact-tool` |
+| `TEXT_EDIT_ENABLED` | `false` | Plain-text .txt creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `CHROMA_DIR` | `.chroma` | Vector store location |
 | `API_KEY` | — | API auth key (open when unset) |
 | `RERANK_STRATEGY` | `lexical` | `lexical`, `embedding`, or `hybrid` |
@@ -254,9 +258,14 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `read_text_file` | `src/tools/text_file.py` | `FILE_READ_ENABLED=true` | Read .txt/.md/.log/.csv from `FILE_READ_ROOT` |
 | `read_word_document` | `src/tools/word_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .docx in `FILE_READ_ROOT` |
 | `read_excel_spreadsheet` | `src/tools/excel_file.py` | `FILE_READ_ENABLED=true` | Read .xlsx rows from `FILE_READ_ROOT` (needs `openpyxl`) |
+| `create_excel_spreadsheet` | `src/tools/excel_create.py` | `FILE_READ_ENABLED=true` and `EXCEL_CREATE_ENABLED=true` | Create a styled, formula-capable .xlsx workbook in the current session |
 | `read_pdf` | `src/tools/pdf_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .pdf in `FILE_READ_ROOT` (needs `pypdf`) |
+| `create_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Create a formatted .docx in the current session with headings, lists, and tables |
 | `inspect_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | List numbered paragraphs and table cells of a session-uploaded .docx |
 | `edit_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Apply structured edits to a session-uploaded .docx; creates a new file |
+| `inspect_text_file` | `src/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | List numbered lines and text-format metadata for a session-uploaded .txt |
+| `edit_text_file` | `src/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .txt; creates a new file |
+| `create_text_file` | `src/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | Create a new UTF-8 .txt in the current chat session |
 
 When the agent calls a non-web-search tool in the lightweight graph (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, or a file reader), the post-tool edge routes back to the agent so it can synthesize the structured tool output into a final answer — bypassing the `decompose → search_queries → merge → web_answer` chain that's specific to `live_web_search`.
 
@@ -362,9 +371,14 @@ Chat mode can read local files through four agent tools (`read_text_file`, `read
 FILE_READ_ENABLED=true
 FILE_READ_ROOT=./uploads        # directory the tools and uploads are confined to
 FILE_READ_MAX_BYTES=5000000     # per-file size cap
+WORD_EDIT_ENABLED=true          # optional session-scoped .docx creation/editing
+EXCEL_CREATE_ENABLED=true       # optional session-scoped .xlsx creation
+EXCEL_NODE_EXECUTABLE=/path/to/loader/node
+EXCEL_NODE_MODULES_PATH=/path/to/loader/node_modules
+TEXT_EDIT_ENABLED=true          # optional session-scoped .txt creation/editing
 ```
 
-Set `FILE_READ_ROOT` to a dedicated directory rather than the project root so the tools and uploads are sandboxed away from source and config files. The Excel tool also requires `openpyxl` (already pinned in `requirements.txt`).
+Set `FILE_READ_ROOT` to a dedicated directory rather than the project root so the tools and uploads are sandboxed away from source and config files. The Excel reader requires `openpyxl` (already pinned in `requirements.txt`); the creator uses the configured artifact-tool Node runtime.
 
 ### Supported types
 
@@ -387,6 +401,8 @@ Set `FILE_READ_ROOT` to a dedicated directory rather than the project root so th
 ### Security model
 
 - Uploads and reads require `FILE_READ_ENABLED=true`; otherwise both are refused.
+- Word creation and edits additionally require `WORD_EDIT_ENABLED=true`; Excel creation requires `EXCEL_CREATE_ENABLED=true`; text creation and edits require `TEXT_EDIT_ENABLED=true`. All writes are confined to the current thread and never overwrite an existing file.
+- Excel creation uses `@oai/artifact-tool` from the loader-provided Node runtime. Set `EXCEL_NODE_EXECUTABLE` and `EXCEL_NODE_MODULES_PATH` to those loader paths; the tool creates a task-local dependency junction, validates the exported workbook, scans formula errors, and renders every worksheet before publication.
 - All paths resolve under `FILE_READ_ROOT`; `../` traversal outside the root is denied.
 - Sensitive files (`.env`, private keys, `credentials`, etc.) are always refused even inside the root.
 - File type is allowlisted and size is capped (`FILE_READ_MAX_BYTES`) at both the upload endpoint and the tools.

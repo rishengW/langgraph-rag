@@ -123,6 +123,7 @@ class Settings:
     # file_read_enabled. Writes are confined to the current chat session's
     # upload directory and never overwrite an existing file.
     word_edit_enabled: bool = False
+    powerpoint_edit_enabled: bool = False
     # Excel .xlsx creation. Uses a configured Node runtime and node_modules
     # directory containing @oai/artifact-tool; output stays session-scoped.
     excel_create_enabled: bool = False

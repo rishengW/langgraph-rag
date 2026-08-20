@@ -415,6 +415,11 @@ def _resolve_tools(
             thread_id=thread_id,
         )
     )
+    tools.extend(
+        tool_module.build_powerpoint_edit_tools(
+            settings, session_root=session_root, thread_id=thread_id
+        )
+    )
     return tools
 
 
@@ -488,6 +493,11 @@ def _resolve_lightweight_tools(
             settings,
             session_root=session_root,
             thread_id=thread_id,
+        )
+    )
+    tools.extend(
+        tool_module.build_powerpoint_edit_tools(
+            settings, session_root=session_root, thread_id=thread_id
         )
     )
     return tools

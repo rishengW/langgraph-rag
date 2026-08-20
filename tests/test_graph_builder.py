@@ -539,6 +539,75 @@ def test_lightweight_tools_registers_excel_creator_with_session_scope(
     assert calls == [(settings, session_root, "thread-a")]
 
 
+def test_both_graphs_register_powerpoint_editor_with_session_scope(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    import src.core.retriever as retriever_module
+    import src.tools as tools_module
+    import src.web_search as web_search_module
+
+    settings = isolated_settings(
+        web_search_enabled=False,
+        file_read_enabled=True,
+        powerpoint_edit_enabled=True,
+    )
+    powerpoint_tools = [object(), object()]
+    calls = []
+
+    monkeypatch.setattr(
+        retriever_module,
+        "build_retriever_tool",
+        lambda _settings, rebuild=False: object(),
+    )
+    monkeypatch.setattr(web_search_module, "build_web_search_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_text_file_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_word_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_excel_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_pdf_tool", lambda _settings: object())
+    monkeypatch.setattr(tools_module, "build_word_edit_tools", lambda *args, **kwargs: [])
+    monkeypatch.setattr(tools_module, "build_text_edit_tools", lambda *args, **kwargs: [])
+    monkeypatch.setattr(tools_module, "build_excel_create_tools", lambda *args, **kwargs: [])
+
+    def fake_build_powerpoint_edit_tools(
+        resolved_settings,
+        *,
+        session_root=None,
+        thread_id="",
+    ):
+        calls.append((resolved_settings, session_root, thread_id))
+        return powerpoint_tools
+
+    monkeypatch.setattr(
+        tools_module,
+        "build_powerpoint_edit_tools",
+        fake_build_powerpoint_edit_tools,
+    )
+    session_root = tmp_path / "chat_uploads" / "thread-a"
+
+    full_tools = _resolve_tools(
+        settings,
+        GraphProviders(),
+        rebuild_vectorstore=False,
+        session_root=session_root,
+        thread_id="thread-a",
+    )
+    lightweight_tools = _resolve_lightweight_tools(
+        settings,
+        GraphProviders(),
+        session_root=session_root,
+        thread_id="thread-a",
+    )
+
+    assert full_tools[-2:] == powerpoint_tools
+    assert lightweight_tools[-2:] == powerpoint_tools
+    assert calls == [
+        (settings, session_root, "thread-a"),
+        (settings, session_root, "thread-a"),
+    ]
+
+
 def test_legacy_graph_wrappers_delegate_to_shared_builder(monkeypatch, mock_settings):
     import src.chat.graph as chat_graph
     import src.core.graph as core_graph

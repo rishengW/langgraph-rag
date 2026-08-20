@@ -27,6 +27,7 @@ FILE_PROVIDER = "chat_upload"
 DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 TXT_MIME_TYPE = "text/plain"
 XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+PPTX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 MAX_TITLE_CHARS = 120
 MAX_LABEL_CHARS = 160
@@ -47,6 +48,7 @@ _FILE_MIME_TYPES = {
     ".docx": DOCX_MIME_TYPE,
     ".txt": TXT_MIME_TYPE,
     ".xlsx": XLSX_MIME_TYPE,
+    ".pptx": PPTX_MIME_TYPE,
 }
 
 
@@ -815,6 +817,7 @@ __all__ = [
     "MAX_THREAD_ID_CHARS",
     "TXT_MIME_TYPE",
     "XLSX_MIME_TYPE",
+    "PPTX_MIME_TYPE",
     "extract_amap_artifacts_from_messages",
     "extract_amap_artifacts_from_node_output",
     "extract_artifacts_from_chunk",

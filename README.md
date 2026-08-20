@@ -160,10 +160,11 @@ Key settings:
 | `NUMBER_THEORY_ENABLED` | `false` | Number theory tool: factors, primes, GCD/LCM, bases (SymPy) |
 | `DATETIME_ENABLED` | `false` | Date math / timezone tool (stdlib) |
 | `SUMMARIZE_URL_ENABLED` | `false` | Single-URL fetch + summarize tool |
-| `FILE_READ_ENABLED` | `false` | Local file-reading tools (.txt/.md/.log/.csv, .docx, .xlsx, .pdf) + chat uploads |
+| `FILE_READ_ENABLED` | `false` | Local file-reading tools (.txt/.md/.log/.csv, .docx, .xlsx, .pdf) + chat uploads; `.pptx` uploads also require `POWERPOINT_EDIT_ENABLED` |
 | `FILE_READ_ROOT` | `.` | Root directory the file tools and uploads are confined to |
 | `FILE_READ_MAX_BYTES` | `5000000` | Maximum readable/uploadable file size in bytes |
 | `WORD_EDIT_ENABLED` | `false` | Word .docx creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
+| `POWERPOINT_EDIT_ENABLED` | `false` | PowerPoint .pptx inspection/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `EXCEL_CREATE_ENABLED` | `false` | Excel .xlsx creation; needs FILE_READ_ENABLED and the artifact-tool Node runtime |
 | `EXCEL_NODE_EXECUTABLE` | `node` | Loader-provided Node.js executable used for Excel creation |
 | `EXCEL_NODE_MODULES_PATH` | - | Loader-provided `node_modules` directory containing `@oai/artifact-tool` |
@@ -263,6 +264,8 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `create_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Create a formatted .docx in the current session with headings, lists, and tables |
 | `inspect_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | List numbered paragraphs and table cells of a session-uploaded .docx |
 | `edit_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Apply structured edits to a session-uploaded .docx; creates a new file |
+| `inspect_powerpoint` | `src/tools/powerpoint_edit.py` | `FILE_READ_ENABLED=true` and `POWERPOINT_EDIT_ENABLED=true` | List slides, shape paths, text, and table cells of a session-uploaded .pptx |
+| `edit_powerpoint` | `src/tools/powerpoint_edit.py` | `FILE_READ_ENABLED=true` and `POWERPOINT_EDIT_ENABLED=true` | Apply expected-text-checked text/table edits to a session-uploaded .pptx; creates a new file |
 | `inspect_text_file` | `src/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | List numbered lines and text-format metadata for a session-uploaded .txt |
 | `edit_text_file` | `src/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .txt; creates a new file |
 | `create_text_file` | `src/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | Create a new UTF-8 .txt in the current chat session |
@@ -344,7 +347,7 @@ API endpoints:
 | `POST` | `/chat` | Create a thread |
 | `POST` | `/chat/{id}/message` | Send a turn |
 | `POST` | `/chat/{id}/message/stream` | SSE stream: node events + per-token answer deltas (`?tokens=false` for node events only) |
-| `POST` | `/chat/{id}/upload` | Upload files (.txt/.md/.log/.csv, .docx, .xlsx, .pdf) for the thread's file tools |
+| `POST` | `/chat/{id}/upload` | Upload files (.txt/.md/.log/.csv, .docx, .xlsx, .pdf; .pptx when PowerPoint editing is enabled) for the thread's file tools |
 | `GET` | `/chat/{id}/history` | Read transcript |
 | `DELETE` | `/chat/{id}` | Delete a thread (also removes the thread's uploaded files) |
 
@@ -363,7 +366,7 @@ Chat sessions survive app restarts. Sessions with explicit URLs use isolated per
 
 ## File Uploads and Reading
 
-Chat mode can read local files through four agent tools (`read_text_file`, `read_word_document`, `read_excel_spreadsheet`, `read_pdf`), and the chat UI can upload files for those tools to read. The whole feature is gated by `FILE_READ_ENABLED` (default `false`).
+Chat mode can read local files through four agent tools (`read_text_file`, `read_word_document`, `read_excel_spreadsheet`, `read_pdf`). When PowerPoint editing is enabled, the chat UI can also upload `.pptx` files for the `inspect_powerpoint` and `edit_powerpoint` tools. File uploads are gated by `FILE_READ_ENABLED` (default `false`), and `.pptx` uploads additionally require `POWERPOINT_EDIT_ENABLED=true`.
 
 ### Enabling
 
@@ -372,6 +375,7 @@ FILE_READ_ENABLED=true
 FILE_READ_ROOT=./uploads        # directory the tools and uploads are confined to
 FILE_READ_MAX_BYTES=5000000     # per-file size cap
 WORD_EDIT_ENABLED=true          # optional session-scoped .docx creation/editing
+POWERPOINT_EDIT_ENABLED=true    # optional session-scoped .pptx inspection/editing
 EXCEL_CREATE_ENABLED=true       # optional session-scoped .xlsx creation
 EXCEL_NODE_EXECUTABLE=/path/to/loader/node
 EXCEL_NODE_MODULES_PATH=/path/to/loader/node_modules
@@ -388,20 +392,29 @@ Set `FILE_READ_ROOT` to a dedicated directory rather than the project root so th
 | `read_word_document` | `.docx` (legacy binary `.doc` is not supported) |
 | `read_excel_spreadsheet` | `.xlsx` (legacy `.xls` is not supported) |
 | `read_pdf` | `.pdf` (scanned/image-only PDFs without a text layer cannot be read) |
+| `inspect_powerpoint` / `edit_powerpoint` | `.pptx` (session-scoped inspection/editing when enabled) |
 
 `read_pdf` is for local files only and refuses URLs. PDFs found on the web are handled by the web-search fetch path and the `summarize_url` tool instead, which download and extract them with the same `pypdf` backend.
+
+### PowerPoint editing
+
+PowerPoint editing requires both `FILE_READ_ENABLED=true` and `POWERPOINT_EDIT_ENABLED=true`. Upload a `.pptx` file, ask the agent to call `inspect_powerpoint`, and use the returned slide and shape locations when requesting an edit.
+
+Shape locations are zero-based paths. A top-level shape is addressed as `shape_path: [0]`; a text shape inside the third top-level group is addressed as `shape_path: [2, 0]`. `inspect_powerpoint` also lists table cells with their row and column indexes.
+
+`edit_powerpoint` supports `replace_text`, `append_text`, `delete_text`, and `replace_table_cell`. Every operation must include the current `expected_text` from inspection, which prevents edits against stale content. Text replacement preserves the target's existing first-run and paragraph styling where available. Each successful edit is written to a new downloadable `.pptx` in the current session; the uploaded source is never overwritten.
 
 ### Upload → read flow
 
 1. In the chat UI, click the 📎 button and pick one or more files. The browser POSTs them to `POST /chat/{id}/upload` as `multipart/form-data`.
 2. Each file is saved under `<FILE_READ_ROOT>/chat_uploads/<thread_id>/<name>`. The response lists saved files (with tool-ready relative paths) and per-file errors. Accepted files show a chip; rejected files show a red error chip (and the error banner when the whole upload fails).
 3. On the next message turn, the server injects a `SystemMessage` listing the uploaded files' exact paths so the LLM knows what to pass to the file tools. The note is announced once per new file (tracked on the session) and is filtered out of the user-visible transcript.
-4. Ask the assistant to read or summarize a file by name; the model calls the matching file tool with the full path from the injected note.
+4. Ask the assistant to read or summarize a supported file by name. For a `.pptx`, ask it to inspect the presentation first; when an edit is explicitly requested, it uses the inspection result to call `edit_powerpoint` with the exact path and `expected_text` values.
 
 ### Security model
 
 - Uploads and reads require `FILE_READ_ENABLED=true`; otherwise both are refused.
-- Word creation and edits additionally require `WORD_EDIT_ENABLED=true`; Excel creation requires `EXCEL_CREATE_ENABLED=true`; text creation and edits require `TEXT_EDIT_ENABLED=true`. All writes are confined to the current thread and never overwrite an existing file.
+- Word creation and edits additionally require `WORD_EDIT_ENABLED=true`; PowerPoint uploads and edits require `POWERPOINT_EDIT_ENABLED=true`; Excel creation requires `EXCEL_CREATE_ENABLED=true`; text creation and edits require `TEXT_EDIT_ENABLED=true`. All writes are confined to the current thread and never overwrite an existing file.
 - Excel creation uses `@oai/artifact-tool` from the loader-provided Node runtime. Set `EXCEL_NODE_EXECUTABLE` and `EXCEL_NODE_MODULES_PATH` to those loader paths; the tool creates a task-local dependency junction, validates the exported workbook, scans formula errors, and renders every worksheet before publication.
 - All paths resolve under `FILE_READ_ROOT`; `../` traversal outside the root is denied.
 - Sensitive files (`.env`, private keys, `credentials`, etc.) are always refused even inside the root.

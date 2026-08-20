@@ -34,6 +34,10 @@ const FILE_DOWNLOAD_TYPES = Object.freeze({
         mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         label: "Excel workbook",
     }),
+    ".pptx": Object.freeze({
+        mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        label: "PowerPoint presentation",
+    }),
 });
 
 const startScreen = document.getElementById("startScreen");

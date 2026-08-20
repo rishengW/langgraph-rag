@@ -186,6 +186,23 @@ def test_word_edit_defaults_environment_and_documentation(tmp_path, monkeypatch)
     assert loaded.word_edit_enabled is True
 
 
+def test_powerpoint_edit_defaults_environment_and_documentation(tmp_path, monkeypatch):
+    defaults = load_yaml_config("config/default.yaml")
+    settings = Settings(dashscope_api_key="test-key")
+
+    assert settings.powerpoint_edit_enabled is False
+    assert defaults["powerpoint_edit_enabled"] is False
+    assert "POWERPOINT_EDIT_ENABLED=false" in Path(".env.example").read_text(
+        encoding="utf-8"
+    )
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("POWERPOINT_EDIT_ENABLED", "true")
+    loaded = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert loaded.powerpoint_edit_enabled is True
+
+
 def test_text_edit_defaults_environment_and_documentation(tmp_path, monkeypatch):
     defaults = load_yaml_config("config/default.yaml")
     settings = Settings(dashscope_api_key="test-key")

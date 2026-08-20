@@ -32,6 +32,15 @@ def _docx_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def _pptx_bytes() -> bytes:
+    pptx = pytest.importorskip("pptx")
+    buffer = io.BytesIO()
+    presentation = pptx.Presentation()
+    presentation.slides.add_slide(presentation.slide_layouts[6])
+    presentation.save(buffer)
+    return buffer.getvalue()
+
+
 class _FakeGraph:
     def __init__(self) -> None:
         self.messages: list = []
@@ -52,6 +61,7 @@ def _client(
     *,
     word_edit_enabled: bool = False,
     text_edit_enabled: bool = False,
+    powerpoint_edit_enabled: bool = False,
 ):
     settings = isolated_settings(
         source_urls=["https://chat-default.test"],
@@ -59,6 +69,7 @@ def _client(
         file_read_enabled=True,
         word_edit_enabled=word_edit_enabled,
         text_edit_enabled=text_edit_enabled,
+        powerpoint_edit_enabled=powerpoint_edit_enabled,
         file_read_root=str(tmp_path / "files"),
         file_read_max_bytes=1_000_000,
     )
@@ -92,6 +103,19 @@ def test_upload_context_advertises_text_editing_only_when_enabled():
     assert "explicitly asks" in editable
     assert "expected_text" in editable
     assert "never overwrite an existing file" in editable
+
+
+def test_upload_context_advertises_powerpoint_editing_only_when_enabled():
+    path = "chat_uploads/thread-a/report.pptx"
+
+    read_only = build_upload_context_note([path])
+    editable = build_upload_context_note([path], powerpoint_edit_enabled=True)
+
+    assert "inspect_powerpoint" not in read_only
+    assert "edit_powerpoint" not in read_only
+    assert "inspect_powerpoint" in editable
+    assert "edit_powerpoint" in editable
+    assert "expected_text" in editable
 
 
 def test_upload_injects_context_into_next_turn(monkeypatch, isolated_settings, tmp_path):
@@ -214,6 +238,42 @@ def test_upload_rejects_disallowed_type(monkeypatch, isolated_settings, tmp_path
         assert body["files"] == []
         assert len(body["errors"]) == 1
         assert "unsupported file type" in body["errors"][0].lower()
+
+
+def test_upload_powerpoint_requires_editor_flag(monkeypatch, isolated_settings, tmp_path):
+    client, _ = _client(monkeypatch, isolated_settings, tmp_path)
+    with client:
+        thread_id = _start_thread(client)
+        response = client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("report.pptx", _pptx_bytes(), "application/octet-stream")},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["files"] == []
+        assert len(body["errors"]) == 1
+        assert "powerpoint uploads are disabled" in body["errors"][0].lower()
+
+
+def test_upload_powerpoint_when_editor_is_enabled(monkeypatch, isolated_settings, tmp_path):
+    client, _ = _client(
+        monkeypatch,
+        isolated_settings,
+        tmp_path,
+        powerpoint_edit_enabled=True,
+    )
+    with client:
+        thread_id = _start_thread(client)
+        response = client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("report.pptx", _pptx_bytes(), "application/octet-stream")},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["errors"] == []
+        assert body["files"][0]["filename"] == "report.pptx"
 
 
 def test_upload_unknown_thread_returns_404(monkeypatch, isolated_settings, tmp_path):

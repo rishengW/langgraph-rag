@@ -16,7 +16,7 @@ from pathlib import Path
 from ..config import Settings
 
 # Suffixes accepted for upload — the union of what the file tools read.
-ALLOWED_UPLOAD_SUFFIXES = (".txt", ".md", ".log", ".csv", ".docx", ".xlsx", ".pdf")
+ALLOWED_UPLOAD_SUFFIXES = (".txt", ".md", ".log", ".csv", ".docx", ".xlsx", ".pptx", ".pdf")
 
 UPLOAD_SUBDIR = "chat_uploads"
 
@@ -79,6 +79,7 @@ def build_upload_context_note(
     *,
     word_edit_enabled: bool = False,
     text_edit_enabled: bool = False,
+    powerpoint_edit_enabled: bool = False,
 ) -> str:
     """Build a system-message note telling the LLM which uploads it can read.
 
@@ -114,6 +115,13 @@ def build_upload_context_note(
             "explicitly asks; always inspect before editing and pass the exact "
             "current text as expected_text. Writes create a new file and never "
             "overwrite an existing file."
+        )
+    if powerpoint_edit_enabled:
+        edit_notes.append(
+            "For .pptx files you may call inspect_powerpoint to list slides and "
+            "shapes, then edit_powerpoint to apply text or table-cell edits. "
+            "Only edit when explicitly asked; pass exact expected_text. The "
+            "original upload is never overwritten."
         )
     return "\n".join([note, *edit_notes])
 
@@ -164,7 +172,12 @@ def save_upload(
     safe_name = sanitize_filename(filename)
     if not safe_name:
         raise UploadError("the uploaded file has no usable name.")
-    validate_suffix(safe_name)
+    suffix = validate_suffix(safe_name)
+    if suffix == ".pptx" and not settings.powerpoint_edit_enabled:
+        raise UploadError(
+            "PowerPoint uploads are disabled; set "
+            "POWERPOINT_EDIT_ENABLED=true to inspect or edit .pptx files."
+        )
 
     if not content:
         raise UploadError("the uploaded file is empty.")

@@ -26,6 +26,14 @@ from .memory_tool import (
 )
 from .number_theory_tool import NumberTheoryInput, build_number_theory_tool
 from .pdf_file import PdfFileInput, build_pdf_tool
+from .powerpoint_edit import (
+    PowerPointEditInput,
+    PowerPointEditOperation,
+    PowerPointInspectInput,
+    build_powerpoint_edit_tools,
+    edit_powerpoint,
+    inspect_powerpoint,
+)
 from .statistics_tool import StatisticsInput, build_statistics_tool
 from .stock import StockInput, build_stock_tool
 from .summarize_tool import SummarizeUrlInput, build_summarize_url_tool
@@ -63,6 +71,9 @@ __all__ = [
     "MathInput",
     "NumberTheoryInput",
     "PdfFileInput",
+    "PowerPointEditInput",
+    "PowerPointEditOperation",
+    "PowerPointInspectInput",
     "RecallMemoryInput",
     "SaveMemoryInput",
     "StatisticsInput",
@@ -98,6 +109,7 @@ __all__ = [
     "build_recall_memory_tool",
     "build_save_memory_tool",
     "build_pdf_tool",
+    "build_powerpoint_edit_tools",
     "build_statistics_tool",
     "build_stock_tool",
     "build_summarize_url_tool",
@@ -110,4 +122,6 @@ __all__ = [
     "build_word_edit_tools",
     "create_word_document",
     "build_word_tool",
+    "edit_powerpoint",
+    "inspect_powerpoint",
 ]

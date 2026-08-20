@@ -108,6 +108,7 @@ DOWNLOAD_MEDIA_TYPES = {
     ".pdf": "application/pdf",
     ".txt": "text/plain",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
 
 SettingsDep: TypeAlias = Annotated[Settings, Depends(get_config)]
@@ -384,6 +385,7 @@ def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
         available,
         word_edit_enabled=settings.word_edit_enabled,
         text_edit_enabled=settings.text_edit_enabled,
+        powerpoint_edit_enabled=settings.powerpoint_edit_enabled,
     )
 
 

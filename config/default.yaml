@@ -79,6 +79,8 @@ file_read_max_bytes: 5000000
 # Word .docx editing. Needs file_read_enabled too; writes a new .docx next to
 # the uploaded source and never overwrites it.
 word_edit_enabled: false
+# PowerPoint .pptx inspection/editing. Needs file_read_enabled too.
+powerpoint_edit_enabled: false
 # Excel .xlsx creation. Needs file_read_enabled and an artifact-tool runtime.
 excel_create_enabled: false
 excel_node_executable: "node"

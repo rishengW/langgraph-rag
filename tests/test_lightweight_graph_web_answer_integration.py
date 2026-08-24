@@ -870,13 +870,12 @@ def test_route_after_web_answer_terminates_on_success():
     assert route_after_web_answer(state) == "__end__"
 
 
-def test_build_lightweight_graph_keeps_grounded_refusal_when_no_readable_content(
+def test_build_lightweight_graph_uses_fallback_when_no_readable_content(
     monkeypatch, isolated_settings
 ):
-    # End-to-end regression guard for the failure mode that motivated the
-    # failure: an over-eager web search returns pages that don't contain the
-    # answer. After one expanded search, the graph must keep the grounded
-    # refusal rather than answer from model training data.
+    # After one expanded search fails, the graph must run exactly one
+    # tool-free fallback and terminate rather than silently keeping the
+    # intermediate web-answer refusal.
     import src.web_search.content_fetcher as content_fetcher_module
     import src.web_search.prompt_builder as prompt_builder_module
     from src.web_search.tool import build_web_search_tool
@@ -951,6 +950,9 @@ def test_build_lightweight_graph_keeps_grounded_refusal_when_no_readable_content
                 decompose=fake_decompose,
                 expand=fake_expand,
                 merge=fake_merge,
+                fallback_answer=lambda _state: {
+                    "messages": [AIMessage(content="unverified fallback: 1853")]
+                },
             ),
         ),
     )
@@ -962,8 +964,7 @@ def test_build_lightweight_graph_keeps_grounded_refusal_when_no_readable_content
     assert seen == ["agent-run-1"]
     assert call_count == {"agent": 1}
     final = state["messages"][-1].content
-    assert "don't have grounded information" in final
-    assert "1853" not in final
+    assert final == "unverified fallback: 1853"
 
 
 def test_build_lightweight_graph_grounded_refusal_cannot_start_a_third_search(
@@ -1059,6 +1060,9 @@ def test_build_lightweight_graph_grounded_refusal_cannot_start_a_third_search(
                 decompose=fake_decompose,
                 expand=fake_expand,
                 merge=fake_merge,
+                fallback_answer=lambda _state: {
+                    "messages": [AIMessage(content="bounded fallback")]
+                },
             ),
         ),
     )
@@ -1067,7 +1071,7 @@ def test_build_lightweight_graph_grounded_refusal_cannot_start_a_third_search(
 
     assert call_count == {"agent": 1, "web_answer": 2}
     final = state["messages"][-1].content
-    assert "call #2" in final
+    assert final == "bounded fallback"
     assert "call #3" not in final
 
 

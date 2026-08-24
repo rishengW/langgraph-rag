@@ -31,6 +31,10 @@ max_rewrites: 2
 # passed to the agent and follow-up condensation model.
 chat_context_max_turns: 8
 chat_context_max_chars: 12000
+planning_enabled: false
+planning_max_subgoals: 4
+planning_max_reflection_retries: 1
+planning_critic_threshold: 0.7
 web_search_enabled: true
 # Optional compatibility mode. The normal path uses deterministic query cleanup.
 web_search_llm_query_rewrite_enabled: false

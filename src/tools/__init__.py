@@ -47,6 +47,12 @@ from .text_edit import (
 )
 from .text_file import TextFileInput, build_text_file_tool
 from .weather import WeatherInput, build_weather_tool
+from .web_search import (
+    WebSearchDiscovery,
+    WebSearchInput,
+    build_web_search_tool,
+    format_web_search_results,
+)
 from .wikipedia_tool import WikipediaInput, build_wikipedia_tool
 from .word_edit import (
     WordContentBlock,
@@ -88,6 +94,8 @@ __all__ = [
     "TextInspectInput",
     "TextFileInput",
     "WeatherInput",
+    "WebSearchDiscovery",
+    "WebSearchInput",
     "WikipediaInput",
     "WordContentBlock",
     "WordCreateInput",
@@ -118,6 +126,8 @@ __all__ = [
     "create_excel_spreadsheet",
     "build_text_file_tool",
     "build_weather_tool",
+    "build_web_search_tool",
+    "format_web_search_results",
     "build_wikipedia_tool",
     "build_word_edit_tools",
     "create_word_document",

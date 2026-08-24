@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import operator
 from collections.abc import Sequence
 from typing import Annotated, Literal
 
@@ -18,6 +19,41 @@ class WebSearchResultMetadata(TypedDict, total=False):
     provider_rank: int
     relevance_score: int
     quality_score: int
+
+
+SubGoalStatus = Literal["pending", "in_progress", "completed", "failed"]
+
+
+class SubGoal(TypedDict, total=False):
+    """A bounded, serializable unit of work in an optional chat plan."""
+
+    id: str
+    description: str
+    dependencies: list[str]
+    status: SubGoalStatus
+    result: str
+    reasoning_scratchpad: str
+
+
+class SubGoalResult(TypedDict, total=False):
+    """Result emitted by one parallel sub-goal worker."""
+
+    id: str
+    result: str
+    reasoning_scratchpad: str
+    status: SubGoalStatus
+    error: str
+    planning_run_id: int
+
+
+class AnswerCritique(TypedDict, total=False):
+    """Structured answer-quality feedback used by the reflection loop."""
+
+    correctness_score: float
+    groundedness_score: float
+    completeness_score: float
+    critique_notes: str
+    revision_suggestions: str
 
 
 class RAGState(TypedDict, total=False):
@@ -55,9 +91,34 @@ class RAGState(TypedDict, total=False):
     # the edge routes to the agent fallback so the lightweight graph does
     # not loop between ``web_answer`` and ``expand`` forever.
     expansion_attempted: bool
+    # Optional general planning state. These fields are deliberately kept
+    # serializable so chat checkpoints can resume a plan after a restart.
+    plan: list[SubGoal]
+    global_scratchpad: str
+    answer_critique: AnswerCritique | None
+    reflection_retry_count: int
+    max_reflection_retries: int
+    # Internal map/reduce fields used by the optional Send-based sub-goal path.
+    active_subgoal: SubGoal
+    subgoal: SubGoal
+    dispatched_subgoals: list[SubGoal]
+    subgoal_results: Annotated[list[SubGoalResult], operator.add]
+    planning_question: str
+    planning_input_context: str
+    planning_context: str
+    planning_run_id: int
 
 
 AgentState = RAGState
 ChatState = RAGState
 
-__all__ = ["AgentState", "ChatState", "RAGState", "WebSearchResultMetadata"]
+__all__ = [
+    "AgentState",
+    "AnswerCritique",
+    "ChatState",
+    "RAGState",
+    "SubGoal",
+    "SubGoalResult",
+    "SubGoalStatus",
+    "WebSearchResultMetadata",
+]

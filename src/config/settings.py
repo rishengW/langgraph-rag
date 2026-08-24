@@ -52,6 +52,12 @@ class Settings:
     # sent to conversational LLM calls on each turn.
     chat_context_max_turns: int = 8
     chat_context_max_chars: int = 12_000
+    # Optional general planning/reflection layer. Disabled by default so the
+    # existing chat graphs keep their latency and transcript behavior.
+    planning_enabled: bool = False
+    planning_max_subgoals: int = 4
+    planning_max_reflection_retries: int = 1
+    planning_critic_threshold: float = 0.7
     web_search_enabled: bool = True
     web_search_llm_query_rewrite_enabled: bool = False
     web_search_provider: str = "bing"

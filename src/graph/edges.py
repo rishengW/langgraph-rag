@@ -39,6 +39,8 @@ WEB_SEARCH_TOOL_NAME = "live_web_search"
 # with the web-answer refusal instead of falling back to model knowledge.
 WEB_ANSWER_EDGE_MAP: dict[Hashable, str] = {
     "expand": "expand",
+    "fallback_answer": "fallback_answer",
+    "answer_self_critique": "answer_self_critique",
     END: END,
 }
 
@@ -52,6 +54,17 @@ def route_after_agent(state: Any) -> str:
     """Route after the agent node using LangGraph's built-in tool condition."""
 
     return tools_condition(state)
+
+
+def route_after_agent_with_critique(
+    state: Any, *, critique_enabled: bool = False
+) -> str:
+    """Critique a direct agent answer without intercepting tool calls."""
+
+    result = route_after_agent(state)
+    if critique_enabled and result == END:
+        return "answer_self_critique"
+    return result
 
 
 def route_after_lightweight_agent(state: Any) -> str:
@@ -69,6 +82,17 @@ def route_after_lightweight_agent(state: Any) -> str:
     if names == [WEB_SEARCH_TOOL_NAME]:
         return "decompose"
     return "web_search"
+
+
+def route_after_lightweight_agent_with_critique(
+    state: Any, *, critique_enabled: bool = False
+) -> str:
+    """Preserve lightweight tool routing and critique only direct answers."""
+
+    result = route_after_lightweight_agent(state)
+    if critique_enabled and result == END:
+        return "answer_self_critique"
+    return result
 
 
 def route_after_lightweight_tool(state: Any) -> str:
@@ -114,6 +138,30 @@ def route_after_web_answer(state: Any) -> str:
     if not _state_bool(state, "expansion_attempted"):
         return "expand"
     return END
+
+
+def route_after_web_answer_with_fallback(
+    state: Any,
+    *,
+    planning_enabled: bool = False,
+) -> str:
+    """Route web answers with the optional fallback/critique stages.
+
+    ``route_after_web_answer`` keeps its historical return values for callers
+    and tests.  The builder uses this opt-in wrapper so a failed expanded
+    search invokes ``fallback_answer`` instead of silently terminating.
+    """
+
+    result = route_after_web_answer(state)
+    if result == "expand":
+        return result
+    if _state_bool(state, "web_answer_no_readable_content") and _state_bool(
+        state, "expansion_attempted"
+    ):
+        return "fallback_answer"
+    if planning_enabled:
+        return "answer_self_critique"
+    return result
 
 
 def _state_messages(state: Any) -> list[Any]:
@@ -183,7 +231,10 @@ __all__ = [
     "WEB_ANSWER_FALLBACK_MAX_ATTEMPTS",
     "WEB_SEARCH_TOOL_NAME",
     "route_after_agent",
+    "route_after_agent_with_critique",
     "route_after_lightweight_agent",
+    "route_after_lightweight_agent_with_critique",
     "route_after_lightweight_tool",
     "route_after_web_answer",
+    "route_after_web_answer_with_fallback",
 ]

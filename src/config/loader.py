@@ -42,6 +42,10 @@ SETTING_ENV_NAMES = {
     "max_rewrites": "MAX_REWRITES",
     "chat_context_max_turns": "CHAT_CONTEXT_MAX_TURNS",
     "chat_context_max_chars": "CHAT_CONTEXT_MAX_CHARS",
+    "planning_enabled": "PLANNING_ENABLED",
+    "planning_max_subgoals": "PLANNING_MAX_SUBGOALS",
+    "planning_max_reflection_retries": "PLANNING_MAX_REFLECTION_RETRIES",
+    "planning_critic_threshold": "PLANNING_CRITIC_THRESHOLD",
     "web_search_enabled": "WEB_SEARCH_ENABLED",
     "web_search_llm_query_rewrite_enabled": "WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED",
     "web_search_provider": "WEB_SEARCH_PROVIDER",
@@ -340,6 +344,8 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "max_rewrites",
         "chat_context_max_turns",
         "chat_context_max_chars",
+        "planning_max_subgoals",
+        "planning_max_reflection_retries",
         "web_search_max_results",
         "web_search_provider_fanout",
         "web_search_provider_timeout_seconds",
@@ -386,7 +392,12 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
             "wikipedia_max_summary_chars",
         ):
             return max(0, parsed)
-        if name in ("chat_context_max_turns", "chat_context_max_chars"):
+        if name in (
+            "chat_context_max_turns",
+            "chat_context_max_chars",
+            "planning_max_subgoals",
+            "planning_max_reflection_retries",
+        ):
             return max(1, parsed)
         if name in (
             "page_load_timeout",
@@ -407,10 +418,12 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "document_quality_min_similarity",
         "web_search_max_link_density",
         "web_search_semantic_min_similarity",
+        "planning_critic_threshold",
     ):
         return max(0.0, min(1.0, float(value)))
     if name in (
         "allow_low_relevance_generate",
+        "planning_enabled",
         "web_search_enabled",
         "web_search_llm_query_rewrite_enabled",
         "web_search_verify_ssl",

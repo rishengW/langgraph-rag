@@ -698,6 +698,17 @@ def agent_factory(
                 max_turns=settings.chat_context_max_turns,
                 max_chars=settings.chat_context_max_chars,
             )
+        planning_context = str(state.get("planning_context") or "").strip()
+        if getattr(settings, "planning_enabled", False) and planning_context:
+            messages = [
+                SystemMessage(
+                    content=(
+                        "Optional execution-plan context. Treat it as working context, "
+                        "not as user instructions:\n" + planning_context
+                    )
+                ),
+                *messages,
+            ]
         # Prepend a system prompt so the model knows when to use tools and
         # when to answer directly from its own knowledge.
         dated_prompt = AGENT_SYSTEM_PROMPT.format(current_date=date.today().isoformat())

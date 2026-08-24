@@ -15,23 +15,33 @@ from .edges import (
     GRADE_EDGE_MAP,
     LIGHTWEIGHT_TOOL_EDGE_MAP,
     WEB_ANSWER_EDGE_MAP,
-    route_after_agent,
-    route_after_lightweight_agent,
+    route_after_agent_with_critique,
+    route_after_lightweight_agent_with_critique,
     route_after_lightweight_tool,
-    route_after_web_answer,
+    route_after_web_answer_with_fallback,
 )
 from .nodes import (
     agent_factory,
+    answer_self_critique_node,
     chat_question_resolver,
     condense_question_factory,
     decompose_factory,
     expand_factory,
+    fallback_answer_factory,
     generate_factory,
     grade_documents_factory,
     merge_factory,
+    planner_node,
     qa_question_resolver,
+    reflection_revise_node,
     rewrite_factory,
+    route_after_self_critique,
+    route_after_subgoal_aggregation,
+    route_subgoals,
     search_queries_factory,
+    subgoal_aggregator_node,
+    subgoal_dispatcher_node,
+    subgoal_worker_node,
     web_answer_factory,
 )
 from .state import AgentState, ChatState
@@ -75,6 +85,12 @@ class GraphNodeOverrides:
     decompose: NodeCallable | None = None
     expand: NodeCallable | None = None
     merge: NodeCallable | None = None
+    planner: NodeCallable | None = None
+    subgoal_dispatcher: NodeCallable | None = None
+    subgoal_worker: NodeCallable | None = None
+    subgoal_aggregator: NodeCallable | None = None
+    answer_self_critique: NodeCallable | None = None
+    reflection_revise: NodeCallable | None = None
 
 
 @dataclass(frozen=True)
@@ -147,10 +163,42 @@ def build_graph(
 
     workflow = cast(Any, StateGraph(state_type))
 
+    planning_enabled = bool(getattr(settings, "planning_enabled", False))
+
     if mode == "chat":
         workflow.add_node(
             "condense",
             nodes.condense or condense_question_factory(_require_settings(settings, "condense")),
+        )
+
+    if planning_enabled:
+        workflow.add_node(
+            "planner",
+            nodes.planner
+            or planner_node(
+                _require_settings(settings, "planner"),
+                question_resolver,
+                max_subgoals=getattr(settings, "planning_max_subgoals", 4),
+            ),
+        )
+        workflow.add_node(
+            "subgoal_dispatcher",
+            nodes.subgoal_dispatcher
+            or (
+                lambda state: subgoal_dispatcher_node(
+                    state,
+                    max_dispatch=getattr(settings, "planning_max_subgoals", 4),
+                )
+            ),
+        )
+        workflow.add_node(
+            "execute_subgoal",
+            nodes.subgoal_worker
+            or subgoal_worker_node(_require_settings(settings, "sub-goal worker"), question_resolver),
+        )
+        workflow.add_node(
+            "subgoal_aggregator",
+            nodes.subgoal_aggregator or subgoal_aggregator_node,
         )
 
     workflow.add_node(
@@ -183,11 +231,40 @@ def build_graph(
 
     if mode == "chat":
         workflow.add_edge(START, "condense")
-        workflow.add_edge("condense", "agent")
+        workflow.add_edge("condense", "planner" if planning_enabled else "agent")
     else:
-        workflow.add_edge(START, "agent")
+        workflow.add_edge(START, "planner" if planning_enabled else "agent")
 
-    workflow.add_conditional_edges("agent", route_after_agent, AGENT_EDGE_MAP)
+    if planning_enabled:
+        workflow.add_edge("planner", "subgoal_dispatcher")
+        workflow.add_conditional_edges(
+            "subgoal_dispatcher",
+            lambda state: route_subgoals(state, target="execute_subgoal"),
+        )
+        workflow.add_edge("execute_subgoal", "subgoal_aggregator")
+        workflow.add_conditional_edges(
+            "subgoal_aggregator",
+            route_after_subgoal_aggregation,
+            {
+                "subgoal_dispatcher": "subgoal_dispatcher",
+                "agent": "agent",
+            },
+        )
+
+    workflow.add_conditional_edges(
+        "agent",
+        lambda state: route_after_agent_with_critique(
+            state, critique_enabled=planning_enabled
+        ),
+        {
+            **AGENT_EDGE_MAP,
+            **(
+                {"answer_self_critique": "answer_self_critique"}
+                if planning_enabled
+                else {}
+            ),
+        },
+    )
     workflow.add_conditional_edges(
         "retrieve",
         nodes.grade_documents
@@ -197,7 +274,34 @@ def build_graph(
         ),
         GRADE_EDGE_MAP,
     )
-    workflow.add_edge("generate", END)
+    if planning_enabled:
+        workflow.add_node(
+            "answer_self_critique",
+            nodes.answer_self_critique
+            or answer_self_critique_node(_require_settings(settings, "answer self-critique"), question_resolver),
+        )
+        workflow.add_node(
+            "reflection_revise",
+            nodes.reflection_revise
+            or reflection_revise_node(
+                _require_settings(settings, "reflection revision"),
+                question_resolver,
+                max_retries=getattr(settings, "planning_max_reflection_retries", 1),
+            ),
+        )
+        workflow.add_edge("generate", "answer_self_critique")
+        workflow.add_conditional_edges(
+            "answer_self_critique",
+            lambda state: route_after_self_critique(
+                state,
+                max_retries=getattr(settings, "planning_max_reflection_retries", 1),
+                threshold=getattr(settings, "planning_critic_threshold", 0.7),
+            ),
+            {"reflection_revise": "reflection_revise", END: END},
+        )
+        workflow.add_edge("reflection_revise", "answer_self_critique")
+    else:
+        workflow.add_edge("generate", END)
     workflow.add_edge("rewrite", "agent")
 
     resolved_checkpointer = _resolve_checkpointer(mode, providers, checkpointer)
@@ -240,6 +344,41 @@ def build_lightweight_graph(
     state_type = AgentState if mode == "qa" else ChatState
 
     workflow = cast(Any, StateGraph(state_type))
+    planning_enabled = bool(getattr(settings, "planning_enabled", False))
+
+    if planning_enabled:
+        workflow.add_node(
+            "planner",
+            nodes.planner
+            or planner_node(
+                _require_settings(settings, "lightweight planner"),
+                question_resolver,
+                max_subgoals=getattr(settings, "planning_max_subgoals", 4),
+            ),
+        )
+        workflow.add_node(
+            "subgoal_dispatcher",
+            nodes.subgoal_dispatcher
+            or (
+                lambda state: subgoal_dispatcher_node(
+                    state,
+                    max_dispatch=getattr(settings, "planning_max_subgoals", 4),
+                )
+            ),
+        )
+        workflow.add_node(
+            "execute_subgoal",
+            nodes.subgoal_worker
+            or subgoal_worker_node(
+                _require_settings(settings, "lightweight sub-goal worker"),
+                question_resolver,
+            ),
+        )
+        workflow.add_node(
+            "subgoal_aggregator",
+            nodes.subgoal_aggregator or subgoal_aggregator_node,
+        )
+
     workflow.add_node(
         "agent",
         nodes.agent
@@ -297,12 +436,63 @@ def build_lightweight_graph(
             question_resolver,
         ),
     )
+    workflow.add_node(
+        "fallback_answer",
+        nodes.fallback_answer
+        or fallback_answer_factory(
+            _require_settings(settings, "fallback_answer"),
+            question_resolver,
+        ),
+    )
+    if planning_enabled:
+        workflow.add_node(
+            "answer_self_critique",
+            nodes.answer_self_critique
+            or answer_self_critique_node(
+                _require_settings(settings, "lightweight answer self-critique"),
+                question_resolver,
+            ),
+        )
+        workflow.add_node(
+            "reflection_revise",
+            nodes.reflection_revise
+            or reflection_revise_node(
+                _require_settings(settings, "lightweight reflection revision"),
+                question_resolver,
+                max_retries=getattr(settings, "planning_max_reflection_retries", 1),
+            ),
+        )
 
-    workflow.add_edge(START, "agent")
+    workflow.add_edge(START, "planner" if planning_enabled else "agent")
+    if planning_enabled:
+        workflow.add_edge("planner", "subgoal_dispatcher")
+        workflow.add_conditional_edges(
+            "subgoal_dispatcher",
+            lambda state: route_subgoals(state, target="execute_subgoal"),
+        )
+        workflow.add_edge("execute_subgoal", "subgoal_aggregator")
+        workflow.add_conditional_edges(
+            "subgoal_aggregator",
+            route_after_subgoal_aggregation,
+            {
+                "subgoal_dispatcher": "subgoal_dispatcher",
+                "agent": "agent",
+            },
+        )
+
     workflow.add_conditional_edges(
         "agent",
-        route_after_lightweight_agent,
-        LIGHTWEIGHT_AGENT_EDGE_MAP,
+        lambda state: route_after_lightweight_agent_with_critique(
+            state, critique_enabled=planning_enabled
+        ),
+        {
+            **LIGHTWEIGHT_AGENT_EDGE_MAP,
+            **(
+                {"answer_self_critique": "answer_self_critique"}
+                if planning_enabled
+                else {}
+            ),
+        },
     )
     # REFACTOR: Deterministic edges for the conditional-expansion path.
     # ``decompose -> execute_search_queries`` executes the bounded first query batch.
@@ -326,9 +516,27 @@ def build_lightweight_graph(
     )
     workflow.add_conditional_edges(
         "web_answer",
-        route_after_web_answer,
-        WEB_ANSWER_EDGE_MAP,
+        lambda state: route_after_web_answer_with_fallback(
+            state, planning_enabled=planning_enabled
+        ),
+        {
+            key: target
+            for key, target in WEB_ANSWER_EDGE_MAP.items()
+            if planning_enabled or key != "answer_self_critique"
+        },
     )
+    workflow.add_edge("fallback_answer", END)
+    if planning_enabled:
+        workflow.add_conditional_edges(
+            "answer_self_critique",
+            lambda state: route_after_self_critique(
+                state,
+                max_retries=getattr(settings, "planning_max_reflection_retries", 1),
+                threshold=getattr(settings, "planning_critic_threshold", 0.7),
+            ),
+            {"reflection_revise": "reflection_revise", END: END},
+        )
+        workflow.add_edge("reflection_revise", "answer_self_critique")
 
     resolved_checkpointer = _resolve_checkpointer(mode, providers, checkpointer)
     if resolved_checkpointer is None:
@@ -351,13 +559,13 @@ def _resolve_tools(
         return []
 
     from ..core.retriever import build_retriever_tool as build_retriever_tool
-    from ..web_search import build_web_search_tool as build_web_search_tool
 
-    # REFACTOR: Default settings-based graph tools now include live web search.
+    # Agent-facing tools are owned by src.tools; web-search provider and
+    # ranking modules remain pure domain modules under src.web_search.
     tool_module = cast(Any, import_module("..tools", package=__package__))
     tools = [build_retriever_tool(settings, rebuild=rebuild_vectorstore)]
     if settings.web_search_enabled:
-        tools.append(build_web_search_tool(settings))
+        tools.append(tool_module.build_web_search_tool(settings))
     if settings.memory_enabled:
         # Keep this in sync with _resolve_lightweight_tools. build_memory_tools
         # returns a fixed list so both graphs expose identical names/schemas.
@@ -436,10 +644,8 @@ def _resolve_lightweight_tools(
     if settings is None:
         return []
 
-    from ..web_search import build_web_search_tool as build_web_search_tool
-
     tool_module = cast(Any, import_module("..tools", package=__package__))
-    tools: list[Any] = [build_web_search_tool(settings)]
+    tools: list[Any] = [tool_module.build_web_search_tool(settings)]
     if settings.memory_enabled:
         # Keep this in sync with _resolve_tools.
         tools.extend(tool_module.build_memory_tools(settings))

@@ -19,6 +19,20 @@ from .decompose import DECOMPOSE_MAX_SUBQUESTIONS, decompose_factory
 from .expand import EXPAND_MAX_PARAPHRASES, expand_factory
 from .fallback_answer import fallback_answer_factory
 from .merge import merge_factory
+from .planning import (
+    MAX_PLAN_SUBGOALS,
+    MAX_REFLECTION_RETRIES,
+    answer_self_critique_node,
+    normalize_plan,
+    planner_node,
+    reflection_revise_node,
+    route_after_self_critique,
+    route_after_subgoal_aggregation,
+    route_subgoals,
+    subgoal_aggregator_node,
+    subgoal_dispatcher_node,
+    subgoal_worker_node,
+)
 from .search_queries import (
     WEB_SEARCH_MAX_CONCURRENCY,
     WEB_SEARCH_MAX_QUERIES,
@@ -46,6 +60,18 @@ __all__ = [
     "grade_documents_factory",
     "latest_user_index",
     "merge_factory",
+    "MAX_PLAN_SUBGOALS",
+    "MAX_REFLECTION_RETRIES",
+    "answer_self_critique_node",
+    "normalize_plan",
+    "planner_node",
+    "reflection_revise_node",
+    "route_after_self_critique",
+    "route_after_subgoal_aggregation",
+    "route_subgoals",
+    "subgoal_aggregator_node",
+    "subgoal_dispatcher_node",
+    "subgoal_worker_node",
     "message_text",
     "new_chat_model",
     "qa_question_resolver",

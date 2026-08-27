@@ -80,6 +80,7 @@ def build_upload_context_note(
     word_edit_enabled: bool = False,
     text_edit_enabled: bool = False,
     powerpoint_edit_enabled: bool = False,
+    excel_edit_enabled: bool = False,
 ) -> str:
     """Build a system-message note telling the LLM which uploads it can read.
 
@@ -122,6 +123,15 @@ def build_upload_context_note(
             "shapes, then edit_powerpoint to apply text or table-cell edits. "
             "Only edit when explicitly asked; pass exact expected_text. The "
             "original upload is never overwritten."
+        )
+    if excel_edit_enabled:
+        edit_notes.append(
+            "For .xlsx files you may call inspect_excel_spreadsheet to list "
+            "worksheets, cells, values, and formulas, then "
+            "edit_excel_spreadsheet to apply cell, formula, row/column, "
+            "worksheet, column-width, and number-format edits. Only edit when "
+            "explicitly asked; always inspect first and pass the exact current "
+            "value as expected_value. The original upload is never overwritten."
         )
     return "\n".join([note, *edit_notes])
 

@@ -135,6 +135,10 @@ class Settings:
     excel_create_enabled: bool = False
     excel_node_executable: str = "node"
     excel_node_modules_path: str = ""
+    # Excel .xlsx editing. openpyxl-based; needs file_read_enabled. Like the
+    # other editors it writes a session-scoped copy and never overwrites the
+    # uploaded source.
+    excel_edit_enabled: bool = False
     # Plain-text .txt creation and editing. Like Word editing, this is an opt-in write tool
     # layered on top of file_read_enabled. Edits are session-scoped and always
     # produce a new file rather than overwriting the uploaded source.

@@ -386,6 +386,7 @@ def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
         word_edit_enabled=settings.word_edit_enabled,
         text_edit_enabled=settings.text_edit_enabled,
         powerpoint_edit_enabled=settings.powerpoint_edit_enabled,
+        excel_edit_enabled=settings.excel_edit_enabled,
     )
 
 

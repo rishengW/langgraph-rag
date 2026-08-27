@@ -89,6 +89,9 @@ powerpoint_edit_enabled: false
 excel_create_enabled: false
 excel_node_executable: "node"
 excel_node_modules_path: ""
+# Excel .xlsx editing. Needs file_read_enabled too; writes a session-scoped
+# copy and never overwrites the uploaded source.
+excel_edit_enabled: false
 # Plain-text .txt creation and editing. Needs file_read_enabled too; writes
 # session-scoped .txt files and never overwrites an existing file.
 text_edit_enabled: false

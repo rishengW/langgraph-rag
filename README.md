@@ -260,6 +260,8 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `read_word_document` | `src/tools/word_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .docx in `FILE_READ_ROOT` |
 | `read_excel_spreadsheet` | `src/tools/excel_file.py` | `FILE_READ_ENABLED=true` | Read .xlsx rows from `FILE_READ_ROOT` (needs `openpyxl`) |
 | `create_excel_spreadsheet` | `src/tools/excel_create.py` | `FILE_READ_ENABLED=true` and `EXCEL_CREATE_ENABLED=true` | Create a styled, formula-capable .xlsx workbook in the current session |
+| `inspect_excel_spreadsheet` | `src/tools/excel_edit.py` | `FILE_READ_ENABLED=true` and `EXCEL_EDIT_ENABLED=true` | List worksheets, cells, values, and formulas of a session-uploaded .xlsx |
+| `edit_excel_spreadsheet` | `src/tools/excel_edit.py` | `FILE_READ_ENABLED=true` and `EXCEL_EDIT_ENABLED=true` | Apply expected-value-checked cell, formula, row/column, worksheet, and format edits to a session-uploaded .xlsx; creates a new file |
 | `read_pdf` | `src/tools/pdf_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .pdf in `FILE_READ_ROOT` (needs `pypdf`) |
 | `create_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Create a formatted .docx in the current session with headings, lists, and tables |
 | `inspect_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | List numbered paragraphs and table cells of a session-uploaded .docx |

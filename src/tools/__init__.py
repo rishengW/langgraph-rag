@@ -11,6 +11,15 @@ from .excel_create import (
     build_excel_create_tools,
     create_excel_spreadsheet,
 )
+from .excel_edit import (
+    ExcelEditInput,
+    ExcelEditOperation,
+    ExcelEditResult,
+    ExcelInspectInput,
+    build_excel_edit_tools,
+    edit_excel,
+    inspect_excel,
+)
 from .excel_file import ExcelFileInput, build_excel_tool
 from .linalg_tool import LinearAlgebraInput, build_linalg_tool
 from .map_tool import MapInput, build_map_tool
@@ -70,7 +79,11 @@ __all__ = [
     "ColumnFormat",
     "DateTimeInput",
     "DirectionsInput",
+    "ExcelEditInput",
+    "ExcelEditOperation",
+    "ExcelEditResult",
     "ExcelFileInput",
+    "ExcelInspectInput",
     "ForgetMemoryInput",
     "LinearAlgebraInput",
     "MapInput",
@@ -108,6 +121,7 @@ __all__ = [
     "build_directions_tool",
     "build_excel_tool",
     "build_excel_create_tools",
+    "build_excel_edit_tools",
     "build_forget_memory_tool",
     "build_linalg_tool",
     "build_map_tool",
@@ -124,6 +138,8 @@ __all__ = [
     "build_text_edit_tools",
     "create_text_file",
     "create_excel_spreadsheet",
+    "edit_excel",
+    "inspect_excel",
     "build_text_file_tool",
     "build_weather_tool",
     "build_web_search_tool",

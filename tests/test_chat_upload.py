@@ -13,6 +13,7 @@ from src.chat import api as chat_api
 from src.chat.uploads import build_upload_context_note
 from src.graph.artifacts import normalize_file_artifact
 from src.tools import build_text_file_tool, build_word_tool
+from src.tools.excel_edit import ExcelEditOperation, XLSX_MIME_TYPE, edit_excel
 from src.tools.text_edit import TextEditOperation, create_text_file, edit_text_file
 from src.tools.word_edit import WordEditOperation, edit_word_document
 
@@ -62,6 +63,7 @@ def _client(
     word_edit_enabled: bool = False,
     text_edit_enabled: bool = False,
     powerpoint_edit_enabled: bool = False,
+    excel_edit_enabled: bool = False,
 ):
     settings = isolated_settings(
         source_urls=["https://chat-default.test"],
@@ -70,6 +72,7 @@ def _client(
         word_edit_enabled=word_edit_enabled,
         text_edit_enabled=text_edit_enabled,
         powerpoint_edit_enabled=powerpoint_edit_enabled,
+        excel_edit_enabled=excel_edit_enabled,
         file_read_root=str(tmp_path / "files"),
         file_read_max_bytes=1_000_000,
     )
@@ -116,6 +119,18 @@ def test_upload_context_advertises_powerpoint_editing_only_when_enabled():
     assert "inspect_powerpoint" in editable
     assert "edit_powerpoint" in editable
     assert "expected_text" in editable
+
+
+def test_upload_context_advertises_excel_editing_only_when_enabled():
+    path = "chat_uploads/thread-a/report.xlsx"
+
+    read_only = build_upload_context_note([path])
+    editable = build_upload_context_note([path], excel_edit_enabled=True)
+
+    assert "edit_excel_spreadsheet" not in read_only
+    assert "inspect_excel_spreadsheet" in editable
+    assert "edit_excel_spreadsheet" in editable
+    assert "expected_value" in editable
 
 
 def test_upload_injects_context_into_next_turn(monkeypatch, isolated_settings, tmp_path):
@@ -370,6 +385,76 @@ def test_upload_edit_artifact_download_and_cleanup(
         )
         assert client.get(f"/chat/{thread_id}/files/missing.docx").status_code == 404
         assert client.get(f"/chat/unknown/files/{artifact['filename']}").status_code == 404
+
+        deleted = client.delete(f"/chat/{thread_id}")
+        assert deleted.status_code == 200
+        assert not session_root.exists()
+
+
+def test_upload_edit_excel_artifact_download_and_cleanup(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    pytest.importorskip("openpyxl")
+    from openpyxl import Workbook, load_workbook
+
+    buffer = io.BytesIO()
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Data"
+    sheet.append(["Item", "Qty"])
+    sheet.append(["Widget", 10])
+    workbook.save(buffer)
+
+    client, settings = _client(
+        monkeypatch,
+        isolated_settings,
+        tmp_path,
+        excel_edit_enabled=True,
+    )
+    with client:
+        thread_id = _start_thread(client)
+        upload = client.post(
+            f"/chat/{thread_id}/upload",
+            files={
+                "files": (
+                    "report.xlsx",
+                    buffer.getvalue(),
+                    XLSX_MIME_TYPE,
+                )
+            },
+        )
+        assert upload.status_code == 200
+        saved = upload.json()["files"][0]
+
+        session_root = chat_api.session_upload_dir(settings, thread_id)
+        edit = edit_excel(
+            saved["relative_path"],
+            operations=[
+                ExcelEditOperation(
+                    action="set_cell",
+                    sheet="Data",
+                    cell="A2",
+                    expected_value="Widget",
+                    value="Gizmo",
+                )
+            ],
+            session_root=session_root,
+            file_root=Path(settings.file_read_root),
+            max_bytes=settings.file_read_max_bytes,
+            thread_id=thread_id,
+        )
+        assert edit.artifact is not None, edit.content
+        artifact = normalize_file_artifact(edit.artifact)
+
+        assert artifact is not None
+        assert artifact["mimeType"] == XLSX_MIME_TYPE
+        download = client.get(artifact["url"])
+        assert download.status_code == 200
+        assert download.headers["content-type"].startswith(XLSX_MIME_TYPE)
+        edited = load_workbook(io.BytesIO(download.content), data_only=False)
+        assert edited["Data"]["A2"].value == "Gizmo"
 
         deleted = client.delete(f"/chat/{thread_id}")
         assert deleted.status_code == 200

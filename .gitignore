@@ -38,6 +38,10 @@ SSL_FIX.md
 # Local skill notes at any directory depth
 SKILL.md
 
+# Workbench scratch
+advanced_phase1_workbench/
+advanced_phase2_interfaces_workbench/
+
 # OS noise
 .DS_Store
 Thumbs.db

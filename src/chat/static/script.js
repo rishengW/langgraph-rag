@@ -1145,13 +1145,20 @@ async function restoreSession() {
 
 // ---- send a message ----------------------------------------------------
 
+const stopBtn = document.getElementById("stopBtn");
+let activeTurnController = null;
+
 async function sendMessage(text) {
     if (!threadId || pending) return;
     const trimmed = text.trim();
     if (!trimmed) return;
 
+    const controller = new AbortController();
+    activeTurnController = controller;
     pending = true;
     sendBtn.disabled = true;
+    stopBtn.disabled = false;
+    stopBtn.classList.remove("hidden");
     appendTurn("user", trimmed);
     messageInput.value = "";
     autoresize();
@@ -1159,20 +1166,27 @@ async function sendMessage(text) {
     const thinking = appendTurn("assistant", "Thinking...", { thinking: true });
 
     try {
-        await streamMessage(trimmed, thinking);
-        try {
-            const history = await apiGet(`/chat/${threadId}/history`);
-            renderSessionInfo(history.source_urls, history.source_mode);
-        } catch (_) {
-            // The answer is already complete; stale source metadata is non-fatal.
+        const result = await streamMessage(trimmed, thinking, controller.signal);
+        if (!result.stopped) {
+            try {
+                const history = await apiGet(`/chat/${threadId}/history`);
+                renderSessionInfo(history.source_urls, history.source_mode);
+            } catch (_) {
+                // The answer is already complete; stale source metadata is non-fatal.
+            }
         }
     } catch (err) {
         thinking.remove();
         showError(err.message);
         appendTurn("assistant", "(failed to fetch reply)");
     } finally {
+        if (activeTurnController === controller) {
+            activeTurnController = null;
+        }
         pending = false;
         sendBtn.disabled = false;
+        stopBtn.disabled = true;
+        stopBtn.classList.add("hidden");
         messageInput.focus();
     }
 }
@@ -1180,17 +1194,7 @@ async function sendMessage(text) {
 // Consume the SSE token stream from POST /chat/{tid}/message/stream.
 // Renders streamed text as plain text while accumulating the final answer;
 // Markdown, KaTeX, and map artifacts are rendered once the stream completes.
-async function streamMessage(message, thinking) {
-    const res = await fetch(`${API}/chat/${threadId}/message/stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
-    });
-    if (!res.ok || !res.body) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || data.error || `HTTP ${res.status}`);
-    }
-
+async function streamMessage(message, thinking, signal) {
     let bubble = null;
     let answer = "";
     let streamError = "";
@@ -1230,27 +1234,59 @@ async function streamMessage(message, thinking) {
         }
     };
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        // SSE frames are separated by a blank line.
-        let sep;
-        while ((sep = findSseSeparator(buffer)) !== null) {
-            const frame = buffer.slice(0, sep.index);
-            buffer = buffer.slice(sep.index + sep.length);
-            let eventType = "message";
-            let dataStr = "";
-            for (const rawLine of frame.split(/\r?\n/)) {
-                const line = rawLine.trimEnd();
-                if (line.startsWith("event:")) eventType = line.slice(6).trim();
-                else if (line.startsWith("data:")) dataStr += line.slice(5).trimStart();
-            }
-            handleEvent(eventType, dataStr);
+    try {
+        const res = await fetch(`${API}/chat/${threadId}/message/stream`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message }),
+            signal,
+        });
+        if (!res.ok || !res.body) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.detail || data.error || `HTTP ${res.status}`);
         }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            // SSE frames are separated by a blank line.
+            let sep;
+            while ((sep = findSseSeparator(buffer)) !== null) {
+                const frame = buffer.slice(0, sep.index);
+                buffer = buffer.slice(sep.index + sep.length);
+                let eventType = "message";
+                let dataStr = "";
+                for (const rawLine of frame.split(/\r?\n/)) {
+                    const line = rawLine.trimEnd();
+                    if (line.startsWith("event:")) eventType = line.slice(6).trim();
+                    else if (line.startsWith("data:")) dataStr += line.slice(5).trimStart();
+                }
+                handleEvent(eventType, dataStr);
+            }
+        }
+    } catch (err) {
+        if (err.name !== "AbortError") throw err;
+
+        thinking.remove();
+        const artifacts = Array.from(responseArtifacts.values());
+        clearError();
+        if (!bubble) {
+            appendTurn("assistant", "(stopped)", { artifacts });
+        } else {
+            renderFinalAssistantBubble(bubble, answer || "(stopped)");
+            const turn = bubble.closest(".turn");
+            renderArtifactStack(turn, artifacts);
+            transcript.scrollTop = transcript.scrollHeight;
+        }
+
+        // Server-side stream cleanup continues independently. The next turn
+        // is serialized behind that rollback, so the composer can be restored
+        // immediately without reusing the cancelled checkpoint.
+        return { stopped: true };
     }
 
     thinking.remove();
@@ -1258,7 +1294,7 @@ async function streamMessage(message, thinking) {
     if (streamError && !answer) {
         showError(streamError);
         appendTurn("assistant", "(no reply produced)", { artifacts });
-        return;
+        return { stopped: false };
     }
     if (!bubble) {
         // No tokens streamed; render the final answer in one shot.
@@ -1270,8 +1306,13 @@ async function streamMessage(message, thinking) {
         renderArtifactStack(turn, artifacts);
         transcript.scrollTop = transcript.scrollHeight;
     }
+    return { stopped: false };
 }
 
+stopBtn.addEventListener("click", () => {
+    stopBtn.disabled = true;
+    activeTurnController?.abort();
+});
 sendBtn.addEventListener("click", () => sendMessage(messageInput.value));
 messageInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {

@@ -79,6 +79,7 @@ def build_upload_context_note(
     *,
     word_edit_enabled: bool = False,
     text_edit_enabled: bool = False,
+    markdown_edit_enabled: bool = False,
     powerpoint_edit_enabled: bool = False,
     excel_edit_enabled: bool = False,
 ) -> str:
@@ -116,6 +117,15 @@ def build_upload_context_note(
             "explicitly asks; always inspect before editing and pass the exact "
             "current text as expected_text. Writes create a new file and never "
             "overwrite an existing file."
+        )
+    if markdown_edit_enabled:
+        edit_notes.append(
+            "For .md files you may call create_markdown_file to create a new "
+            "Markdown file, inspect_markdown_file to list numbered lines, and "
+            "edit_markdown_file to apply structured line edits. Only create or "
+            "edit when the user explicitly asks; always inspect before editing "
+            "and pass the exact current text as expected_text. Writes create a "
+            "new file and never overwrite an existing file."
         )
     if powerpoint_edit_enabled:
         edit_notes.append(

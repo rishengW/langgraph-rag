@@ -143,6 +143,9 @@ class Settings:
     # layered on top of file_read_enabled. Edits are session-scoped and always
     # produce a new file rather than overwriting the uploaded source.
     text_edit_enabled: bool = False
+    # Markdown .md creation and editing. Same session-scoped, never-overwrite
+    # model as the .txt editor, layered on top of file_read_enabled.
+    markdown_edit_enabled: bool = False
     # Chat-agent long-term memory. Disabled by default so existing
     # deployments keep their current tool set and touch no memory file.
     memory_enabled: bool = False

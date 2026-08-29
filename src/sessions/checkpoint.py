@@ -134,6 +134,66 @@ class SQLiteMemorySaver(MemorySaver):
                 (payload,),
             )
 
+    def snapshot_thread(self, thread_id: str) -> bytes:
+        """Capture an isolated, restorable snapshot of one thread's checkpoints."""
+
+        with self._lock:
+            namespaces = self.storage.get(thread_id)
+            storage = (
+                None
+                if namespaces is None
+                else {
+                    namespace: dict(checkpoints)
+                    for namespace, checkpoints in namespaces.items()
+                }
+            )
+            writes = {
+                key: dict(entries)
+                for key, entries in self.writes.items()
+                if key and key[0] == thread_id
+            }
+            blobs: dict[Any, Any] = {}
+            if hasattr(self, "blobs"):
+                blobs = {
+                    key: value
+                    for key, value in cast(Any, self).blobs.items()
+                    if key and key[0] == thread_id
+                }
+            return pickle.dumps(
+                {"storage": storage, "writes": writes, "blobs": blobs},
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+
+    def restore_thread(self, thread_id: str, snapshot: bytes) -> None:
+        """Restore one thread without disturbing checkpoints owned by other chats."""
+
+        state = pickle.loads(snapshot)
+        with self._lock:
+            self.storage.pop(thread_id, None)
+            storage = state.get("storage")
+            if storage is not None:
+                self.storage[thread_id].update(
+                    {
+                        namespace: dict(checkpoints)
+                        for namespace, checkpoints in storage.items()
+                    }
+                )
+
+            for key in list(self.writes):
+                if key and key[0] == thread_id:
+                    self.writes.pop(key, None)
+            for key, entries in state.get("writes", {}).items():
+                self.writes[key] = dict(entries)
+
+            if hasattr(self, "blobs"):
+                blobs = cast(Any, self).blobs
+                for key in list(blobs):
+                    if key and key[0] == thread_id:
+                        blobs.pop(key, None)
+                blobs.update(state.get("blobs", {}))
+
+            self._persist_state()
+
     def delete_thread(self, thread_id: str) -> None:
         """Delete one thread's checkpoints and persist the backing store.
 

@@ -21,7 +21,7 @@ import asyncio
 import inspect
 import logging
 import shutil
-from collections.abc import AsyncIterator, Iterable, Iterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -385,6 +385,7 @@ def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
         available,
         word_edit_enabled=settings.word_edit_enabled,
         text_edit_enabled=settings.text_edit_enabled,
+        markdown_edit_enabled=settings.markdown_edit_enabled,
         powerpoint_edit_enabled=settings.powerpoint_edit_enabled,
         excel_edit_enabled=settings.excel_edit_enabled,
     )
@@ -1021,52 +1022,115 @@ def create_app(
 
         config = {"configurable": {"thread_id": thread_id}}
         inputs = _graph_inputs_for_turn(session, request.message, settings)
+        checkpointer = getattr(fastapi_request.app.state, "chat_checkpointer", None)
 
-        def event_iter() -> Iterator[str]:
-            executor = GraphExecutor(session.graph, metrics=metrics)
-            # REFACTOR: ``tokens`` (default True) enables per-token ``TokenEvent``
-            # deltas from the answer nodes in addition to node lifecycle events.
-            # Pass ``?tokens=false`` to fall back to node-update-only streaming.
-            completed = False
-            failed = False
-            try:
-                for event in executor.stream(
-                    inputs, config=config, stream_tokens=tokens
-                ):
-                    if isinstance(event, ErrorEvent):
-                        failed = True
-                    yield format_sse(event)
-                completed = not failed
-            finally:
+        async def event_iter() -> AsyncIterator[str]:
+            # StreamingResponse cannot reliably close a synchronous generator
+            # that is blocked inside a graph node. Own the producer explicitly
+            # so disconnect cleanup can stop it at the next event and await the
+            # pre-turn checkpoint rollback.
+            queue: asyncio.Queue[object] = asyncio.Queue()
+            producer_done = object()
+            stop_requested = asyncio.Event()
+            loop = asyncio.get_running_loop()
+
+            def publish(item: object) -> None:
                 try:
-                    snapshot = session.graph.get_state(config)
-                    values = getattr(snapshot, "values", {}) or {}
-                    _sync_graph_owned_web_sources(
-                        session=session,
-                        values=values,
-                        sessions=sessions,
+                    loop.call_soon_threadsafe(queue.put_nowait, item)
+                except RuntimeError:
+                    # The application event loop is already shutting down.
+                    return
+
+            def produce_events() -> None:
+                with session.turn_lock:
+                    turn_snapshot = (
+                        checkpointer.snapshot_thread(thread_id)
+                        if checkpointer is not None
+                        else None
                     )
-                except Exception as exc:
-                    logger.debug(
-                        "Could not synchronize graph-owned web sources for %s: %s",
-                        session.thread_id,
-                        exc,
+                    executor = GraphExecutor(session.graph, metrics=metrics)
+                    completed = False
+                    failed = False
+                    events = executor.stream(
+                        inputs,
+                        config=config,
+                        stream_tokens=tokens,
                     )
-                if completed:
                     try:
-                        after_turn(
-                            getattr(
-                                fastapi_request.app.state,
-                                "extraction_runtime",
-                                None,
-                            ),
-                            thread_id=thread_id,
-                        )
-                    except Exception:
-                        logger.debug(
-                            "memory extraction after-turn hook failed",
-                            exc_info=True,
-                        )
+                        for event in events:
+                            if stop_requested.is_set():
+                                break
+                            if isinstance(event, ErrorEvent):
+                                failed = True
+                            publish(format_sse(event))
+                        else:
+                            completed = not failed
+                    except BaseException as exc:
+                        publish(exc)
+                    finally:
+                        close = getattr(events, "close", None)
+                        if callable(close):
+                            close()
+
+                        if not completed and turn_snapshot is not None:
+                            try:
+                                checkpointer.restore_thread(thread_id, turn_snapshot)
+                            except Exception:
+                                logger.exception(
+                                    "Could not roll back cancelled chat turn for %s",
+                                    thread_id,
+                                )
+
+                        if completed:
+                            try:
+                                snapshot = session.graph.get_state(config)
+                                values = getattr(snapshot, "values", {}) or {}
+                                _sync_graph_owned_web_sources(
+                                    session=session,
+                                    values=values,
+                                    sessions=sessions,
+                                )
+                            except Exception as exc:
+                                logger.debug(
+                                    "Could not synchronize graph-owned web sources for %s: %s",
+                                    session.thread_id,
+                                    exc,
+                                )
+                            try:
+                                after_turn(
+                                    getattr(
+                                        fastapi_request.app.state,
+                                        "extraction_runtime",
+                                        None,
+                                    ),
+                                    thread_id=thread_id,
+                                )
+                            except Exception:
+                                logger.debug(
+                                    "memory extraction after-turn hook failed",
+                                    exc_info=True,
+                                )
+                        publish(producer_done)
+
+            worker = asyncio.create_task(asyncio.to_thread(produce_events))
+            try:
+                while True:
+                    item = await queue.get()
+                    if item is producer_done:
+                        break
+                    if isinstance(item, BaseException):
+                        raise item
+                    if isinstance(item, str):
+                        yield item
+            finally:
+                stop_requested.set()
+                try:
+                    await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    # Finish rollback even though the HTTP response task was
+                    # cancelled by the browser disconnect or server shutdown.
+                    await worker
+                    raise
 
         return StreamingResponse(event_iter(), media_type="text/event-stream")
 

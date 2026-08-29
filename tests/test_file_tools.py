@@ -8,6 +8,7 @@ import openpyxl
 from src.config import Settings
 from src.tools import (
     build_excel_tool,
+    build_markdown_file_tool,
     build_pdf_tool,
     build_text_file_tool,
     build_word_tool,
@@ -67,6 +68,29 @@ def test_text_tool_truncates_to_max_chars(tmp_path):
     result = tool.invoke({"path": "big.txt", "max_chars": 100})
 
     assert "showing first 100" in result
+
+
+def test_markdown_tool_reads_file(tmp_path):
+    target = tmp_path / "note.md"
+    target.write_text("# Title\n\nsome markdown\n", encoding="utf-8")
+
+    tool = build_markdown_file_tool(_settings(tmp_path))
+    result = tool.invoke({"path": "note.md"})
+
+    assert "Contents of note.md" in result
+    assert "# Title" in result
+    assert "some markdown" in result
+
+
+def test_markdown_tool_rejects_non_md_suffix(tmp_path):
+    target = tmp_path / "note.txt"
+    target.write_text("nope", encoding="utf-8")
+
+    tool = build_markdown_file_tool(_settings(tmp_path))
+    result = tool.invoke({"path": "note.txt"})
+
+    assert "Could not read Markdown file" in result
+    assert "unsupported file type" in result
 
 
 def test_text_tool_blocks_path_traversal(tmp_path):

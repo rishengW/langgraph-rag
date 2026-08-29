@@ -596,6 +596,7 @@ def _resolve_tools(
         tools.append(tool_module.build_summarize_url_tool(settings))
     if settings.file_read_enabled:
         tools.append(tool_module.build_text_file_tool(settings))
+        tools.append(tool_module.build_markdown_file_tool(settings))
         tools.append(tool_module.build_word_tool(settings))
         tools.append(tool_module.build_excel_tool(settings))
         tools.append(tool_module.build_pdf_tool(settings))
@@ -611,6 +612,13 @@ def _resolve_tools(
     )
     tools.extend(
         tool_module.build_text_edit_tools(
+            settings,
+            session_root=session_root,
+            thread_id=thread_id,
+        )
+    )
+    tools.extend(
+        tool_module.build_markdown_edit_tools(
             settings,
             session_root=session_root,
             thread_id=thread_id,
@@ -682,6 +690,7 @@ def _resolve_lightweight_tools(
         tools.append(tool_module.build_summarize_url_tool(settings))
     if settings.file_read_enabled:
         tools.append(tool_module.build_text_file_tool(settings))
+        tools.append(tool_module.build_markdown_file_tool(settings))
         tools.append(tool_module.build_word_tool(settings))
         tools.append(tool_module.build_excel_tool(settings))
         tools.append(tool_module.build_pdf_tool(settings))
@@ -696,6 +705,13 @@ def _resolve_lightweight_tools(
     )
     tools.extend(
         tool_module.build_text_edit_tools(
+            settings,
+            session_root=session_root,
+            thread_id=thread_id,
+        )
+    )
+    tools.extend(
+        tool_module.build_markdown_edit_tools(
             settings,
             session_root=session_root,
             thread_id=thread_id,

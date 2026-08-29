@@ -54,7 +54,16 @@ from .text_edit import (
     build_text_edit_tools,
     create_text_file,
 )
+from .markdown_edit import (
+    MarkdownCreateInput,
+    MarkdownEditInput,
+    MarkdownEditOperation,
+    MarkdownInspectInput,
+    build_markdown_edit_tools,
+    create_markdown_file,
+)
 from .text_file import TextFileInput, build_text_file_tool
+from .markdown_file import MarkdownFileInput, build_markdown_file_tool
 from .weather import WeatherInput, build_weather_tool
 from .web_search import (
     WebSearchDiscovery,
@@ -106,6 +115,11 @@ __all__ = [
     "TextEditOperation",
     "TextInspectInput",
     "TextFileInput",
+    "MarkdownFileInput",
+    "MarkdownCreateInput",
+    "MarkdownEditInput",
+    "MarkdownEditOperation",
+    "MarkdownInspectInput",
     "WeatherInput",
     "WebSearchDiscovery",
     "WebSearchInput",
@@ -136,11 +150,14 @@ __all__ = [
     "build_stock_tool",
     "build_summarize_url_tool",
     "build_text_edit_tools",
+    "build_markdown_edit_tools",
     "create_text_file",
+    "create_markdown_file",
     "create_excel_spreadsheet",
     "edit_excel",
     "inspect_excel",
     "build_text_file_tool",
+    "build_markdown_file_tool",
     "build_weather_tool",
     "build_web_search_tool",
     "format_web_search_results",

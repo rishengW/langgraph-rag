@@ -95,6 +95,9 @@ excel_edit_enabled: false
 # Plain-text .txt creation and editing. Needs file_read_enabled too; writes
 # session-scoped .txt files and never overwrites an existing file.
 text_edit_enabled: false
+# Markdown .md creation and editing. Needs file_read_enabled too; same
+# session-scoped, never-overwrite model as the .txt editor.
+markdown_edit_enabled: false
 # Chat-agent long-term memory. Off by default; the store file is git-ignored.
 memory_enabled: false
 # Blank means memory/long_term_memory.json relative to the working directory.

@@ -9,13 +9,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from ..security import ResourceOwner
 from .storage import SessionMetadata, SessionStorageError
 
 
 class SQLiteStorage:
     """SQLite-backed storage for chat session metadata."""
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, database_path: str | Path) -> None:
         self._path = Path(database_path)
@@ -36,11 +37,14 @@ class SQLiteStorage:
             connection.execute(
                 """
                 INSERT INTO sessions (
-                    thread_id, source_urls, source_mode, config, created_at,
+                    thread_id, owner_principal_id, owner_tenant_id,
+                    source_urls, source_mode, config, created_at,
                     last_accessed_at, chroma_dir, isolated_chroma
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(thread_id) DO UPDATE SET
+                    owner_principal_id=excluded.owner_principal_id,
+                    owner_tenant_id=excluded.owner_tenant_id,
                     source_urls=excluded.source_urls,
                     source_mode=excluded.source_mode,
                     config=excluded.config,
@@ -115,6 +119,8 @@ class SQLiteStorage:
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
                     thread_id TEXT PRIMARY KEY,
+                    owner_principal_id TEXT,
+                    owner_tenant_id TEXT,
                     source_urls TEXT NOT NULL,
                     source_mode TEXT NOT NULL,
                     config TEXT NOT NULL,
@@ -125,6 +131,13 @@ class SQLiteStorage:
                 )
                 """
             )
+            columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            if "owner_principal_id" not in columns:
+                connection.execute("ALTER TABLE sessions ADD COLUMN owner_principal_id TEXT")
+            if "owner_tenant_id" not in columns:
+                connection.execute("ALTER TABLE sessions ADD COLUMN owner_tenant_id TEXT")
             connection.execute(
                 """
                 INSERT INTO schema_version (id, version)
@@ -138,6 +151,8 @@ class SQLiteStorage:
 def _metadata_to_row(metadata: SessionMetadata) -> tuple[Any, ...]:
     return (
         metadata.thread_id,
+        metadata.owner.principal_id if metadata.owner is not None else None,
+        metadata.owner.tenant_id if metadata.owner is not None else None,
         json.dumps(list(metadata.source_urls), ensure_ascii=True),
         metadata.source_mode,
         json.dumps(dict(metadata.config), ensure_ascii=True, sort_keys=True),
@@ -149,8 +164,17 @@ def _metadata_to_row(metadata: SessionMetadata) -> tuple[Any, ...]:
 
 
 def _row_to_metadata(row: sqlite3.Row) -> SessionMetadata:
+    owner_principal_id = _optional_str(row["owner_principal_id"])
     return SessionMetadata(
         thread_id=str(row["thread_id"]),
+        owner=(
+            None
+            if owner_principal_id is None
+            else ResourceOwner(
+                principal_id=owner_principal_id,
+                tenant_id=_optional_str(row["owner_tenant_id"]),
+            )
+        ),
         source_urls=_decode_urls(str(row["source_urls"]), str(row["thread_id"])),
         source_mode=str(row["source_mode"]),
         created_at=float(row["created_at"]),

@@ -30,8 +30,15 @@ def test_qa_api_key_auth_is_optional_until_configured(monkeypatch, isolated_sett
 
     app = qa_api.create_app()
     with TestClient(app) as client:
-        assert client.get("/health").status_code == 200
-        assert client.get("/ready").json()["status"] == "ready"
+        assert client.get("/health").json() == {"status": "ok"}
+        assert client.get("/ready").json() == {"status": "ready"}
+        assert client.get("/admin/health/dependencies").status_code == 401
+        dependency_health = client.get(
+            "/admin/health/dependencies",
+            headers={"Authorization": "Bearer secret-token"},
+        )
+        assert dependency_health.status_code == 200
+        assert dependency_health.json()["dependencies"]["graph"] == "ready"
 
         missing = client.post("/query", json={"question": "Hello"})
         invalid = client.post(
@@ -47,13 +54,20 @@ def test_qa_api_key_auth_is_optional_until_configured(monkeypatch, isolated_sett
 
         app.state.qa_graph = None
         not_ready = client.get("/ready")
+        unavailable_dependencies = client.get(
+            "/admin/health/dependencies",
+            headers={"Authorization": "Bearer secret-token"},
+        )
 
     assert missing.status_code == 401
     assert invalid.status_code == 401
     assert allowed.status_code == 200
     assert allowed.json()["answer"] == "secured answer"
     assert not_ready.status_code == 503
-    assert not_ready.json()["checks"]["graph_ready"] is False
+    assert not_ready.json() == {"status": "not_ready"}
+    assert "dependencies" not in not_ready.json()
+    assert unavailable_dependencies.status_code == 503
+    assert unavailable_dependencies.json()["dependencies"]["graph"] == "not_ready"
 
 
 def test_chat_mutations_require_api_key_when_configured(monkeypatch, isolated_settings):
@@ -64,8 +78,15 @@ def test_chat_mutations_require_api_key_when_configured(monkeypatch, isolated_se
 
     app = chat_api.create_app()
     with TestClient(app) as client:
-        assert client.get("/health").status_code == 200
-        assert client.get("/ready").json()["status"] == "ready"
+        assert client.get("/health").json() == {"status": "ok"}
+        assert client.get("/ready").json() == {"status": "ready"}
+        assert client.get("/admin/health/dependencies").status_code == 401
+        dependencies = client.get(
+            "/admin/health/dependencies",
+            headers={"Authorization": "Bearer chat-secret"},
+        )
+        assert dependencies.status_code == 200
+        assert dependencies.json()["dependencies"]["session_registry"] == "ready"
 
         missing = client.post("/chat", json={"web_search": False})
         allowed = client.post(
@@ -97,9 +118,11 @@ def test_api_key_auth_is_disabled_when_unset(monkeypatch, isolated_settings):
             "/query",
             json={"question": "Hello", "web_search": False},
         )
+        admin_health = client.get("/admin/health/dependencies")
 
     assert response.status_code == 200
     assert response.json()["answer"] == "local answer"
+    assert admin_health.status_code == 404
 
 
 def test_configured_cors_origins_are_applied(

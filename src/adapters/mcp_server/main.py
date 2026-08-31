@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from uuid import uuid4
 
+from .audit import AuditEvent, emit_audit
 from .config import load_mcp_settings
 from .lifecycle import initialize_runtime
 from .transport import run_selected_transport
@@ -34,9 +36,17 @@ def main() -> int:
         asyncio.run(_run())
     except KeyboardInterrupt:
         return 130
-    except Exception as exc:
-        logging.getLogger(__name__).error(
-            "Inbound MCP startup failed error_type=%s", type(exc).__name__
+    except Exception:
+        emit_audit(
+            AuditEvent(
+                request_id=uuid4().hex,
+                principal_id="server",
+                tool="startup",
+                outcome="failed",
+                duration_ms=0,
+                signal="lifecycle",
+                transport="internal",
+            )
         )
         return 1
     return 0

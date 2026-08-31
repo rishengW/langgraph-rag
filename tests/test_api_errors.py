@@ -64,6 +64,6 @@ def test_chat_unknown_thread_uses_typed_not_found_response() -> None:
     assert response.json() == {
         "detail": {
             "code": "RESOURCE_NOT_FOUND",
-            "message": "Unknown chat thread 'missing-thread'",
+            "message": "Resource not found.",
         },
     }

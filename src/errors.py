@@ -52,9 +52,18 @@ class AllSourcesFailedError(RAGError):
 
 
 class ResourceNotFoundError(RAGError):
-    """Raised when a requested API resource does not exist."""
+    """Raised when a requested API resource does not exist or is not authorized."""
 
     code = "RESOURCE_NOT_FOUND"
+
+
+class QuotaExceededError(RAGError):
+    """Raised when a trusted principal or tenant exceeds a configured quota."""
+
+    code = "QUOTA_EXCEEDED"
+
+    def __init__(self) -> None:
+        super().__init__("Request quota exceeded.")
 
 
 __all__ = [
@@ -62,6 +71,7 @@ __all__ = [
     "ConfigurationError",
     "DocumentLoadError",
     "LLMUnavailableError",
+    "QuotaExceededError",
     "RAGError",
     "ResourceNotFoundError",
     "RetrieverError",

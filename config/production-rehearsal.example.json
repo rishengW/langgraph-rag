@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "release_id": "replace-with-release-id",
+  "environment": "production",
+  "operator_ref": "replace-with-operator-reference",
+  "image_digest": "sha256:replace-with-64-lowercase-hex-characters",
+  "rollback_image_digest": "sha256:replace-with-distinct-64-lowercase-hex-characters",
+  "topology": {
+    "workers": 1,
+    "replicas": 1
+  },
+  "state_volume_ref": "replace-with-non-secret-volume-reference",
+  "secret_references": [
+    {
+      "provider": "env",
+      "identifier": "API_KEY"
+    },
+    {
+      "provider": "env",
+      "identifier": "MCP_API_KEY"
+    }
+  ],
+  "backup_restore": {
+    "artifact_ref": "replace-with-restricted-backup-reference",
+    "backup_sha256": "replace-with-64-lowercase-hex-characters",
+    "restore_sha256": "replace-with-the-same-64-lowercase-hex-characters",
+    "writers_quiesced": true,
+    "isolated_restore": true
+  },
+  "drills": [
+    {
+      "scenario": "deployment",
+      "passed": true,
+      "evidence_ref": "replace-with-deployment-evidence-reference",
+      "completed_at": "replace-with-UTC-ISO-8601-timestamp"
+    },
+    {
+      "scenario": "rollback",
+      "passed": true,
+      "evidence_ref": "replace-with-rollback-evidence-reference",
+      "completed_at": "replace-with-UTC-ISO-8601-timestamp"
+    },
+    {
+      "scenario": "backup",
+      "passed": true,
+      "evidence_ref": "replace-with-backup-evidence-reference",
+      "completed_at": "replace-with-UTC-ISO-8601-timestamp"
+    },
+    {
+      "scenario": "restore",
+      "passed": true,
+      "evidence_ref": "replace-with-restore-evidence-reference",
+      "completed_at": "replace-with-UTC-ISO-8601-timestamp"
+    },
+    {
+      "scenario": "key_rotation",
+      "passed": true,
+      "evidence_ref": "replace-with-key-rotation-evidence-reference",
+      "completed_at": "replace-with-UTC-ISO-8601-timestamp"
+    },
+    {
+      "scenario": "mcp_outage",
+      "passed": true,
+      "evidence_ref": "replace-with-mcp-outage-evidence-reference",
+      "completed_at": "replace-with-UTC-ISO-8601-timestamp"
+    },
+    {
+      "scenario": "restart_recovery",
+      "passed": true,
+      "evidence_ref": "replace-with-restart-recovery-evidence-reference",
+      "completed_at": "replace-with-UTC-ISO-8601-timestamp"
+    },
+    {
+      "scenario": "incident_response",
+      "passed": true,
+      "evidence_ref": "replace-with-incident-evidence-reference",
+      "completed_at": "replace-with-UTC-ISO-8601-timestamp"
+    }
+  ]
+}

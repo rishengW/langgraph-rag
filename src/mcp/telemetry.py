@@ -17,6 +17,9 @@ ToolOutcome = Literal[
     "cancelled",
     "failed",
 ]
+_VALID_TOOL_OUTCOMES = frozenset(
+    {"success", "denied", "invalid", "limited", "timeout", "cancelled", "failed"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,16 +35,30 @@ class ToolAuditEvent:
     tenant_id: str | None = None
 
     def __post_init__(self) -> None:
-        for value in (
+        fields = (
             self.tool,
             self.outcome,
             self.source_server or "",
             self.principal_id,
             self.tenant_id or "",
+        )
+        if any(
+            not isinstance(value, str)
+            or len(value) > 128
+            or any(ord(char) < 32 or ord(char) == 127 for char in value)
+            for value in fields
         ):
-            if len(value) > 128 or any(ord(char) < 32 for char in value):
-                raise ValueError("Invalid bounded tool audit field")
-        if self.generation < 1 or not 0 <= self.duration_ms <= 86_400_000:
+            raise ValueError("Invalid bounded tool audit field")
+        if self.outcome not in _VALID_TOOL_OUTCOMES:
+            raise ValueError("Invalid tool audit outcome")
+        if (
+            isinstance(self.generation, bool)
+            or not isinstance(self.generation, int)
+            or self.generation < 1
+            or isinstance(self.duration_ms, bool)
+            or not isinstance(self.duration_ms, int)
+            or not 0 <= self.duration_ms <= 86_400_000
+        ):
             raise ValueError("Invalid tool audit generation or duration")
 
 

@@ -174,6 +174,9 @@ Key settings:
 | `TEXT_EDIT_ENABLED` | `false` | Plain-text .txt creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `MARKDOWN_EDIT_ENABLED` | `false` | Markdown .md creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `CHROMA_DIR` | `.chroma` | Vector store location |
+| `RAG_ENV` | `development` | Runtime environment; `production` activates fail-closed deployment topology checks |
+| `RAG_WORKER_COUNT` | `1` | Declared production worker count; must remain `1` while local state or locks are authoritative |
+| `RAG_REPLICA_COUNT` | `1` | Declared production replica count; must remain `1` while local state or locks are authoritative |
 | `API_KEY` | — | API auth key for mutation endpoints via `Authorization: Bearer`; open when unset |
 | `API_HOST` | `127.0.0.1` | Bind address for the QA and Chat servers |
 | `API_PORT` | `8000` | Listen port for the QA and Chat servers |
@@ -370,8 +373,9 @@ API endpoints:
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/` | Browser UI |
-| `GET` | `/health` | Liveness probe |
-| `GET` | `/ready` | Readiness with app-state checks |
+| `GET` | `/health` | Public dependency-free liveness probe |
+| `GET` | `/ready` | Public bounded readiness status |
+| `GET` | `/admin/health/dependencies` | API-key-protected dependency diagnostics |
 | `GET` | `/metrics` | In-process graph metrics |
 | `POST` | `/query` | Non-streaming answer |
 | `POST` | `/query/stream` | SSE graph event stream |
@@ -398,8 +402,9 @@ API endpoints:
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/` | Browser UI |
-| `GET` | `/health` | Liveness probe |
-| `GET` | `/ready` | Readiness with session-registry checks |
+| `GET` | `/health` | Public dependency-free liveness probe |
+| `GET` | `/ready` | Public bounded readiness status |
+| `GET` | `/admin/health/dependencies` | API-key-protected dependency diagnostics |
 | `GET` | `/metrics` | In-process graph metrics |
 | `POST` | `/chat` | Create a thread |
 | `POST` | `/chat/{id}/message` | Send a turn |
@@ -599,9 +604,9 @@ Local development is open when `API_KEY` is unset. When set, mutation endpoints 
 Authorization: Bearer <API_KEY>
 ```
 
-Protected endpoints: `POST /query`, `POST /query/stream`, `POST /chat`, `POST /chat/{id}/message`, `POST /chat/{id}/message/stream`, `DELETE /chat/{id}`.
+Protected endpoints: `POST /query`, `POST /query/stream`, `POST /chat`, `POST /chat/{id}/message`, `POST /chat/{id}/message/stream`, `DELETE /chat/{id}`, and `GET /admin/health/dependencies`. The administrative health route is hidden with `404` when no API key is configured.
 
-CORS is configured via `cors_allow_origins` in YAML or `CORS_ALLOW_ORIGINS` env var. Health, readiness, metrics, and read-only endpoints remain available for platform checks.
+CORS is configured via `cors_allow_origins` in YAML or `CORS_ALLOW_ORIGINS` env var. Public liveness and readiness expose only bounded status; dependency names and states are available only through the authenticated administrative route.
 
 ## Docker
 

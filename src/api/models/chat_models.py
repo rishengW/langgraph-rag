@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class StartChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     urls: str | list[str] | None = Field(
         None,
         description=(
@@ -39,6 +41,8 @@ class StartChatResponse(BaseModel):
 
 
 class MessageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     message: str = Field(..., min_length=1)
 
 

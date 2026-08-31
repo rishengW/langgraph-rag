@@ -28,7 +28,7 @@ Tasks are ordered by production-refactor phase. Checked items are implemented in
     - Run Ruff, strict mypy, compileall, and available pytest coverage.
     - _Requirements: 12.5, 12.6_
 
-- [ ] 2. Extract transport-neutral application services (Phase 1)
+- [x] 2. Extract transport-neutral application services (Phase 1)
   - [x] 2.1 Define stable QA application contracts and sanitized errors
     - Add `RagRequest`, `RagAnswer`, `SourceReference`, and public/internal error separation under `src/application/`.
     - _Requirements: 7.1, 7.2, 7.3, 12.1, 12.2, 12.4_
@@ -68,44 +68,44 @@ Tasks are ordered by production-refactor phase. Checked items are implemented in
     - Test both transports, auth combinations, schema bounds, atomic startup, timeout/cancellation, shutdown, and secret non-disclosure.
     - _Requirements: 2.1, 2.7, 3.1, 3.3, 8.1, 8.2, 10.1, 10.2, 10.3_
 
-- [ ] 4. Add immutable tool catalog and policy boundary (Phase 3)
-  - [ ] 4.1 Publish immutable validated catalog generations
+- [x] 4. Add immutable tool catalog and policy boundary (Phase 3)
+  - [x] 4.1 Publish immutable validated catalog generations
     - Validate names, collisions, schema limits, risk metadata, and model/dispatcher consistency before atomic publication.
     - _Requirements: 6.1, 6.2, 8.1, 8.4, 8.5_
-  - [ ] 4.2 Centralize authorization and execution policy
+  - [x] 4.2 Centralize authorization and execution policy
     - Implement authorize, validate, limit, invoke, bound, redact, audit, and outcome recording.
     - _Requirements: 4.1, 4.3, 4.4, 4.5, 5.1, 5.5, 7.4_
 
-- [ ] 5. Add optional outbound MCP clients (Phase 4)
-  - [ ] 5.1 Introduce outbound configuration only after separate approval
+- [x] 5. Add optional outbound MCP clients (Phase 4)
+  - [x] 5.1 Introduce outbound configuration only after separate approval
     - Keep lifecycle/configuration separate and resolve only Secret_References.
     - _Requirements: 1.1, 1.4, 9.1, 9.2_
-  - [ ] 5.2 Implement required/optional provider publication semantics
+  - [x] 5.2 Implement required/optional provider publication semantics
     - Fail required dependencies atomically, quarantine optional failures, and expose degraded readiness.
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
-  - [ ] 5.3 Enforce outbound endpoint and process restrictions
+  - [x] 5.3 Enforce outbound endpoint and process restrictions
     - Apply HTTPS endpoint policy, SSRF/redirect controls, executable allowlists, bounded invocation, reconnect, and clean shutdown.
     - _Requirements: 6.3, 6.4, 6.5, 6.6, 6.7, 9.4, 9.5, 10.3, 10.4_
 
-- [ ] 6. Add production identity, persistence, and scale controls (Phase 5)
-  - [ ] 6.1 Implement principal/tenant ownership and quotas
+- [x] 6. Add production identity, persistence, and scale controls (Phase 5)
+  - [x] 6.1 Implement principal/tenant ownership and quotas
     - Cover every session, upload, artifact, checkpoint, and stream operation.
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 5.1_
-  - [ ] 6.2 Enforce single-instance deployment capabilities
+  - [x] 6.2 Enforce single-instance deployment capabilities
     - Reject replicas/workers above one while local authoritative stores or locks remain.
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.6_
-  - [ ] 6.3 Gate multi-replica support on shared-state prerequisites
+  - [x] 6.3 Gate multi-replica support on shared-state prerequisites
     - Add shared transactional persistence, migrations, distributed locks, object storage, server vector store, shared quotas/catalog state, and tenant IDs.
     - _Requirements: 11.4, 11.5_
 
-- [ ] 7. Complete observability and operations (Phase 6)
-  - [ ] 7.1 Export bounded structured logs, metrics, traces, and audit events
+- [x] 7. Complete observability and operations (Phase 6)
+  - [x] 7.1 Export bounded structured logs, metrics, traces, and audit events
     - Preserve redaction and bounded cardinality across all transports and tools.
     - _Requirements: 5.6, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 9.3_
-  - [ ] 7.2 Complete lifecycle and dependency health operations
+  - [x] 7.2 Complete lifecycle and dependency health operations
     - Add public liveness/readiness, restricted dependency health, bounded draining, and replacement cleanup.
     - _Requirements: 8.6, 10.1, 10.2, 10.3, 10.4, 10.5_
-  - [ ] 7.3 Rehearse production runbooks and release gates
+  - [x] 7.3 Rehearse production runbooks and release gates
     - Test deployment, rollback, backup, restore, key rotation, MCP outage, restart recovery, and incident procedures.
     - _Requirements: 9.1, 9.2, 11.2, 11.3, 11.4, 11.5, 11.6_
 

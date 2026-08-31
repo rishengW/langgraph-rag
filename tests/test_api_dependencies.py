@@ -69,7 +69,7 @@ def test_qa_app_uses_app_state_and_promotes_rebuilt_graph(monkeypatch, isolated_
 
     app = qa_api.create_app()
     with TestClient(app) as client:
-        assert client.get("/health").json() == {"status": "ok", "graph_ready": True}
+        assert client.get("/health").json() == {"status": "ok"}
         response = client.post(
             "/query",
             json={
@@ -145,9 +145,7 @@ def test_qa_web_search_uses_lightweight_graph(monkeypatch, isolated_settings):
     assert built_graphs == [
         {"kind": "heavy", "source_urls": ["https://initial.test"], "rebuild_vectorstore": False}
     ]
-    assert lightweight_graphs == [
-        {"kind": "lightweight", "source_urls": ["https://search.test"]}
-    ]
+    assert lightweight_graphs == [{"kind": "lightweight", "source_urls": ["https://search.test"]}]
     assert run_calls[0]["graph"] is lightweight_graphs[0]
     assert run_calls[0]["rebuild_vectorstore"] is False
 
@@ -185,7 +183,8 @@ def test_chat_app_uses_app_state_session_registry(monkeypatch, isolated_settings
         thread_id = start.json()["thread_id"]
 
         health = client.get("/health")
-        assert health.json()["sessions"] == 1
+        assert health.json() == {"status": "ok"}
+        assert len(app.state.session_registry) == 1
 
         message = client.post(f"/chat/{thread_id}/message", json={"message": "Hello"})
         assert message.status_code == 200
@@ -205,7 +204,8 @@ def test_chat_app_uses_app_state_session_registry(monkeypatch, isolated_settings
 
         deleted = client.delete(f"/chat/{thread_id}")
         assert deleted.json() == {"status": "deleted", "thread_id": thread_id}
-        assert client.get("/health").json()["sessions"] == 0
+        assert client.get("/health").json() == {"status": "ok"}
+        assert len(app.state.session_registry) == 0
 
     assert len(built) == 1
     session_settings, rebuild = built[0]
@@ -256,9 +256,7 @@ def test_chat_graph_factory_receives_session_word_edit_scope(
     assert response.status_code == 200
     thread_id = response.json()["thread_id"]
     assert captured["thread_id"] == thread_id
-    assert captured["session_root"] == (
-        Path(settings.file_read_root) / "chat_uploads" / thread_id
-    )
+    assert captured["session_root"] == (Path(settings.file_read_root) / "chat_uploads" / thread_id)
 
 
 def test_chat_web_search_ignores_request_toggle_and_refreshes_turns(

@@ -26,6 +26,13 @@ from mcp_types import (
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...application import RagAnswer, RagApplicationError, RagRequest
+from ...mcp import (
+    MCPObservability,
+    ToolPrincipal,
+    reset_tool_principal,
+    set_tool_principal,
+)
+from ...mcp.observability import ObservationOutcome, ObservationTransport
 from .audit import AuditEvent, emit_audit
 from .auth import current_principal_id
 from .config import MCPSettings
@@ -75,6 +82,19 @@ class PublicToolFailure(Exception):
 class SafeMCPServer(MCPServer[Any]):
     """MCPServer that sanitizes SDK validation and unexpected tool failures."""
 
+    _observability: MCPObservability | None = None
+    _observation_settings: MCPSettings | None = None
+
+    def configure_observability(
+        self,
+        observability: MCPObservability,
+        settings: MCPSettings,
+    ) -> None:
+        """Attach the already-initialized exporter without altering SDK construction."""
+
+        self._observability = observability
+        self._observation_settings = settings
+
     async def _handle_call_tool(
         self,
         ctx: ServerRequestContext[Any],
@@ -90,6 +110,7 @@ class SafeMCPServer(MCPServer[Any]):
             return await self.call_tool(params.name, params.arguments or {}, context)
         except Exception as exc:
             public = _find_public_failure(exc)
+            adapter_recorded = public is not None
             if public is None:
                 public = PublicToolFailure(
                     "INVALID_REQUEST" if isinstance(exc, ToolError) else "INTERNAL_ERROR",
@@ -97,6 +118,25 @@ class SafeMCPServer(MCPServer[Any]):
                     if isinstance(exc, ToolError)
                     else "The tool could not be completed.",
                     uuid4().hex,
+                )
+            if not adapter_recorded and self._observability is not None:
+                settings = self._observation_settings
+                principal_id = "unknown"
+                transport: ObservationTransport = "internal"
+                if settings is not None:
+                    principal_id = current_principal_id(settings)
+                    transport = settings.transport
+                emit_audit(
+                    AuditEvent(
+                        request_id=public.request_id,
+                        principal_id=_bounded_audit_field(principal_id, fallback="unknown"),
+                        tool=_bounded_audit_field(params.name, fallback="unknown_tool"),
+                        outcome="invalid" if isinstance(exc, ToolError) else "internal_error",
+                        duration_ms=0,
+                        signal="tool_invocation",
+                        transport=transport,
+                    ),
+                    self._observability,
                 )
             return CallToolResult(
                 content=[TextContent(type="text", text=public.wire_text())],
@@ -113,6 +153,13 @@ def _find_public_failure(exc: BaseException) -> PublicToolFailure | None:
             return current
         current = current.__cause__ or current.__context__
     return None
+
+
+def _bounded_audit_field(value: str, *, fallback: str) -> str:
+    bounded = "".join(
+        character if 32 <= ord(character) != 127 else "?" for character in str(value)
+    )[:128]
+    return bounded or fallback
 
 
 class RequestGate:
@@ -177,12 +224,14 @@ class CanonicalToolAdapter:
         settings: MCPSettings,
         url_validator: URLValidator,
         gate: RequestGate,
+        observability: MCPObservability,
         redaction_values: Sequence[str] = (),
     ) -> None:
         self._service = service
         self._settings = settings
         self._url_validator = url_validator
         self._gate = gate
+        self._observability = observability
         self._redaction_values = tuple(value for value in redaction_values if value)
 
     async def ask(
@@ -224,7 +273,10 @@ class CanonicalToolAdapter:
         request_id = uuid4().hex
         started = time.monotonic()
         principal_id = current_principal_id(self._settings)
-        outcome = "internal_error"
+        principal_token = set_tool_principal(
+            ToolPrincipal(principal_id=principal_id, request_id=request_id)
+        )
+        outcome: ObservationOutcome = "internal_error"
         try:
             if not question.strip() or len(question) > self._settings.max_question_chars:
                 raise PublicToolFailure(
@@ -271,8 +323,8 @@ class CanonicalToolAdapter:
             raise PublicToolFailure(
                 "UNSAFE_SOURCE_URL", "One or more source URLs were rejected.", request_id
             ) from None
-        except PublicToolFailure:
-            outcome = "rejected"
+        except PublicToolFailure as exc:
+            outcome = "limited" if exc.code == "RATE_LIMITED" else "rejected"
             raise
         except RagApplicationError:
             outcome = "upstream_failure"
@@ -285,6 +337,7 @@ class CanonicalToolAdapter:
                 "INTERNAL_ERROR", "The tool could not be completed.", request_id
             ) from None
         finally:
+            reset_tool_principal(principal_token)
             emit_audit(
                 AuditEvent(
                     request_id=request_id,
@@ -292,7 +345,10 @@ class CanonicalToolAdapter:
                     tool=tool,
                     outcome=outcome,
                     duration_ms=min(86_400_000, int((time.monotonic() - started) * 1000)),
-                )
+                    signal=("limit_rejection" if outcome == "limited" else "tool_invocation"),
+                    transport=self._settings.transport,
+                ),
+                self._observability,
             )
 
     def _bounded_result(self, answer: Any, *, require_web_search: bool) -> MCPToolResult:
@@ -453,6 +509,7 @@ def create_mcp_server(
     settings: MCPSettings,
     url_validator: URLValidator | None = None,
     gate: RequestGate | None = None,
+    observability: MCPObservability | None = None,
     redaction_values: Sequence[str] = (),
     auth_settings: Any = None,
     token_verifier: Any = None,
@@ -460,11 +517,15 @@ def create_mcp_server(
     """Atomically construct a ready server containing exactly two tools."""
 
     resolved_gate = gate or RequestGate(settings)
+    if observability is not None and not isinstance(observability, MCPObservability):
+        raise TypeError("Inbound MCP observability must be MCPObservability")
+    resolved_observability = observability or MCPObservability(redaction_values=redaction_values)
     adapter = CanonicalToolAdapter(
         service=service,
         settings=settings,
         url_validator=url_validator or URLValidator(),
         gate=resolved_gate,
+        observability=resolved_observability,
         redaction_values=redaction_values,
     )
     tools = list(build_canonical_tools(adapter))
@@ -478,6 +539,7 @@ def create_mcp_server(
         auth=auth_settings,
         token_verifier=token_verifier,
     )
+    server.configure_observability(resolved_observability, settings)
     return server, resolved_gate
 
 

@@ -13,6 +13,9 @@ from typing import Any, cast
 
 from langgraph.checkpoint.memory import MemorySaver
 
+from ..errors import ResourceNotFoundError
+from ..security import ResourceOwner
+
 
 class SQLiteMemorySaver(MemorySaver):
     """Persist LangGraph ``MemorySaver`` checkpoint maps to SQLite.
@@ -22,8 +25,14 @@ class SQLiteMemorySaver(MemorySaver):
     checkpoint bytes in a local SQLite row after each write.
     """
 
-    def __init__(self, database_path: str | Path) -> None:
+    def __init__(
+        self,
+        database_path: str | Path,
+        *,
+        enforce_ownership: bool = False,
+    ) -> None:
         self._path = Path(database_path)
+        self._enforce_ownership = enforce_ownership
         # REFACTOR: Use a reentrant lock so the inherited ``super().put`` /
         # ``super().put_writes`` mutations and our ``_persist_state`` snapshot
         # happen under the same critical section. The previous scope left
@@ -41,6 +50,47 @@ class SQLiteMemorySaver(MemorySaver):
 
         return self._path
 
+    @property
+    def ownership_enforced(self) -> bool:
+        """Return whether protected checkpoint operations require an owner."""
+
+        return self._enforce_ownership
+
+    def register_owner(self, thread_id: str, owner: ResourceOwner) -> None:
+        """Atomically record one checkpoint thread's immutable owner."""
+
+        if not isinstance(owner, ResourceOwner):
+            raise TypeError("Checkpoint owner must be a ResourceOwner")
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT principal_id, tenant_id FROM checkpoint_owners WHERE thread_id = ?",
+                (thread_id,),
+            ).fetchone()
+            if row is not None:
+                existing = ResourceOwner(principal_id=str(row[0]), tenant_id=row[1])
+                if existing != owner:
+                    raise ResourceNotFoundError("Resource not found.")
+                return
+            connection.execute(
+                """
+                INSERT INTO checkpoint_owners (thread_id, principal_id, tenant_id)
+                VALUES (?, ?, ?)
+                """,
+                (thread_id, owner.principal_id, owner.tenant_id),
+            )
+
+    def owner_for_thread(self, thread_id: str) -> ResourceOwner | None:
+        """Return internal owner metadata without authorizing a caller."""
+
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT principal_id, tenant_id FROM checkpoint_owners WHERE thread_id = ?",
+                (thread_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return ResourceOwner(principal_id=str(row[0]), tenant_id=row[1])
+
     def put(
         self,
         config: Any,
@@ -56,6 +106,7 @@ class SQLiteMemorySaver(MemorySaver):
         ``self.writes`` / ``self.storage`` dicts.
         """
 
+        self._require_registered_config(config)
         with self._lock:
             result = super().put(config, checkpoint, metadata, new_versions)
             self._persist_state()
@@ -75,6 +126,7 @@ class SQLiteMemorySaver(MemorySaver):
         reason as :meth:`put`.
         """
 
+        self._require_registered_config(config)
         with self._lock:
             super().put_writes(config, writes, task_id, task_path)
             self._persist_state()
@@ -82,6 +134,15 @@ class SQLiteMemorySaver(MemorySaver):
     def _ensure_database(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS checkpoint_owners (
+                    thread_id TEXT PRIMARY KEY,
+                    principal_id TEXT NOT NULL,
+                    tenant_id TEXT
+                )
+                """
+            )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS checkpoint_state (
@@ -134,18 +195,21 @@ class SQLiteMemorySaver(MemorySaver):
                 (payload,),
             )
 
-    def snapshot_thread(self, thread_id: str) -> bytes:
-        """Capture an isolated, restorable snapshot of one thread's checkpoints."""
+    def snapshot_thread(
+        self,
+        thread_id: str,
+        *,
+        owner: ResourceOwner | None = None,
+    ) -> bytes:
+        """Capture an authorized, isolated snapshot of one checkpoint thread."""
 
+        self._require_owner(thread_id, owner)
         with self._lock:
             namespaces = self.storage.get(thread_id)
             storage = (
                 None
                 if namespaces is None
-                else {
-                    namespace: dict(checkpoints)
-                    for namespace, checkpoints in namespaces.items()
-                }
+                else {namespace: dict(checkpoints) for namespace, checkpoints in namespaces.items()}
             )
             writes = {
                 key: dict(entries)
@@ -164,19 +228,23 @@ class SQLiteMemorySaver(MemorySaver):
                 protocol=pickle.HIGHEST_PROTOCOL,
             )
 
-    def restore_thread(self, thread_id: str, snapshot: bytes) -> None:
-        """Restore one thread without disturbing checkpoints owned by other chats."""
+    def restore_thread(
+        self,
+        thread_id: str,
+        snapshot: bytes,
+        *,
+        owner: ResourceOwner | None = None,
+    ) -> None:
+        """Restore one authorized thread without disturbing other checkpoints."""
 
+        self._require_owner(thread_id, owner)
         state = pickle.loads(snapshot)
         with self._lock:
             self.storage.pop(thread_id, None)
             storage = state.get("storage")
             if storage is not None:
                 self.storage[thread_id].update(
-                    {
-                        namespace: dict(checkpoints)
-                        for namespace, checkpoints in storage.items()
-                    }
+                    {namespace: dict(checkpoints) for namespace, checkpoints in storage.items()}
                 )
 
             for key in list(self.writes):
@@ -194,8 +262,13 @@ class SQLiteMemorySaver(MemorySaver):
 
             self._persist_state()
 
-    def delete_thread(self, thread_id: str) -> None:
-        """Delete one thread's checkpoints and persist the backing store.
+    def delete_thread(
+        self,
+        thread_id: str,
+        *,
+        owner: ResourceOwner | None = None,
+    ) -> None:
+        """Delete one authorized thread's checkpoints and owner metadata.
 
         Thread-safe: the inherited ``MemorySaver.delete_thread`` call (or
         the manual ``self.writes`` / ``self.storage`` pop fallback) and the
@@ -204,6 +277,7 @@ class SQLiteMemorySaver(MemorySaver):
         iteration.
         """
 
+        self._require_owner(thread_id, owner)
         with self._lock:
             if hasattr(super(), "delete_thread"):
                 super().delete_thread(thread_id)
@@ -213,6 +287,26 @@ class SQLiteMemorySaver(MemorySaver):
                     if key[0] == thread_id:
                         self.writes.pop(key, None)
             self._persist_state()
+            with self._connect() as connection:
+                connection.execute(
+                    "DELETE FROM checkpoint_owners WHERE thread_id = ?",
+                    (thread_id,),
+                )
+
+    def _require_registered_config(self, config: Any) -> None:
+        if not self._enforce_ownership:
+            return
+        configurable = config.get("configurable") if isinstance(config, dict) else None
+        thread_id = configurable.get("thread_id") if isinstance(configurable, dict) else None
+        if not isinstance(thread_id, str) or self.owner_for_thread(thread_id) is None:
+            raise ResourceNotFoundError("Resource not found.")
+
+    def _require_owner(self, thread_id: str, owner: ResourceOwner | None) -> None:
+        if not self._enforce_ownership:
+            return
+        expected = self.owner_for_thread(thread_id)
+        if expected is None or owner is None or expected != owner:
+            raise ResourceNotFoundError("Resource not found.")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -242,10 +336,7 @@ def _writes_defaultdict(value: dict[tuple[str, str, str], Any]) -> Any:
 
 def _plain_storage(value: Any) -> dict[str, dict[str, dict[str, Any]]]:
     return {
-        thread_id: {
-            namespace: dict(checkpoints)
-            for namespace, checkpoints in namespaces.items()
-        }
+        thread_id: {namespace: dict(checkpoints) for namespace, checkpoints in namespaces.items()}
         for thread_id, namespaces in value.items()
     }
 

@@ -72,26 +72,19 @@ def bounded_chat_messages(
     turn_limit = max(1, int(max_turns))
     char_limit = max(1, int(max_chars))
     human_indices = [
-        index
-        for index, message in enumerate(values)
-        if _message_role(message) in ("human", "user")
+        index for index, message in enumerate(values) if _message_role(message) in ("human", "user")
     ]
     if not human_indices:
         visible = [message for message in values if _is_chat_context_message(message)]
         return _bounded_messages_without_turns(visible, char_limit)
 
     first_turn_index = human_indices[-min(turn_limit, len(human_indices))]
-    while (
-        first_turn_index > 0
-        and _message_role(values[first_turn_index - 1]) == "system"
-    ):
+    while first_turn_index > 0 and _message_role(values[first_turn_index - 1]) == "system":
         first_turn_index -= 1
     recent = values[first_turn_index:]
 
     latest_human = max(
-        index
-        for index, message in enumerate(recent)
-        if _message_role(message) in ("human", "user")
+        index for index, message in enumerate(recent) if _message_role(message) in ("human", "user")
     )
     current_start = latest_human
     while current_start > 0 and _message_role(recent[current_start - 1]) == "system":
@@ -108,24 +101,15 @@ def bounded_chat_messages(
         max_chars=char_limit,
     )
     selected: dict[int, Any] = {
-        current_start + index: message
-        for index, message in enumerate(bounded_current)
+        current_start + index: message for index, message in enumerate(bounded_current)
     }
-    remaining = char_limit - sum(
-        len(message_text(message)) for message in bounded_current
-    )
+    remaining = char_limit - sum(len(message_text(message)) for message in bounded_current)
 
     # Add older turns only when each complete turn fits, avoiding an orphaned
     # assistant answer at the beginning of the projected conversation.
-    older = [
-        message
-        for message in recent[:current_start]
-        if _is_chat_context_message(message)
-    ]
+    older = [message for message in recent[:current_start] if _is_chat_context_message(message)]
     older_humans = [
-        index
-        for index, message in enumerate(older)
-        if _message_role(message) in ("human", "user")
+        index for index, message in enumerate(older) if _message_role(message) in ("human", "user")
     ]
     turn_starts: list[int] = []
     for human_index in older_humans:
@@ -136,11 +120,7 @@ def bounded_chat_messages(
 
     turn_ranges: list[tuple[int, int]] = []
     for position, start in enumerate(turn_starts):
-        end = (
-            turn_starts[position + 1]
-            if position + 1 < len(turn_starts)
-            else len(older)
-        )
+        end = turn_starts[position + 1] if position + 1 < len(turn_starts) else len(older)
         turn_ranges.append((start, end))
 
     for start, end in reversed(turn_ranges):
@@ -251,7 +231,7 @@ def _truncate_context_text(text: str, max_chars: int) -> str:
         return text[:limit]
     available = limit - len(marker)
     head = (available * 2) // 3
-    return f"{text[:head]}{marker}{text[-(available - head):]}"
+    return f"{text[:head]}{marker}{text[-(available - head) :]}"
 
 
 def _copy_message_with_content(message: Any, content: str) -> Any:
@@ -428,8 +408,7 @@ def _rank_chunks_by_hybrid_score(
     query_tokens: set[str] = _question_tokens(question)
     query_phrases: set[str] = _query_phrases(question)
     lexical_scores = [
-        float(_lexical_relevance_score(query_tokens, query_phrases, chunk))
-        for chunk in chunks
+        float(_lexical_relevance_score(query_tokens, query_phrases, chunk)) for chunk in chunks
     ]
     if settings is None:
         return _rank_chunks_by_scores(lexical_scores, chunks)
@@ -461,13 +440,8 @@ def _embedding_relevance_scores(
     query_vector = embeddings.embed_query(question)
     chunk_vectors = embeddings.embed_documents(chunks)
     if len(chunk_vectors) != len(chunks):
-        raise RuntimeError(
-            "Embedding provider returned the wrong number of chunk vectors."
-        )
-    return [
-        _cosine_similarity(query_vector, chunk_vector)
-        for chunk_vector in chunk_vectors
-    ]
+        raise RuntimeError("Embedding provider returned the wrong number of chunk vectors.")
+    return [_cosine_similarity(query_vector, chunk_vector) for chunk_vector in chunk_vectors]
 
 
 def _build_rerank_embeddings(settings: Settings) -> Any:
@@ -481,10 +455,7 @@ def _rank_chunks_by_scores(scores: list[float], chunks: list[str]) -> list[str]:
         (score, index, chunk)
         for index, (score, chunk) in enumerate(zip(scores, chunks, strict=False))
     ]
-    return [
-        chunk
-        for _, _, chunk in sorted(scored, key=lambda item: (-item[0], item[1]))
-    ]
+    return [chunk for _, _, chunk in sorted(scored, key=lambda item: (-item[0], item[1]))]
 
 
 def _normalize_scores(scores: list[float]) -> list[float]:
@@ -501,8 +472,7 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float:
     if not left or not right or len(left) != len(right):
         return 0.0
     dot_product = sum(
-        left_value * right_value
-        for left_value, right_value in zip(left, right, strict=False)
+        left_value * right_value for left_value, right_value in zip(left, right, strict=False)
     )
     left_norm = sum(value * value for value in left) ** 0.5
     right_norm = sum(value * value for value in right) ** 0.5
@@ -592,8 +562,7 @@ def build_extractive_answer(question: str, context: str) -> str:
 
     return (
         "I could not reach DashScope to synthesize the final answer, so here is "
-        "an extractive answer from the retrieved article context:\n\n"
-        + "\n".join(lines)
+        "an extractive answer from the retrieved article context:\n\n" + "\n".join(lines)
     )
 
 
@@ -634,18 +603,18 @@ def grade_documents_factory(
         except Exception as exc:
             logger.error("Grade documents error: %s", exc)
             llm_failed = True
-            scored_result = Grade(binary_score="no", explanation="API error, using keyword matching")
+            scored_result = Grade(
+                binary_score="no", explanation="API error, using keyword matching"
+            )
 
         score = scored_result.binary_score.strip().lower()
         explanation = getattr(scored_result, "explanation", "") or ""
 
-        question_tokens = {
-            word.lower()
-            for word in re.findall(r"\w+", question)
-            if len(word) > 2
-        }
+        question_tokens = {word.lower() for word in re.findall(r"\w+", question) if len(word) > 2}
         retrieved_lower = (retrieved_docs_text or "").lower()
-        keyword_matches = sum(1 for t in question_tokens if t in retrieved_lower) if question_tokens else 0
+        keyword_matches = (
+            sum(1 for t in question_tokens if t in retrieved_lower) if question_tokens else 0
+        )
 
         logger.info("Grader output: score=%s; explanation=%s", score, explanation)
         required_keyword_matches = max(1, settings.min_keyword_matches)
@@ -684,7 +653,7 @@ def grade_documents_factory(
 
 def agent_factory(
     settings: Settings,
-    tools: list[Any],
+    tools: Sequence[Any],
     question_resolver: QuestionResolver = qa_question_resolver,
 ) -> NodeCallable:
     """Return the agent node."""
@@ -833,10 +802,9 @@ def generate_factory(
     return generate
 
 
-def build_core_agent_factory(settings: Settings, tools: list[Any]) -> NodeCallable:
+def build_core_agent_factory(settings: Settings, tools: Sequence[Any]) -> NodeCallable:
     return agent_factory(settings, tools, qa_question_resolver)
 
 
-def build_chat_agent_factory(settings: Settings, tools: list[Any]) -> NodeCallable:
+def build_chat_agent_factory(settings: Settings, tools: Sequence[Any]) -> NodeCallable:
     return agent_factory(settings, tools, chat_question_resolver)
-

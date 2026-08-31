@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..config import Settings
+from ..security import ResourceOwner
 
 
 @dataclass
@@ -15,6 +16,7 @@ class ChatSession:
     thread_id: str
     graph: Any
     settings: Settings
+    owner: ResourceOwner | None = None
     source_urls: list[str] = field(default_factory=list)
     source_mode: str = "defaults"
     created_at: float = field(default_factory=time.time)

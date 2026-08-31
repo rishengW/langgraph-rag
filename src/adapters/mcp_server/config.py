@@ -29,6 +29,7 @@ _HARD_MAX_CONCURRENCY = 64
 _HARD_MAX_RATE_PER_MINUTE = 600
 _HARD_MAX_REQUEST_BODY_BYTES = 262_144
 _ENV_REFERENCE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
+_RESERVED_OPERATION_PATHS = frozenset({"/health", "/ready", "/admin/health/dependencies"})
 
 _ENV_FIELDS: dict[str, str] = {
     "enabled": "MCP_ENABLED",
@@ -101,6 +102,8 @@ class MCPSettings:
             raise ValueError("MCP_PATH must be an absolute path without query or fragment")
         if self.path != "/" and self.path.endswith("/"):
             raise ValueError("MCP_PATH must not end with '/'")
+        if self.path in _RESERVED_OPERATION_PATHS:
+            raise ValueError("MCP_PATH conflicts with a reserved operational endpoint")
         if not _ENV_REFERENCE.fullmatch(self.auth_secret_env):
             raise ValueError("MCP_AUTH_SECRET_ENV must name an environment variable")
         self._validate_text("MCP_HTTP_PRINCIPAL_ID", self.http_principal_id, 1, 128)

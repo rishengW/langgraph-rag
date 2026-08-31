@@ -10,7 +10,7 @@ The first supported production deployment is an internal, single-instance servic
 - no horizontal scaling, shared-writer mount, or active/active failover;
 - one separately launched inbound MCP process when MCP is enabled; stdio is local, and streamable HTTP must fail startup without production authentication.
 
-The current `python -m src.chat.main serve` and container command use Uvicorn's default single worker. Production launch automation must not add `--workers`, `WEB_CONCURRENCY` above `1`, multiple chat replicas, or reload. `docker-compose.yml` is a local-development convenience, not a production manifest; its QA and chat services and named volumes do not establish a supported multi-service production topology.
+The current `python -m src.chat.main serve` and container command use Uvicorn's default single worker. Production manifests must set `RAG_WORKER_COUNT=1` and `RAG_REPLICA_COUNT=1`; startup also checks `WEB_CONCURRENCY` and `UVICORN_WORKERS` as worker-count aliases. Malformed, conflicting, or above-one declarations fail startup before graphs, local persistence, locks, quotas, or MCP tools initialize. Production launch automation must not add `--workers`, multiple chat replicas, or reload. `docker-compose.yml` is a local-development convenience, not a production manifest; its QA and chat services and named volumes do not establish a supported multi-service production topology.
 
 ## Persistent state
 
@@ -24,7 +24,13 @@ Expose only the required internal ingress through a reverse proxy or service mes
 
 The inbound HTTP transport enables the SDK Host/Origin checks against exact configured values. Source URLs are HTTPS-only and every pre-invocation DNS result must be public; however, the current legacy loaders cannot pin those validated addresses to later connections or independently enforce this policy on every redirect. Do not claim outbound-fetch DNS-rebinding resistance. Keep restricted egress or an allowlisting proxy in front of source fetches until connection-boundary address pinning and redirect validation replace that gap.
 
-Permit egress only to configured LLM, embedding, search, and approved source endpoints. Never expose SQLite, Chroma files, uploads, health dependency detail, or secrets over the network.
+Permit egress only to configured LLM, embedding, search, and approved source endpoints. Never expose SQLite, Chroma files, uploads, secrets, or dependency diagnostics without the administrative authentication boundary.
+
+## Health and shutdown operations
+
+QA, chat, and inbound MCP HTTP expose unauthenticated `GET /health` liveness and `GET /ready` readiness with status-only, no-store responses. Detailed fixed-name dependency states are available at `GET /admin/health/dependencies`; FastAPI requires the configured `API_KEY`, authenticated MCP HTTP requires its trusted bearer scope, and anonymous-development MCP hides the route. Do not route the administrative endpoint through public ingress.
+
+On shutdown, readiness becomes false before listener stop/drain. Inbound MCP rejects new calls, waits only within `MCP_SHUTDOWN_GRACE_SECONDS`, cancels remaining work, and closes the RAG service and exporters in dependency order. Catalog publication retains leased generations, then closes retired, quarantined, or unpublished providers with a hard per-provider bound; one cleanup failure cannot prevent later resources from receiving a close attempt.
 
 ## Scaling prohibition
 
@@ -37,7 +43,9 @@ Do not increase workers or replicas while any authoritative state uses local SQL
 5. shared rate-limit, cost, and catalog-generation state;
 6. tenant IDs and ownership checks on every durable object.
 
-Deployment review must reject replica/worker counts above one until every prerequisite is implemented and tested.
+Deployment review and startup must reject replica/worker counts above one until every prerequisite is implemented and tested. The code-level gate requires one canonical registration for each item above (quota and catalog state are separate registrations). Each registration must identify a real implementation, be explicitly marked configured by the composition root, and pass a runtime validator. Missing, duplicate, unconfigured, or failed registrations reject the complete scaled topology; validator exception details are not exposed.
+
+The current QA, chat, and inbound MCP composition roots intentionally provide no shared-state registrations, so their production default remains exactly one worker and one replica. There is deliberately no environment-only capability switch: environment claims cannot attest that a backend is implemented or validated. A future shared-state composition root must inject the complete validated generation and use those same implementations for runtime state before production scaling is supported.
 
 ## Operations checklist
 

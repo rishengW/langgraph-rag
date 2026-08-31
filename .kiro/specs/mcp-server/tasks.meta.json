@@ -1,0 +1,247 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "4.1 Publish immutable validated catalog generations": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181468219
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181483154
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788182489158
+      }
+    ],
+    "4.2 Centralize authorization and execution policy": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181468639
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788182508457
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788184270280
+      }
+    ],
+    "5.1 Introduce outbound configuration only after separate approval": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181468843
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788184297777
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788184952199
+      }
+    ],
+    "5.2 Implement required/optional provider publication semantics": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181468963
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788184971287
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788186520726
+      }
+    ],
+    "5.3 Enforce outbound endpoint and process restrictions": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181469126
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788186532066
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788187474283
+      }
+    ],
+    "6.1 Implement principal/tenant ownership and quotas": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181469262
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788187491311
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788189127724
+      }
+    ],
+    "6.2 Enforce single-instance deployment capabilities": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181469394
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788189142151
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788190055750
+      }
+    ],
+    "6.3 Gate multi-replica support on shared-state prerequisites": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181469532
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788190079172
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788190662618
+      }
+    ],
+    "7.1 Export bounded structured logs, metrics, traces, and audit events": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181469666
+      },
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788190682035
+      },
+      {
+        "executionId": "c7e43cfc-8fee-4bcf-b99d-10c740078d19",
+        "chatSessionId": "sess_15f0424b-85f3-49e3-a632-f000661f5de9",
+        "timestamp": 1788191965515
+      },
+      {
+        "executionId": "c7e43cfc-8fee-4bcf-b99d-10c740078d19",
+        "chatSessionId": "sess_15f0424b-85f3-49e3-a632-f000661f5de9",
+        "timestamp": 1788191985210
+      },
+      {
+        "executionId": "c7e43cfc-8fee-4bcf-b99d-10c740078d19",
+        "chatSessionId": "sess_15f0424b-85f3-49e3-a632-f000661f5de9",
+        "timestamp": 1788192991683
+      }
+    ],
+    "7.2 Complete lifecycle and dependency health operations": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181469815
+      },
+      {
+        "executionId": "c7e43cfc-8fee-4bcf-b99d-10c740078d19",
+        "chatSessionId": "sess_15f0424b-85f3-49e3-a632-f000661f5de9",
+        "timestamp": 1788191965669
+      },
+      {
+        "executionId": "c7e43cfc-8fee-4bcf-b99d-10c740078d19",
+        "chatSessionId": "sess_15f0424b-85f3-49e3-a632-f000661f5de9",
+        "timestamp": 1788193005805
+      },
+      {
+        "executionId": "c7e43cfc-8fee-4bcf-b99d-10c740078d19",
+        "chatSessionId": "sess_15f0424b-85f3-49e3-a632-f000661f5de9",
+        "timestamp": 1788196411576
+      }
+    ],
+    "7.3 Rehearse production runbooks and release gates": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788181470022
+      },
+      {
+        "executionId": "c7e43cfc-8fee-4bcf-b99d-10c740078d19",
+        "chatSessionId": "sess_15f0424b-85f3-49e3-a632-f000661f5de9",
+        "timestamp": 1788191965835
+      },
+      {
+        "executionId": "c7e43cfc-8fee-4bcf-b99d-10c740078d19",
+        "chatSessionId": "sess_15f0424b-85f3-49e3-a632-f000661f5de9",
+        "timestamp": 1788196432538
+      },
+      {
+        "executionId": "c7e43cfc-8fee-4bcf-b99d-10c740078d19",
+        "chatSessionId": "sess_15f0424b-85f3-49e3-a632-f000661f5de9",
+        "timestamp": 1788196761287
+      }
+    ],
+    "4. Add immutable tool catalog and policy boundary (Phase 3)": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788184270455
+      }
+    ],
+    "5. Add optional outbound MCP clients (Phase 4)": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788187474458
+      }
+    ],
+    "6. Add production identity, persistence, and scale controls (Phase 5)": [
+      {
+        "executionId": "baeb8a0b-5b49-4336-87d4-4bdd5ae4cee3",
+        "chatSessionId": "sess_c9d215ff-590c-4d31-bd69-79b80367d891",
+        "timestamp": 1788190663075
+      }
+    ],
+    "2. Extract transport-neutral application services (Phase 1)": [
+      {
+        "executionId": "bebb547c-f29c-4cef-bdaf-4a5d0fd6921d",
+        "chatSessionId": "sess_d6b6754c-1985-491e-8ea4-8dda58ca0d6b",
+        "timestamp": 1788196822211
+      }
+    ],
+    "7. Complete observability and operations (Phase 6)": [
+      {
+        "executionId": "bebb547c-f29c-4cef-bdaf-4a5d0fd6921d",
+        "chatSessionId": "sess_d6b6754c-1985-491e-8ea4-8dda58ca0d6b",
+        "timestamp": 1788196834938
+      }
+    ]
+  }
+}

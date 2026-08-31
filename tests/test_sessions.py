@@ -441,7 +441,7 @@ def test_legacy_session_metadata_defaults_watermark_and_schema_stays_stable(
         settings=mock_settings,
     )
     assert constructed_without_watermark.extraction_watermark == 0
-    assert SQLiteStorage.SCHEMA_VERSION == 1
+    assert SQLiteStorage.SCHEMA_VERSION == 2
 
 
 def test_sqlite_storage_writes_schema_version(tmp_path):

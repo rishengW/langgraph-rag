@@ -18,6 +18,7 @@ from ..mcp import (
     compose_snapshot,
     default_provider_entries,
     default_provider_tools,
+    validate_snapshot,
 )
 from .edges import (
     AGENT_EDGE_MAP,
@@ -221,9 +222,7 @@ def build_graph(
     workflow.add_node(
         "agent",
         nodes.agent
-        or agent_factory(
-            _require_settings(settings, "agent"), list(tools), question_resolver
-        ),
+        or agent_factory(_require_settings(settings, "agent"), tools, question_resolver),
     )
 
     if nodes.retrieve is not None:
@@ -231,7 +230,7 @@ def build_graph(
     else:
         if not tools:
             raise ValueError("providers.tools or settings are required for the retrieve node")
-        workflow.add_node("retrieve", ToolNode(list(tools)))
+        workflow.add_node("retrieve", ToolNode(tools))
 
     workflow.add_node(
         "rewrite",
@@ -403,14 +402,14 @@ def build_lightweight_graph(
         nodes.agent
         or agent_factory(
             _require_settings(settings, "lightweight agent"),
-            list(tools),
+            tools,
             question_resolver,
         ),
     )
 
     if not tools:
         raise ValueError("providers.tools or settings are required for web_search")
-    workflow.add_node("web_search", ToolNode(list(tools)))
+    workflow.add_node("web_search", ToolNode(tools))
     # Newer LangGraph releases reject a node name that is also a state key.
     # Keep ``search_queries`` as the public state field and give the internal
     # execution node a distinct name.
@@ -634,8 +633,21 @@ def _resolve_catalog_snapshot(
     session_root: Path | None,
     thread_id: str,
 ) -> ToolCatalogSnapshot:
+    pipeline = providers.tool_pipeline or ToolExecutionPipeline(policy=providers.tool_policy)
     if providers.catalog_snapshot is not None:
-        return providers.catalog_snapshot
+        validate_snapshot(providers.catalog_snapshot)
+        entries = tuple(
+            zip(
+                providers.catalog_snapshot.tools,
+                providers.catalog_snapshot.descriptors,
+                strict=True,
+            )
+        )
+        return compose_snapshot(
+            entries,
+            generation=providers.catalog_snapshot.generation,
+            transform=pipeline.wrap,
+        )
     if providers.tools is not None:
         injected = tuple(providers.tools)
         if not all(isinstance(tool, BaseTool) for tool in injected):
@@ -651,7 +663,6 @@ def _resolve_catalog_snapshot(
         )
     else:
         entries = ()
-    pipeline = providers.tool_pipeline or ToolExecutionPipeline(policy=providers.tool_policy)
     return compose_snapshot(
         entries,
         generation=providers.catalog_generation,

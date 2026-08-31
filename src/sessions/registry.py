@@ -11,6 +11,7 @@ from typing import Any
 
 from ..config import Settings
 from ..memory.watermark import WATERMARK_KEY, coerce_watermark
+from ..security import Principal, ResourceOwner
 from .models import ChatSession
 from .storage import SessionMetadata, StorageBackend
 
@@ -113,6 +114,7 @@ class ChatSessionRegistry:
         source_mode: str,
         thread_id: str | None = None,
         isolated_chroma: bool | None = None,
+        owner: ResourceOwner | None = None,
     ) -> ChatSession:
         thread_id = thread_id or uuid.uuid4().hex
         now = self._time()
@@ -120,14 +122,13 @@ class ChatSessionRegistry:
             thread_id=thread_id,
             graph=graph,
             settings=settings,
+            owner=owner,
             source_urls=list(source_urls),
             source_mode=source_mode,
             created_at=now,
             last_accessed_at=now,
             isolated_chroma=(
-                source_mode in ISOLATED_SOURCE_MODES
-                if isolated_chroma is None
-                else isolated_chroma
+                source_mode in ISOLATED_SOURCE_MODES if isolated_chroma is None else isolated_chroma
             ),
         )
         with self._lock:
@@ -153,6 +154,7 @@ class ChatSessionRegistry:
             thread_id=metadata.thread_id,
             graph=graph,
             settings=settings,
+            owner=metadata.owner,
             source_urls=list(metadata.source_urls),
             source_mode=metadata.source_mode,
             created_at=metadata.created_at,
@@ -170,6 +172,32 @@ class ChatSessionRegistry:
         with self._lock:
             session = self._sessions.get(thread_id)
             if session is not None and touch:
+                session.touch(self._time())
+                session_to_save = session
+        if session_to_save is not None:
+            self._save_metadata(session_to_save)
+        return session
+
+    def get_owned(
+        self,
+        thread_id: str,
+        principal: Principal,
+        *,
+        touch: bool = True,
+    ) -> ChatSession | None:
+        """Return only a session owned by the complete trusted identity.
+
+        Missing, ownerless, and mismatched sessions intentionally collapse to
+        the same ``None`` result and unauthorized probes never update access
+        timestamps.
+        """
+
+        session_to_save: ChatSession | None = None
+        with self._lock:
+            session = self._sessions.get(thread_id)
+            if session is None or session.owner is None or not session.owner.authorizes(principal):
+                return None
+            if touch:
                 session.touch(self._time())
                 session_to_save = session
         if session_to_save is not None:
@@ -214,12 +242,25 @@ class ChatSessionRegistry:
     def delete(self, thread_id: str) -> bool:
         with self._lock:
             session = self._sessions.pop(thread_id, None)
+        return self._finish_delete(session)
+
+    def delete_owned(self, thread_id: str, principal: Principal) -> bool:
+        """Delete only a session owned by the complete trusted identity."""
+
+        with self._lock:
+            session = self._sessions.get(thread_id)
+            if session is None or session.owner is None or not session.owner.authorizes(principal):
+                return False
+            session = self._sessions.pop(thread_id)
+        return self._finish_delete(session)
+
+    def _finish_delete(self, session: ChatSession | None) -> bool:
         if session is None:
             return False
 
-        self._delete_metadata(thread_id)
+        self._delete_metadata(session.thread_id)
         self._cleanup_session(session)
-        logger.info("Deleted chat session %s", thread_id)
+        logger.info("Deleted chat session %s", session.thread_id)
         return True
 
     def list_ids(self) -> list[str]:

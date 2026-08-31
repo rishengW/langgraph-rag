@@ -5,6 +5,8 @@ import threading
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
+from ..security import ResourceOwner
+
 if TYPE_CHECKING:
     from .models import ChatSession
 
@@ -22,6 +24,7 @@ class SessionMetadata:
     """
 
     thread_id: str
+    owner: ResourceOwner | None = None
     source_urls: list[str] = field(default_factory=list)
     source_mode: str = "defaults"
     created_at: float = 0.0
@@ -36,6 +39,7 @@ class SessionMetadata:
 
         return cls(
             thread_id=session.thread_id,
+            owner=session.owner,
             source_urls=list(session.source_urls),
             source_mode=session.source_mode,
             created_at=session.created_at,

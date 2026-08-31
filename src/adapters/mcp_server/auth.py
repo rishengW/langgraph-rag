@@ -5,12 +5,19 @@ from __future__ import annotations
 import hmac
 import os
 from dataclasses import dataclass, field
+from uuid import uuid4
 
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from pydantic import AnyHttpUrl, TypeAdapter
 
+from ...mcp.observability import (
+    MCPObservability,
+    ObservationOutcome,
+    default_observability,
+)
+from .audit import AuditEvent, emit_audit
 from .config import MCPSettings
 
 _REQUIRED_SCOPE = "rag:invoke"
@@ -27,11 +34,30 @@ class ResolvedHTTPAuth:
 class SharedBearerTokenVerifier:
     """Verify one transition-period shared key with constant-time comparison."""
 
-    def __init__(self, auth: ResolvedHTTPAuth) -> None:
+    def __init__(
+        self,
+        auth: ResolvedHTTPAuth,
+        observability: MCPObservability | None = None,
+    ) -> None:
         self._auth = auth
+        self._observability = observability or default_observability()
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        if not hmac.compare_digest(token.encode("utf-8"), self._auth.token.encode("utf-8")):
+        matched = hmac.compare_digest(token.encode("utf-8"), self._auth.token.encode("utf-8"))
+        outcome: ObservationOutcome = "authenticated" if matched else "denied"
+        emit_audit(
+            AuditEvent(
+                request_id=uuid4().hex,
+                principal_id=self._auth.principal_id if matched else "unauthenticated",
+                tool="authentication",
+                outcome=outcome,
+                duration_ms=0,
+                signal="authentication",
+                transport="http",
+            ),
+            self._observability,
+        )
+        if not matched:
             return None
         return AccessToken(
             token="redacted",

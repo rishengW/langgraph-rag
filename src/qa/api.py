@@ -14,15 +14,18 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from ..api.auth import require_api_key
+from ..api.auth import require_admin_api_key, require_api_key
 from ..api.dependencies import (
     clear_qa_graph,
+    close_lifecycle_resource,
     configure_cors,
     get_config,
     get_metrics,
     get_qa_graph,
     get_rebuild_lock,
     initialize_qa_app_state,
+    liveness_response,
+    qa_dependency_health_response,
     qa_readiness_response,
     update_qa_graph_state,
 )
@@ -86,23 +89,32 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        from ..deployment import validate_single_instance_deployment
+
+        graph: Any = None
         try:
             logger.info("Loading settings and building graph...")
             settings = (
                 load_settings() if config_file is None else load_settings(config_file=config_file)
             )
+            validate_single_instance_deployment()
             graph = build_graph(settings, rebuild_vectorstore=rebuild_db)
             initialize_qa_app_state(app, settings=settings, graph=graph)
+            app.state.accepting_requests = True
             logger.info("Graph built successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize: {e}")
+            app.state.accepting_requests = False
+            await close_lifecycle_resource(graph)
+            logger.error("Failed to initialize QA application: %s", type(e).__name__)
             raise
         try:
             yield
         finally:
-            # No teardown needed today; placeholder for future cleanup
-            # (e.g., releasing the Chroma system or persistent clients).
-            pass
+            # Publish non-readiness before releasing graph resources. The ASGI
+            # server owns listener draining; cleanup itself is independently bounded.
+            app.state.accepting_requests = False
+            graph = getattr(app.state, "qa_graph", None)
+            await close_lifecycle_resource(graph)
 
     app = FastAPI(
         title="only Subcribers API",
@@ -132,20 +144,26 @@ def create_app(
             return FileResponse(index_file, media_type="text/html")
         return {"message": "only Subcribers API - Use /query to ask questions"}
 
-    # Health check
     @app.get("/health")
-    async def health_check() -> dict[str, object]:
-        """Health check endpoint."""
-        return {
-            "status": "ok",
-            "graph_ready": getattr(app.state, "qa_graph", None) is not None,
-        }
+    async def health_check() -> JSONResponse:
+        """Return dependency-free public liveness."""
+
+        return liveness_response()
 
     @app.get("/ready")
     async def ready_check(request: Request) -> JSONResponse:
-        """Readiness check endpoint with only local state checks."""
+        """Return bounded readiness without dependency diagnostics."""
 
         return qa_readiness_response(request)
+
+    @app.get(
+        "/admin/health/dependencies",
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def dependency_health(request: Request) -> JSONResponse:
+        """Return bounded QA dependency details to authenticated operators."""
+
+        return qa_dependency_health_response(request)
 
     # Main query endpoint
     @app.post("/query", dependencies=[Depends(require_api_key)])

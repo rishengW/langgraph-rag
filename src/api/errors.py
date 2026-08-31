@@ -13,6 +13,7 @@ from ..errors import (
     ConfigurationError,
     DocumentLoadError,
     LLMUnavailableError,
+    QuotaExceededError,
     RAGError,
     ResourceNotFoundError,
     RetrieverError,
@@ -28,6 +29,7 @@ RAG_ERROR_STATUS_CODES: dict[str, int] = {
     WebSearchError.code: HTTPStatus.BAD_GATEWAY,
     DocumentLoadError.code: HTTPStatus.BAD_GATEWAY,
     AllSourcesFailedError.code: HTTPStatus.UNPROCESSABLE_ENTITY,
+    QuotaExceededError.code: HTTPStatus.TOO_MANY_REQUESTS,
     ResourceNotFoundError.code: HTTPStatus.NOT_FOUND,
 }
 
@@ -61,7 +63,6 @@ def register_error_handlers(app: FastAPI) -> None:
     """Register shared typed error handlers on a FastAPI app."""
 
     app.add_exception_handler(RAGError, _registered_rag_error_handler)
-
 
 
 __all__ = [

@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from ..security import Principal
+
 
 @dataclass(frozen=True, slots=True)
 class SourceReference:
@@ -51,6 +53,7 @@ class TurnRequest:
     message: str
     stream_tokens: bool = True
     request_id: str = field(default_factory=lambda: uuid4().hex)
+    principal: Principal = field(default_factory=Principal.local_process)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +75,7 @@ class StartSessionRequest:
     web_search: bool = True
     seed_question: str | None = None
     request_id: str = field(default_factory=lambda: uuid4().hex)
+    principal: Principal = field(default_factory=Principal.local_process)
 
 
 @dataclass(frozen=True, slots=True)

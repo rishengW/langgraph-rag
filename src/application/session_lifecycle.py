@@ -14,6 +14,7 @@ from uuid import uuid4
 from ..config import Settings
 from ..errors import RAGError, ResourceNotFoundError
 from ..graph.artifacts import extract_artifacts_from_messages
+from ..security import Principal, ResourceOwner
 from ..sessions import ChatSession, ChatSessionRegistry
 from ..utils.urls import parse_url_input
 from .errors import SessionLifecycleError
@@ -69,13 +70,28 @@ class SessionLifecycleService:
         self._checkpointer = checkpointer
         self._dependencies = dependencies
 
-    def require_session(self, thread_id: str) -> ChatSession:
-        """Return a session or raise the existing typed not-found error."""
+    def require_session(
+        self,
+        thread_id: str,
+        principal: Principal | None = None,
+    ) -> ChatSession:
+        """Return an owned session or one non-disclosing not-found error."""
 
-        session = self._sessions.get(thread_id)
+        trusted_principal = principal or Principal.local_process()
+        session = self._sessions.get_owned(thread_id, trusted_principal)
         if session is None:
-            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+            raise ResourceNotFoundError("Resource not found.")
         return session
+
+    def searches_for_start(self, request: StartSessionRequest) -> int:
+        """Return the server-controlled search reservation for session creation."""
+
+        return int(request.urls is None and self._settings.web_search_enabled)
+
+    def searches_for_turn(self, session: ChatSession) -> int:
+        """Return the server-controlled search reservation for one continuation."""
+
+        return int(session.source_mode == "web_search" or self._source_refresh_allowed(session))
 
     async def start(self, request: StartSessionRequest) -> SessionResult:
         """Create a graph-backed session with legacy source fallback behavior."""
@@ -171,7 +187,13 @@ class SessionLifecycleService:
             source_mode=source_mode,
             thread_id=thread_id,
             isolated_chroma=isolated,
+            owner=ResourceOwner.from_principal(request.principal),
         )
+        try:
+            self._register_checkpoint_owner(session)
+        except Exception as exc:
+            self._sessions.delete_owned(thread_id, request.principal)
+            raise self._creation_error(request, exc) from exc
         self._run_start_hook(thread_id)
         note = (
             "web_search_failed"
@@ -261,10 +283,14 @@ class SessionLifecycleService:
             isolated_chroma=False,
         )
 
-    async def history(self, thread_id: str) -> SessionHistory:
-        """Return visible checkpoint history for one session."""
+    async def history(
+        self,
+        thread_id: str,
+        principal: Principal | None = None,
+    ) -> SessionHistory:
+        """Return visible checkpoint history for one authorized session."""
 
-        session = self.require_session(thread_id)
+        session = self.require_session(thread_id, principal)
         config = {"configurable": {"thread_id": thread_id}}
         snapshot = await asyncio.to_thread(session.graph.get_state, config)
         values = getattr(snapshot, "values", {}) or {}
@@ -276,11 +302,18 @@ class SessionLifecycleService:
             source_mode=session.source_mode,
         )
 
-    async def delete(self, thread_id: str) -> SessionDeletion:
-        """Delete session state and best-effort session-owned side data."""
+    async def delete(
+        self,
+        thread_id: str,
+        principal: Principal | None = None,
+    ) -> SessionDeletion:
+        """Delete authorized session state and session-owned side data."""
 
-        if not self._sessions.delete(thread_id):
-            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+        trusted_principal = principal or Principal.local_process()
+        session = self.require_session(thread_id, trusted_principal)
+        if not self._sessions.delete_owned(thread_id, trusted_principal):
+            raise ResourceNotFoundError("Resource not found.")
+        self._delete_checkpoints(session)
         if self._dependencies.upload_directory is not None:
             try:
                 upload_dir = self._dependencies.upload_directory(
@@ -309,6 +342,32 @@ class SessionLifecycleService:
                     type(exc).__name__,
                 )
         return SessionDeletion(thread_id=thread_id)
+
+    def _register_checkpoint_owner(self, session: ChatSession) -> None:
+        register_owner = getattr(self._checkpointer, "register_owner", None)
+        if not callable(register_owner):
+            return
+        if session.owner is None:
+            raise ResourceNotFoundError("Resource not found.")
+        register_owner(session.thread_id, session.owner)
+
+    def _delete_checkpoints(self, session: ChatSession) -> None:
+        delete_thread = getattr(self._checkpointer, "delete_thread", None)
+        if not callable(delete_thread):
+            return
+        try:
+            if getattr(self._checkpointer, "ownership_enforced", False):
+                if session.owner is None:
+                    raise ResourceNotFoundError("Resource not found.")
+                delete_thread(session.thread_id, owner=session.owner)
+            else:
+                delete_thread(session.thread_id)
+        except Exception as exc:
+            logger.warning(
+                "Failed to remove checkpoints for %s (cause=%s)",
+                session.thread_id,
+                type(exc).__name__,
+            )
 
     def _initial_settings(
         self,

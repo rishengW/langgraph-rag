@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -30,21 +30,26 @@ from fastapi import Depends, FastAPI, File, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import HumanMessage
+from starlette.background import BackgroundTask
 
 from ..api.amap_proxy import (
     AMapProxyError,
     build_amap_client_config,
     fetch_amap_proxy_response,
 )
-from ..api.auth import require_api_key
+from ..api.auth import require_admin_api_key, require_principal
 from ..api.dependencies import (
+    chat_dependency_health_response,
     chat_readiness_response,
+    close_lifecycle_resource,
     configure_cors,
     get_chat_graph_factory_lock,
     get_config,
     get_metrics,
+    get_quota_manager,
     get_session_registry,
     initialize_chat_app_state,
+    liveness_response,
 )
 from ..api.errors import register_error_handlers
 from ..api.models import (
@@ -76,6 +81,7 @@ from ..graph.metrics import MetricsCollector, MetricsSnapshot
 from ..graph.nodes.condense import condense_followup_question
 from ..memory.recall import build_turn_messages
 from ..memory.store import get_memory_store
+from ..security import Principal, QuotaBudget, QuotaLimits, QuotaManager
 from ..sessions import (
     ChatSession,
     ChatSessionRegistry,
@@ -120,6 +126,8 @@ SettingsDep: TypeAlias = Annotated[Settings, Depends(get_config)]
 SessionRegistryDep: TypeAlias = Annotated[ChatSessionRegistry, Depends(get_session_registry)]
 GraphFactoryLockDep: TypeAlias = Annotated[asyncio.Lock, Depends(get_chat_graph_factory_lock)]
 MetricsDep: TypeAlias = Annotated[MetricsCollector, Depends(get_metrics)]
+QuotaManagerDep: TypeAlias = Annotated[QuotaManager, Depends(get_quota_manager)]
+PrincipalDep: TypeAlias = Annotated[Principal, Depends(require_principal)]
 
 
 # ---- helpers --------------------------------------------------------------
@@ -257,7 +265,10 @@ def _restore_persisted_sessions(
                 checkpointer=checkpointer,
                 thread_id=metadata.thread_id,
             )
-        registry.restore(graph=graph, settings=settings, metadata=metadata)
+        session = registry.restore(graph=graph, settings=settings, metadata=metadata)
+        register_owner = getattr(checkpointer, "register_owner", None)
+        if session.owner is not None and callable(register_owner):
+            register_owner(session.thread_id, session.owner)
         restored += 1
     return restored
 
@@ -352,6 +363,38 @@ def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
     )
 
 
+def _download_response(
+    settings: Settings,
+    thread_id: str,
+    filename: str,
+    *,
+    on_close: Callable[[], None],
+) -> FileResponse:
+    safe_name = sanitize_filename(filename)
+    if not safe_name or safe_name != filename:
+        raise ResourceNotFoundError("Resource not found.")
+
+    suffix = Path(safe_name).suffix.lower()
+    if suffix not in ALLOWED_UPLOAD_SUFFIXES:
+        raise ResourceNotFoundError("Resource not found.")
+
+    upload_dir = session_upload_dir(settings, thread_id)
+    try:
+        base = upload_dir.resolve()
+        target = (base / safe_name).resolve()
+    except OSError:
+        raise ResourceNotFoundError("Resource not found.") from None
+    if target.parent != base or not target.is_file():
+        raise ResourceNotFoundError("Resource not found.")
+
+    return FileResponse(
+        target,
+        media_type=DOWNLOAD_MEDIA_TYPES.get(suffix, "application/octet-stream"),
+        filename=safe_name,
+        background=BackgroundTask(on_close),
+    )
+
+
 def _build_chat_application_service(
     *,
     settings: Settings,
@@ -360,6 +403,7 @@ def _build_chat_application_service(
     checkpointer: Any,
     extraction_runtime: Any,
     metrics: MetricsCollector | None = None,
+    quotas: QuotaManager | None = None,
 ) -> ChatApplicationService:
     """Compose transport-neutral chat services from existing infrastructure."""
 
@@ -401,7 +445,44 @@ def _build_chat_application_service(
             sync_sources=lifecycle.sync_graph_owned_sources,
         )
     )
-    return ChatApplicationService(lifecycle=lifecycle, turns=turns)
+    return ChatApplicationService(
+        lifecycle=lifecycle,
+        turns=turns,
+        quotas=quotas,
+        retry_reservation=(
+            settings.dashscope_max_retries
+            + settings.max_rewrites
+            + (settings.planning_max_reflection_retries if settings.planning_enabled else 0)
+        ),
+    )
+
+
+def _quota_manager_for_settings(settings: Settings) -> QuotaManager:
+    """Build one validated process-local principal/tenant quota generation."""
+
+    return QuotaManager(
+        QuotaLimits(
+            principal=QuotaBudget(
+                requests_per_minute=settings.quota_principal_requests_per_minute,
+                concurrent_calls=settings.quota_principal_concurrent_calls,
+                searches_per_minute=settings.quota_principal_searches_per_minute,
+                tokens_per_minute=settings.quota_principal_tokens_per_minute,
+                tool_calls_per_minute=settings.quota_principal_tool_calls_per_minute,
+                retries_per_minute=settings.quota_principal_retries_per_minute,
+                cost_units_per_minute=settings.quota_principal_cost_units_per_minute,
+            ),
+            tenant=QuotaBudget(
+                requests_per_minute=settings.quota_tenant_requests_per_minute,
+                concurrent_calls=settings.quota_tenant_concurrent_calls,
+                searches_per_minute=settings.quota_tenant_searches_per_minute,
+                tokens_per_minute=settings.quota_tenant_tokens_per_minute,
+                tool_calls_per_minute=settings.quota_tenant_tool_calls_per_minute,
+                retries_per_minute=settings.quota_tenant_retries_per_minute,
+                cost_units_per_minute=settings.quota_tenant_cost_units_per_minute,
+            ),
+            max_tracked_identities=settings.quota_max_tracked_identities,
+        )
+    )
 
 
 # ---- app factory ----------------------------------------------------------
@@ -414,20 +495,77 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        from ..deployment import validate_single_instance_deployment
+
         extraction_runtime = None
+        registry = None
+        storage = None
+        checkpointer = None
+
+        async def cleanup() -> None:
+            app.state.accepting_requests = False
+            deadline = asyncio.get_running_loop().time() + 5.0
+            if extraction_runtime is not None:
+                await close_lifecycle_resource(
+                    extraction_runtime.scheduler,
+                    timeout_seconds=max(
+                        0.001,
+                        deadline - asyncio.get_running_loop().time(),
+                    ),
+                )
+            if registry is not None:
+                for thread_id in registry.list_ids():
+                    session = registry.get(thread_id, touch=False)
+                    if session is not None:
+                        await close_lifecycle_resource(
+                            session.graph,
+                            timeout_seconds=max(
+                                0.001,
+                                deadline - asyncio.get_running_loop().time(),
+                            ),
+                        )
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(
+                            registry.stop_background_cleanup,
+                            max(0.0, deadline - asyncio.get_running_loop().time()),
+                        ),
+                        timeout=max(
+                            0.001,
+                            deadline - asyncio.get_running_loop().time(),
+                        ),
+                    )
+                except TimeoutError:
+                    logger.warning("Session cleanup worker did not stop before the deadline")
+            await close_lifecycle_resource(
+                checkpointer,
+                timeout_seconds=max(0.001, deadline - asyncio.get_running_loop().time()),
+            )
+            await close_lifecycle_resource(
+                storage,
+                timeout_seconds=max(0.001, deadline - asyncio.get_running_loop().time()),
+            )
+
         try:
             logger.info("Loading settings for chat app...")
             settings = (
                 load_settings() if config_file is None else load_settings(config_file=config_file)
             )
+            validate_single_instance_deployment()
             metadata_path, checkpoint_path = _session_database_paths(settings)
             storage = SQLiteStorage(metadata_path)
             registry = ChatSessionRegistry(storage=storage)
-            checkpointer = SQLiteMemorySaver(checkpoint_path)
+            checkpointer = SQLiteMemorySaver(checkpoint_path, enforce_ownership=True)
+            quotas = _quota_manager_for_settings(settings)
+            Principal(
+                principal_id=settings.api_principal_id,
+                tenant_id=settings.api_tenant_id or None,
+            )
             initialize_chat_app_state(
                 app,
                 settings=settings,
                 session_registry=registry,
+                quota_manager=quotas,
             )
             app.state.chat_session_storage = storage
             app.state.chat_checkpointer = checkpointer
@@ -445,15 +583,21 @@ def create_app(
                 storage=storage,
             )
             app.state.extraction_runtime = extraction_runtime
+            app.state.accepting_requests = True
             logger.info("Chat app ready with %d restored session(s)", restored)
         except Exception as exc:
-            logger.error(f"Failed to initialize chat app: {exc}")
+            await cleanup()
+            logger.error(
+                "Failed to initialize chat application error_type=%s",
+                type(exc).__name__[:128],
+            )
             raise
         try:
             yield
         finally:
-            if extraction_runtime is not None:
-                extraction_runtime.scheduler.shutdown()
+            # Publish non-readiness before stopping background work. Uvicorn
+            # drains HTTP connections; owned resources have one shared bound.
+            await cleanup()
 
     app = FastAPI(
         title="only Subcribers Chat API",
@@ -482,19 +626,25 @@ def create_app(
         return {"message": "only Subcribers Chat API - POST /chat to start"}
 
     @app.get("/health")
-    async def health() -> dict[str, object]:
-        registry = getattr(app.state, "session_registry", None)
-        return {
-            "status": "ok",
-            "settings_loaded": getattr(app.state, "settings", None) is not None,
-            "sessions": len(registry) if registry is not None else 0,
-        }
+    async def health() -> JSONResponse:
+        """Return dependency-free public liveness."""
+
+        return liveness_response()
 
     @app.get("/ready")
     async def ready(request: Request) -> JSONResponse:
-        """Readiness check endpoint with only local state checks."""
+        """Return bounded readiness without dependency diagnostics."""
 
         return chat_readiness_response(request)
+
+    @app.get(
+        "/admin/health/dependencies",
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def dependency_health(request: Request) -> JSONResponse:
+        """Return bounded chat dependency details to authenticated operators."""
+
+        return chat_dependency_health_response(request)
 
     @app.get("/chat/config")
     async def chat_client_config(settings: SettingsDep) -> JSONResponse:
@@ -538,13 +688,14 @@ def create_app(
     @app.post(
         "/chat",
         response_model=StartChatResponse,
-        dependencies=[Depends(require_api_key)],
     )
     async def start_chat(
         request: StartChatRequest,
         settings: SettingsDep,
         sessions: SessionRegistryDep,
         graph_factory_lock: GraphFactoryLockDep,
+        principal: PrincipalDep,
+        quotas: QuotaManagerDep,
     ) -> StartChatResponse:
         service = _build_chat_application_service(
             settings=settings,
@@ -552,12 +703,14 @@ def create_app(
             graph_factory_lock=graph_factory_lock,
             checkpointer=getattr(app.state, "chat_checkpointer", None),
             extraction_runtime=getattr(app.state, "extraction_runtime", None),
+            quotas=quotas,
         )
         result = await service.start(
             StartSessionRequest(
                 urls=request.urls,
                 web_search=request.web_search,
                 seed_question=request.seed_question,
+                principal=principal,
             )
         )
         return StartChatResponse(
@@ -570,18 +723,18 @@ def create_app(
     @app.post(
         "/chat/{thread_id}/message",
         response_model=MessageResponse,
-        dependencies=[Depends(require_api_key)],
     )
     async def post_message(
         thread_id: str,
         request: MessageRequest,
         fastapi_request: Request,
         sessions: SessionRegistryDep,
+        principal: PrincipalDep,
+        quotas: QuotaManagerDep,
     ) -> MessageResponse:
-        # Preserve the legacy typed 404 even when app configuration has not
-        # completed initialization yet.
-        if sessions.get(thread_id) is None:
-            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+        # Missing, ownerless, and unauthorized IDs deliberately share one 404.
+        if sessions.get_owned(thread_id, principal) is None:
+            raise ResourceNotFoundError("Resource not found.")
         settings = get_config(fastapi_request)
         service = _build_chat_application_service(
             settings=settings,
@@ -593,9 +746,14 @@ def create_app(
                 "extraction_runtime",
                 None,
             ),
+            quotas=quotas,
         )
         result = await service.complete_turn(
-            TurnRequest(thread_id=thread_id, message=request.message)
+            TurnRequest(
+                thread_id=thread_id,
+                message=request.message,
+                principal=principal,
+            )
         )
         return MessageResponse(
             thread_id=result.thread_id,
@@ -606,7 +764,6 @@ def create_app(
 
     @app.post(
         "/chat/{thread_id}/message/stream",
-        dependencies=[Depends(require_api_key)],
     )
     async def post_message_stream(
         thread_id: str,
@@ -614,12 +771,14 @@ def create_app(
         fastapi_request: Request,
         sessions: SessionRegistryDep,
         metrics: MetricsDep,
+        principal: PrincipalDep,
+        quotas: QuotaManagerDep,
         tokens: bool = True,
     ) -> StreamingResponse:
-        # Resolve the session before constructing StreamingResponse so the
-        # existing typed 404 remains an HTTP response rather than an SSE error.
-        if sessions.get(thread_id) is None:
-            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+        # Authorization and quota acquisition happen before the HTTP stream
+        # starts, while the lease itself remains held until iteration closes.
+        if sessions.get_owned(thread_id, principal) is None:
+            raise ResourceNotFoundError("Resource not found.")
         service = _build_chat_application_service(
             settings=get_config(fastapi_request),
             sessions=sessions,
@@ -631,16 +790,18 @@ def create_app(
                 None,
             ),
             metrics=metrics,
+            quotas=quotas,
+        )
+        events = service.stream_turn(
+            TurnRequest(
+                thread_id=thread_id,
+                message=request.message,
+                stream_tokens=tokens,
+                principal=principal,
+            )
         )
 
         async def event_iter() -> AsyncIterator[str]:
-            events = service.stream_turn(
-                TurnRequest(
-                    thread_id=thread_id,
-                    message=request.message,
-                    stream_tokens=tokens,
-                )
-            )
             async for event in events:
                 # SSE serialization belongs exclusively to this HTTP adapter.
                 yield format_sse(event)
@@ -650,17 +811,16 @@ def create_app(
     @app.get(
         "/chat/{thread_id}/history",
         response_model=HistoryResponse,
-        dependencies=[Depends(require_api_key)],
     )
     async def get_history(
         thread_id: str,
         fastapi_request: Request,
         sessions: SessionRegistryDep,
+        principal: PrincipalDep,
+        quotas: QuotaManagerDep,
     ) -> HistoryResponse:
-        # Preserve the pre-service route contract: unknown threads are 404s
-        # even if application configuration is unavailable.
-        if sessions.get(thread_id) is None:
-            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+        if sessions.get_owned(thread_id, principal) is None:
+            raise ResourceNotFoundError("Resource not found.")
         service = _build_chat_application_service(
             settings=get_config(fastapi_request),
             sessions=sessions,
@@ -671,8 +831,9 @@ def create_app(
                 "extraction_runtime",
                 None,
             ),
+            quotas=quotas,
         )
-        result = await service.history(thread_id)
+        result = await service.history(thread_id, principal)
         return HistoryResponse(
             thread_id=result.thread_id,
             turns=[
@@ -690,17 +851,18 @@ def create_app(
     @app.post(
         "/chat/{thread_id}/upload",
         response_model=UploadResponse,
-        dependencies=[Depends(require_api_key)],
     )
     async def upload_files(
         thread_id: str,
         fastapi_request: Request,
         sessions: SessionRegistryDep,
+        principal: PrincipalDep,
+        quotas: QuotaManagerDep,
         files: list[UploadFile] = File(...),  # noqa: B008 - FastAPI dependency default
     ) -> UploadResponse:
-        session = sessions.get(thread_id)
+        session = sessions.get_owned(thread_id, principal)
         if session is None:
-            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+            raise ResourceNotFoundError("Resource not found.")
 
         settings = get_config(fastapi_request)
         # Keep upload work bounded so large batches do not exhaust the shared
@@ -746,69 +908,52 @@ def create_app(
             )
             return uploaded, None
 
-        results = await asyncio.gather(*(process_upload(upload) for upload in files))
+        lease = quotas.acquire(principal)
+        try:
+            results = await asyncio.gather(*(process_upload(upload) for upload in files))
+        finally:
+            lease.release()
         saved = [uploaded for uploaded, _ in results if uploaded is not None]
         errors = [error for _, error in results if error is not None]
         return UploadResponse(thread_id=thread_id, files=saved, errors=errors)
 
     @app.get(
         "/chat/{thread_id}/files/{filename}",
-        dependencies=[Depends(require_api_key)],
     )
     async def download_session_file(
         thread_id: str,
         filename: str,
         fastapi_request: Request,
         sessions: SessionRegistryDep,
+        principal: PrincipalDep,
+        quotas: QuotaManagerDep,
     ) -> FileResponse:
-        """Serve one file from a chat session's own upload directory.
+        """Serve one owned upload/artifact without disclosing foreign IDs."""
 
-        Access is bound to the session: an unknown thread is a 404, and the
-        requested name is reduced to a basename and re-checked against the
-        session directory so no path can reach another thread's files.
-        """
-
-        session = sessions.get(thread_id)
-        if session is None:
-            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
-
-        settings = get_config(fastapi_request)
-        safe_name = sanitize_filename(filename)
-        if not safe_name or safe_name != filename:
-            raise ResourceNotFoundError(f"Unknown file {filename!r}")
-
-        suffix = Path(safe_name).suffix.lower()
-        if suffix not in ALLOWED_UPLOAD_SUFFIXES:
-            raise ResourceNotFoundError(f"Unknown file {filename!r}")
-
-        upload_dir = session_upload_dir(settings, thread_id)
+        if sessions.get_owned(thread_id, principal) is None:
+            raise ResourceNotFoundError("Resource not found.")
+        lease = quotas.acquire(principal)
         try:
-            base = upload_dir.resolve()
-            target = (base / safe_name).resolve()
-        except OSError:
-            raise ResourceNotFoundError(f"Unknown file {filename!r}") from None
+            return _download_response(
+                get_config(fastapi_request),
+                thread_id,
+                filename,
+                on_close=lease.release,
+            )
+        except BaseException:
+            lease.release()
+            raise
 
-        # Defence in depth: sanitize_filename already strips directory parts,
-        # so the resolved parent must be the session directory itself.
-        if target.parent != base or not target.is_file():
-            raise ResourceNotFoundError(f"Unknown file {filename!r}")
-
-        return FileResponse(
-            target,
-            media_type=DOWNLOAD_MEDIA_TYPES.get(suffix, "application/octet-stream"),
-            filename=safe_name,
-        )
-
-    @app.delete("/chat/{thread_id}", dependencies=[Depends(require_api_key)])
+    @app.delete("/chat/{thread_id}")
     async def delete_chat(
         thread_id: str,
         fastapi_request: Request,
         sessions: SessionRegistryDep,
+        principal: PrincipalDep,
+        quotas: QuotaManagerDep,
     ) -> dict[str, str]:
-        # Preserve the pre-service route contract: unknown threads are 404s
-        # even if application configuration is unavailable.
-        if sessions.get(thread_id) is None:
-            raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
+        if sessions.get_owned(thread_id, principal) is None:
+            raise ResourceNotFoundError("Resource not found.")
         service = _build_chat_application_service(
             settings=get_config(fastapi_request),
             sessions=sessions,
@@ -819,8 +964,9 @@ def create_app(
                 "extraction_runtime",
                 None,
             ),
+            quotas=quotas,
         )
-        result = await service.delete(thread_id)
+        result = await service.delete(thread_id, principal)
         return {"status": result.status, "thread_id": result.thread_id}
 
     @app.get("/metrics")

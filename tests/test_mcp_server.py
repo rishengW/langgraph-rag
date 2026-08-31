@@ -3,10 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any
 
 import httpx2
 import pytest
+from hypothesis import given
+from hypothesis import settings as hypothesis_settings
+from hypothesis import strategies as st
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 
@@ -36,6 +40,7 @@ class FakeRagService:
         self.active = 0
         self.max_active = 0
         self.cancelled = False
+        self.closed = False
         self.started = asyncio.Event()
 
     async def ask(self, request: Any) -> RagAnswer:
@@ -66,6 +71,9 @@ class FakeRagService:
             raise
         finally:
             self.active -= 1
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 def _validator(addresses: tuple[str, ...] = _PUBLIC_ADDRESSES) -> URLValidator:
@@ -99,6 +107,9 @@ def test_config_defaults_disabled_and_fail_closed(monkeypatch: pytest.MonkeyPatc
             allowed_hosts=("example.com:*",),
             public_base_url="https://example.com",
         )
+
+    with pytest.raises(ValueError, match="reserved operational endpoint"):
+        MCPSettings(enabled=True, path="/health")
 
     monkeypatch.setenv("MCP_OUTBOUND_ENABLED", "true")
     with pytest.raises(ValueError, match="Outbound"):
@@ -319,9 +330,24 @@ def test_authenticated_stateless_http_discovery_invocation_and_challenge(
                 result = await client.call_tool("rag_web_search_answer", {"question": "latest"})
                 assert result.is_error is False
 
+                health = await http_client.get("/health")
+                readiness = await http_client.get("/ready")
+                dependencies = await http_client.get("/admin/health/dependencies")
+                assert health.json() == {"status": "ok"}
+                assert readiness.json() == {"status": "ready"}
+                assert "dependencies" not in readiness.json()
+                assert dependencies.status_code == 200
+                assert dependencies.json()["status"] == "ready"
+                assert secret not in dependencies.text
+
             async with httpx2.AsyncClient(
                 transport=transport, base_url="http://testserver"
             ) as anonymous:
+                assert (await anonymous.get("/health")).json() == {"status": "ok"}
+                assert (await anonymous.get("/ready")).json() == {"status": "ready"}
+                admin = await anonymous.get("/admin/health/dependencies")
+                assert admin.status_code == 401
+                assert "dependencies" not in admin.text
                 response = await anonymous.post(
                     "/mcp",
                     json={"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}},
@@ -346,11 +372,111 @@ def test_graceful_shutdown_stops_readiness_and_is_bounded() -> None:
             runtime.server.call_tool("rag_web_search_answer", {"question": "hello"})
         )
         await service.started.wait()
+        started = time.monotonic()
         drained = await runtime.shutdown()
-        assert drained is False
-        assert runtime.ready is False
-        assert runtime.gate.accepting is False
-        call.cancel()
+        elapsed = time.monotonic() - started
         await asyncio.gather(call, return_exceptions=True)
+
+        assert drained is False
+        assert elapsed < 0.25
+        assert runtime.ready is False
+        assert runtime.lifecycle_status == "closed"
+        assert runtime.gate.accepting is False
+        assert runtime.gate.active_count == 0
+        assert runtime.public_readiness() == {"status": "not_ready"}
+        assert runtime.public_liveness() == {"status": "ok"}
+        assert service.cancelled is True
+        assert service.closed is True
+        assert call.done()
+
+    asyncio.run(run())
+
+
+def test_runtime_startup_failure_closes_initialized_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.adapters.mcp_server import lifecycle as lifecycle_module
+
+    async def run() -> None:
+        service = FakeRagService()
+
+        def fail_server(**_kwargs: Any) -> None:
+            raise RuntimeError("server publication failed")
+
+        monkeypatch.setattr(lifecycle_module, "create_mcp_server", fail_server)
+        with pytest.raises(RuntimeError, match="server publication failed"):
+            await initialize_runtime(MCPSettings(enabled=True), service=service)
+        assert service.closed is True
+
+    asyncio.run(run())
+
+
+def test_anonymous_development_http_hides_dependency_diagnostics() -> None:
+    async def run() -> None:
+        settings = MCPSettings(
+            enabled=True,
+            transport="http",
+            allow_anonymous_http=True,
+            allowed_hosts=("testserver",),
+        )
+        runtime = await initialize_runtime(settings, service=FakeRagService())
+        app = build_http_app(runtime)
+        transport = httpx2.ASGITransport(app=app)
+        async with (
+            app.router.lifespan_context(app),
+            httpx2.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client,
+        ):
+            response = await client.get("/admin/health/dependencies")
+            assert response.status_code == 404
+            assert "dependencies" not in response.text
+        await runtime.shutdown()
+
+    asyncio.run(run())
+
+
+@hypothesis_settings(max_examples=8, deadline=None)
+@given(active_calls=st.integers(min_value=0, max_value=6))
+def test_bounded_shutdown_property(active_calls: int) -> None:
+    """Property 11: bounded graceful shutdown.
+
+    **Validates: Requirements 10.1, 10.2, 10.3**
+    """
+
+    async def run() -> None:
+        service = FakeRagService(delay=1)
+        runtime = await initialize_runtime(
+            MCPSettings(
+                enabled=True,
+                shutdown_grace_seconds=0.01,
+                max_concurrency=2,
+            ),
+            service=service,
+        )
+        calls = [
+            asyncio.create_task(
+                runtime.server.call_tool(
+                    "rag_web_search_answer",
+                    {"question": f"question-{index}"},
+                )
+            )
+            for index in range(active_calls)
+        ]
+        if calls:
+            await service.started.wait()
+            await asyncio.sleep(0)
+
+        started = time.monotonic()
+        drained = await runtime.shutdown()
+        elapsed = time.monotonic() - started
+        await asyncio.gather(*calls, return_exceptions=True)
+
+        assert elapsed < 0.25
+        assert drained is (active_calls == 0)
+        assert runtime.lifecycle_status == "closed"
+        assert runtime.gate.active_count == 0
+        assert all(call.done() for call in calls)
 
     asyncio.run(run())

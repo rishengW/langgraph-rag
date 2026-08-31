@@ -45,6 +45,27 @@ class Settings:
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     cors_allow_origins: list[str] = field(default_factory=list)
+    # Trusted network identity. Request bodies and arbitrary identity headers
+    # never override these authentication-boundary values.
+    api_principal_id: str = "api-key-client"
+    api_tenant_id: str = ""
+    # Process-local per-principal and per-tenant quotas for the supported
+    # single-instance topology. Shared quota state is a multi-replica prerequisite.
+    quota_principal_requests_per_minute: int = 120
+    quota_tenant_requests_per_minute: int = 600
+    quota_principal_concurrent_calls: int = 4
+    quota_tenant_concurrent_calls: int = 16
+    quota_principal_searches_per_minute: int = 30
+    quota_tenant_searches_per_minute: int = 120
+    quota_principal_tokens_per_minute: int = 250_000
+    quota_tenant_tokens_per_minute: int = 1_000_000
+    quota_principal_tool_calls_per_minute: int = 240
+    quota_tenant_tool_calls_per_minute: int = 1_000
+    quota_principal_retries_per_minute: int = 600
+    quota_tenant_retries_per_minute: int = 3_000
+    quota_principal_cost_units_per_minute: int = 500_000
+    quota_tenant_cost_units_per_minute: int = 2_000_000
+    quota_max_tracked_identities: int = 4_096
     allow_low_relevance_generate: bool = False
     min_keyword_matches: int = 2
     max_rewrites: int = 2

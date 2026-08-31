@@ -6,15 +6,16 @@ import asyncio
 import logging
 import threading
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, Mapping
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, replace
 from typing import Any, cast
 
-from ..errors import RAGError
+from ..errors import RAGError, ResourceNotFoundError
 from ..graph.artifacts import extract_artifacts_from_messages
 from ..graph.events import DoneEvent, ErrorEvent, GraphEvent
 from ..graph.executor import GraphExecutor
 from ..graph.metrics import MetricsCollector
+from ..mcp import ToolPrincipal, reset_tool_principal, set_tool_principal
 from ..sessions import ChatSession
 from .errors import TurnExecutionError
 from .models import TurnRequest, TurnResult
@@ -102,9 +103,9 @@ class TurnExecutionService:
         stop_requested: threading.Event,
     ) -> TurnResult:
         context = nullcontext() if lock_held else session.turn_lock
-        with context:
+        with context, _tool_principal_context(session):
             try:
-                snapshot = self._snapshot(request.thread_id)
+                snapshot = self._snapshot(session)
             except BaseException as exc:
                 if isinstance(exc, (KeyboardInterrupt, SystemExit)):
                     raise
@@ -122,20 +123,20 @@ class TurnExecutionService:
                 artifacts = tuple(extract_artifacts_from_messages(current_messages))
                 answer = _last_assistant_answer(current_messages)
             except BaseException as exc:
-                self._rollback(request.thread_id, snapshot)
+                self._rollback(session, snapshot)
                 if isinstance(exc, (KeyboardInterrupt, SystemExit)):
                     raise
                 return self._failed_result(request, exc)
 
             if stop_requested.is_set():
-                self._rollback(request.thread_id, snapshot)
+                self._rollback(session, snapshot)
                 return TurnResult(
                     thread_id=request.thread_id,
                     error="Turn cancelled.",
                     request_id=request.request_id,
                 )
             if not answer:
-                self._rollback(request.thread_id, snapshot)
+                self._rollback(session, snapshot)
                 return TurnResult(
                     thread_id=request.thread_id,
                     error="No assistant reply was produced.",
@@ -211,11 +212,11 @@ class TurnExecutionService:
         def produce_events() -> None:
             try:
                 context = nullcontext() if lock_held else session.turn_lock
-                with context:
+                with context, _tool_principal_context(session):
                     if stop_requested.is_set():
                         return
                     try:
-                        snapshot = self._snapshot(request.thread_id)
+                        snapshot = self._snapshot(session)
                     except BaseException as exc:
                         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
                             raise
@@ -279,7 +280,7 @@ class TurnExecutionService:
                         if completed:
                             self._complete_from_graph(session, request.thread_id)
                         else:
-                            self._rollback(request.thread_id, snapshot)
+                            self._rollback(session, snapshot)
             except BaseException as exc:
                 if isinstance(exc, (KeyboardInterrupt, SystemExit)):
                     raise
@@ -303,20 +304,36 @@ class TurnExecutionService:
                 await asyncio.shield(worker)
                 raise
 
-    def _snapshot(self, thread_id: str) -> bytes | None:
+    def _snapshot(self, session: ChatSession) -> bytes | None:
         checkpointer = self._dependencies.checkpointer
         if checkpointer is None:
             return None
-        return cast(bytes, checkpointer.snapshot_thread(thread_id))
+        if getattr(checkpointer, "ownership_enforced", False):
+            if session.owner is None:
+                raise ResourceNotFoundError("Resource not found.")
+            return cast(
+                bytes,
+                checkpointer.snapshot_thread(session.thread_id, owner=session.owner),
+            )
+        return cast(bytes, checkpointer.snapshot_thread(session.thread_id))
 
-    def _rollback(self, thread_id: str, snapshot: bytes | None) -> None:
+    def _rollback(self, session: ChatSession, snapshot: bytes | None) -> None:
         checkpointer = self._dependencies.checkpointer
         if snapshot is None or checkpointer is None:
             return
         try:
-            checkpointer.restore_thread(thread_id, snapshot)
+            if getattr(checkpointer, "ownership_enforced", False):
+                if session.owner is None:
+                    raise ResourceNotFoundError("Resource not found.")
+                checkpointer.restore_thread(
+                    session.thread_id,
+                    snapshot,
+                    owner=session.owner,
+                )
+            else:
+                checkpointer.restore_thread(session.thread_id, snapshot)
         except Exception:
-            logger.exception("Could not roll back chat turn for %s", thread_id)
+            logger.exception("Could not roll back chat turn for %s", session.thread_id)
 
     def _complete(self, session: ChatSession, values: Any, thread_id: str) -> None:
         if self._dependencies.sync_sources is not None:
@@ -347,6 +364,21 @@ class TurnExecutionService:
 
 def _thread_config(thread_id: str) -> dict[str, dict[str, str]]:
     return {"configurable": {"thread_id": thread_id}}
+
+
+@contextmanager
+def _tool_principal_context(session: ChatSession) -> Iterator[None]:
+    owner = session.owner
+    if owner is None:
+        yield
+        return
+    token = set_tool_principal(
+        ToolPrincipal(principal_id=owner.principal_id, tenant_id=owner.tenant_id)
+    )
+    try:
+        yield
+    finally:
+        reset_tool_principal(token)
 
 
 def _message_count(graph: Any, config: Mapping[str, Any]) -> int:

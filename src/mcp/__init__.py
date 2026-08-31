@@ -1,21 +1,37 @@
 """Immutable tool catalog, provider, policy, and telemetry boundaries."""
 
 from .catalog import (
-    ToolCatalog,
     compose_snapshot,
     descriptor_from_tool,
     validate_descriptor,
     validate_snapshot,
 )
+from .catalog_lifecycle import ToolCatalog
 from .models import (
+    CatalogReadinessStatus,
     ProviderHealth,
     RiskLevel,
     ToolCatalogError,
+    ToolCatalogReadiness,
     ToolCatalogSnapshot,
     ToolDescriptor,
     ToolPolicyError,
     ToolProvider,
+    ToolProviderRegistration,
     ToolSource,
+)
+from .observability import (
+    BoundedMetricsRecorder,
+    CallbackObservationSink,
+    JsonLoggingSink,
+    MCPObservability,
+    NullObservationSink,
+    ObservabilitySnapshot,
+    ObservationEvent,
+    ObservationMetricsSnapshot,
+    ObservationSink,
+    RequiredAuditDeliveryError,
+    default_observability,
 )
 from .policy import (
     PolicyTool,
@@ -24,6 +40,7 @@ from .policy import (
     ToolPolicy,
     ToolPolicyRule,
     ToolPrincipal,
+    current_tool_principal,
     reset_tool_principal,
     set_tool_principal,
 )
@@ -40,6 +57,13 @@ from .providers import (
     default_provider_entries,
     default_provider_tools,
 )
+from .secrets import (
+    EnvironmentSecretProvider,
+    ResolvedSecret,
+    SecretProvider,
+    SecretReference,
+    SecretResolver,
+)
 from .telemetry import (
     CallbackToolAuditSink,
     NullToolAuditSink,
@@ -51,23 +75,40 @@ from .telemetry import (
 )
 
 __all__ = [
+    "BoundedMetricsRecorder",
     "BuiltinToolProvider",
+    "CallbackObservationSink",
     "CallbackToolAuditSink",
+    "CatalogReadinessStatus",
     "DisabledOutboundMCPProvider",
     "DocumentToolProvider",
+    "EnvironmentSecretProvider",
     "FactoryToolProvider",
     "InjectedToolProvider",
+    "JsonLoggingSink",
+    "MCPObservability",
     "MemoryToolProvider",
+    "NullObservationSink",
     "NullToolAuditSink",
+    "ObservationEvent",
+    "ObservationMetricsSnapshot",
+    "ObservationSink",
+    "ObservabilitySnapshot",
     "PolicyTool",
     "ProviderHealth",
+    "RequiredAuditDeliveryError",
+    "ResolvedSecret",
     "RetrieverToolProvider",
     "RiskLevel",
+    "SecretProvider",
+    "SecretReference",
+    "SecretResolver",
     "SessionEditingToolProvider",
     "ToolAuditEvent",
     "ToolAuditSink",
     "ToolCatalog",
     "ToolCatalogError",
+    "ToolCatalogReadiness",
     "ToolCatalogSnapshot",
     "ToolDescriptor",
     "ToolExecutionLimits",
@@ -80,9 +121,12 @@ __all__ = [
     "ToolPolicyRule",
     "ToolPrincipal",
     "ToolProvider",
+    "ToolProviderRegistration",
     "ToolSource",
     "WebSearchToolProvider",
     "compose_snapshot",
+    "current_tool_principal",
+    "default_observability",
     "default_provider_entries",
     "default_provider_tools",
     "descriptor_from_tool",

@@ -37,6 +37,23 @@ SETTING_ENV_NAMES = {
     "api_host": "API_HOST",
     "api_port": "API_PORT",
     "cors_allow_origins": "CORS_ALLOW_ORIGINS",
+    "api_principal_id": "API_PRINCIPAL_ID",
+    "api_tenant_id": "API_TENANT_ID",
+    "quota_principal_requests_per_minute": "QUOTA_PRINCIPAL_REQUESTS_PER_MINUTE",
+    "quota_tenant_requests_per_minute": "QUOTA_TENANT_REQUESTS_PER_MINUTE",
+    "quota_principal_concurrent_calls": "QUOTA_PRINCIPAL_CONCURRENT_CALLS",
+    "quota_tenant_concurrent_calls": "QUOTA_TENANT_CONCURRENT_CALLS",
+    "quota_principal_searches_per_minute": "QUOTA_PRINCIPAL_SEARCHES_PER_MINUTE",
+    "quota_tenant_searches_per_minute": "QUOTA_TENANT_SEARCHES_PER_MINUTE",
+    "quota_principal_tokens_per_minute": "QUOTA_PRINCIPAL_TOKENS_PER_MINUTE",
+    "quota_tenant_tokens_per_minute": "QUOTA_TENANT_TOKENS_PER_MINUTE",
+    "quota_principal_tool_calls_per_minute": "QUOTA_PRINCIPAL_TOOL_CALLS_PER_MINUTE",
+    "quota_tenant_tool_calls_per_minute": "QUOTA_TENANT_TOOL_CALLS_PER_MINUTE",
+    "quota_principal_retries_per_minute": "QUOTA_PRINCIPAL_RETRIES_PER_MINUTE",
+    "quota_tenant_retries_per_minute": "QUOTA_TENANT_RETRIES_PER_MINUTE",
+    "quota_principal_cost_units_per_minute": "QUOTA_PRINCIPAL_COST_UNITS_PER_MINUTE",
+    "quota_tenant_cost_units_per_minute": "QUOTA_TENANT_COST_UNITS_PER_MINUTE",
+    "quota_max_tracked_identities": "QUOTA_MAX_TRACKED_IDENTITIES",
     "allow_low_relevance_generate": "ALLOW_LOW_RELEVANCE_GENERATE",
     "min_keyword_matches": "MIN_KEYWORD_MATCHES",
     "max_rewrites": "MAX_REWRITES",
@@ -145,6 +162,24 @@ SETTING_ENV_NAMES = {
     "dashscope_http_base_url": "DASHSCOPE_HTTP_BASE_URL",
 }
 
+
+_QUOTA_INT_RANGES: dict[str, tuple[int, int]] = {
+    "quota_principal_requests_per_minute": (1, 1_000_000_000),
+    "quota_tenant_requests_per_minute": (1, 1_000_000_000),
+    "quota_principal_concurrent_calls": (1, 1_024),
+    "quota_tenant_concurrent_calls": (1, 1_024),
+    "quota_principal_searches_per_minute": (1, 1_000_000_000),
+    "quota_tenant_searches_per_minute": (1, 1_000_000_000),
+    "quota_principal_tokens_per_minute": (1, 1_000_000_000),
+    "quota_tenant_tokens_per_minute": (1, 1_000_000_000),
+    "quota_principal_tool_calls_per_minute": (1, 1_000_000_000),
+    "quota_tenant_tool_calls_per_minute": (1, 1_000_000_000),
+    "quota_principal_retries_per_minute": (1, 1_000_000_000),
+    "quota_tenant_retries_per_minute": (1, 1_000_000_000),
+    "quota_principal_cost_units_per_minute": (1, 1_000_000_000),
+    "quota_tenant_cost_units_per_minute": (1, 1_000_000_000),
+    "quota_max_tracked_identities": (1, 100_000),
+}
 
 # Long-term memory bounds. Unlike the other integer settings, these fail the
 # load instead of clamping: a nonsensical cap should surface at startup rather
@@ -317,6 +352,17 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         return items if items else list(default or [])
     if name in ("chroma_dir",):
         return Path(str(value)).expanduser()
+    if name in _QUOTA_INT_RANGES:
+        low, high = _QUOTA_INT_RANGES[name]
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"{name} must be an integer between {low} and {high}; got {value!r}"
+            ) from None
+        if not low <= parsed <= high:
+            raise ValueError(f"{name} must be between {low} and {high}; got {parsed}")
+        return parsed
     if name in _MEMORY_INT_RANGES:
         low, high = _MEMORY_INT_RANGES[name]
         try:

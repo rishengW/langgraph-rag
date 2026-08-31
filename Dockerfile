@@ -15,6 +15,8 @@ FROM python:3.11-slim AS runtime
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    RAG_WORKER_COUNT=1 \
+    RAG_REPLICA_COUNT=1 \
     WEB_CONCURRENCY=1 \
     CHROMA_DIR=/app/.chroma
 

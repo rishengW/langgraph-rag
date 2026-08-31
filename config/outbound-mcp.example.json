@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "enabled": false,
+  "servers": [
+    {
+      "name": "approved_docs",
+      "transport": "streamable_http",
+      "endpoint": "https://mcp.example.com/service",
+      "required": true,
+      "authorization_secret_ref": {
+        "provider": "env",
+        "identifier": "APPROVED_DOCS_MCP_TOKEN"
+      },
+      "allowed_redirect_origins": [],
+      "max_redirects": 0,
+      "connect_timeout_seconds": 10,
+      "invocation_timeout_seconds": 30,
+      "shutdown_timeout_seconds": 5,
+      "max_reconnect_attempts": 1,
+      "reconnect_backoff_seconds": 0.1,
+      "max_concurrent_invocations": 8,
+      "max_request_bytes": 65536,
+      "max_result_bytes": 262144
+    }
+  ]
+}

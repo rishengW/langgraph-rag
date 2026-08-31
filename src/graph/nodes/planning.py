@@ -8,7 +8,7 @@ a deterministic fallback and every execution or reflection loop is bounded.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -655,7 +655,7 @@ def _compact_value(value: Any) -> str:
     return text[-MAX_SCRATCHPAD_CHARS:]
 
 
-def _plan_context(plan: list[Mapping[str, Any]]) -> str:
+def _plan_context(plan: Sequence[Mapping[str, Any]]) -> str:
     lines: list[str] = []
     for item in plan:
         status = str(item.get("status") or "pending")

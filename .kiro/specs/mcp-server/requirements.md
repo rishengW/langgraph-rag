@@ -1,276 +1,184 @@
 # Requirements Document
 
+**Status:** Approved
+**Approval basis:** The user explicitly approved implementation of the production refactor plan and requested this requirements, design, and task slice.
+**Supported first production topology:** Single-instance internal production only.
+
 ## Introduction
 
-This feature adds a Model Context Protocol (MCP) server to the existing LangGraph RAG
-project ("only Subscribers") so that MCP-capable LLM clients (for example Claude
-Desktop, Cursor, and Kiro) can invoke the RAG engine as callable tools. The MCP server
-is purely **additive**: it is a thin adapter that reuses the existing graph layer
-(`build_chat_graph`, `build_lightweight_graph`, `discover_urls_from_web`) and session
-registry, and it does **not** replace, fork, or duplicate the existing FastAPI HTTP API
-in `src/chat/api.py`.
+This feature makes the RAG runtime transport-neutral and defines two separate MCP bounded contexts. The **inbound MCP server** lets external MCP clients invoke this project's RAG capabilities. The optional **outbound MCP client** lets this project invoke tools hosted by approved external MCP servers. They may share policy, telemetry, and secret-reference abstractions, but they do not share transport lifecycle, configuration ownership, or startup entry points.
 
-The first deliverable exposes **stateless** RAG tools (ask a question against optional
-explicit URLs, and answer a question grounded in live web search). Multi-turn session
-support that maps an MCP conversation to a persisted `thread_id` is defined as an
-**optional** capability so it can be deferred without blocking the stateless tools.
-
-Because the team previously removed the `mcp` dependency during cleanup (see
-`memory/refactor-daily-forms.md`), re-introducing it is a deliberate, scoped decision
-recorded in these requirements.
-
-This document records initial decisions for the four open questions (transport, tool
-surface, stateless vs session, and authentication) as explicit assumptions. These are
-flagged in the "Open Questions / Assumptions" section and should be confirmed before
-the design phase.
+The first MCP release is stateless and inbound. Stateful MCP chat and outbound clients remain deferred until principal identity, ownership, policy, and lifecycle controls are implemented. Existing HTTP and CLI behavior remains compatible while application logic moves behind transport-neutral services.
 
 ## Glossary
 
-- **MCP**: Model Context Protocol, an open protocol that lets LLM clients discover and
-  invoke external tools, resources, and prompts over a defined transport.
-- **MCP_Server**: The new component added by this feature that registers RAG
-  capabilities as MCP tools and serves them to MCP clients.
-- **MCP_Client**: An external LLM application (Claude Desktop, Cursor, Kiro, etc.) that
-  connects to the MCP_Server and invokes its tools.
-- **RAG_Engine**: The existing LangGraph-based retrieval-and-generation logic, reached
-  through `build_chat_graph`, `build_lightweight_graph`, and the graph executor.
-- **Graph_Adapter**: The MCP_Server-internal layer that translates MCP tool calls into
-  RAG_Engine graph invocations and translates graph results back into MCP tool results.
-- **Session_Registry**: The existing `ChatSessionRegistry` that maps a `thread_id` to a
-  compiled graph, settings, and SQLite-persisted checkpoint state.
-- **Stdio_Transport**: The MCP transport in which the MCP_Server runs as a local
-  subprocess of the MCP_Client and communicates over standard input/output.
-- **HTTP_Transport**: The MCP streamable-HTTP transport in which the MCP_Server is
-  reachable over a network endpoint by remote MCP_Clients.
-- **ask_rag_tool**: An MCP tool that answers a question, optionally against caller-supplied
-  source URLs, using the RAG_Engine.
-- **web_search_answer_tool**: An MCP tool that answers a question by first discovering
-  source URLs via web search and then grounding the answer with the RAG_Engine.
-- **API_Key**: The shared secret already used by the HTTP API (`require_api_key`) for
-  bearer-token authentication.
-- **Tool_Result**: The structured payload an MCP tool returns to the MCP_Client, including
-  the answer text and any source metadata.
+- **Inbound_MCP_Server**: A separately started adapter that exposes this project's RAG capabilities to MCP clients.
+- **Outbound_MCP_Client**: An optional lifecycle-managed subsystem that invokes allowlisted external MCP servers.
+- **Principal**: The authenticated workload or user identity assigned by a trusted authentication boundary.
+- **Tenant**: An optional isolation scope associated with a Principal.
+- **Resource_Owner**: The Principal and Tenant recorded when a session, upload, artifact, or durable resource is created.
+- **Network_Transport**: Streamable HTTP or any other remotely reachable transport.
+- **Stdio_Transport**: A local subprocess transport whose protocol output uses standard output and diagnostics use standard error.
+- **Required_Dependency**: A dependency without which the selected capability cannot safely serve.
+- **Optional_Dependency**: A dependency whose failure may produce an explicitly reported degraded state without activating partial configuration.
+- **Server_Deadline**: A mandatory bounded execution deadline controlled by the server.
+- **Secret_Reference**: A non-secret identifier resolved by an approved secret provider at runtime.
 
 ## Requirements
 
-### Requirement 1: Expose RAG as an MCP server
+### Requirement 1: Separate MCP bounded contexts
 
-**User Story:** As an MCP client user, I want the RAG engine exposed as an MCP server, so
-that I can call it as a tool from my LLM client without using the HTTP API directly.
-
-#### Acceptance Criteria
-
-1. WHEN the MCP_Server completes startup, THE MCP_Server SHALL have registered at least
-   one and at most 16 MCP tools, each of which invokes the RAG_Engine, and SHALL assign
-   every registered tool a name that is unique among registered tools.
-2. WHEN an MCP_Client requests the list of available tools, THE MCP_Server SHALL return
-   each registered tool with a non-empty name of 1 to 128 characters, a non-empty
-   human-readable description of 1 to 1024 characters, and an input schema that declares
-   each accepted parameter and which parameters are required.
-3. THE MCP_Server SHALL invoke the RAG_Engine through the existing graph entry points
-   (`build_chat_graph`, `build_lightweight_graph`, `discover_urls_from_web`) without
-   duplicating graph topology, node, or retrieval logic.
-4. WHEN the MCP_Server entry point is started, THE MCP_Server SHALL NOT start the FastAPI
-   HTTP application, and WHEN the FastAPI HTTP application is started, THE FastAPI HTTP
-   application SHALL NOT start the MCP_Server.
-5. IF a registered tool fails to initialize during MCP_Server startup, THEN THE
-   MCP_Server SHALL exit with a non-zero status and emit a diagnostic message to standard
-   error that identifies the failed tool, without partially serving the remaining tools.
-
-### Requirement 2: Stateless single-question RAG tool
-
-**User Story:** As an MCP client user, I want to ask a one-shot question optionally
-scoped to specific URLs, so that I can get a grounded answer without managing a
-conversation.
+**User Story:** As an operator, I want inbound and outbound MCP isolated, so that one direction cannot silently activate or control the other.
 
 #### Acceptance Criteria
 
-1. WHEN the MCP_Client invokes the ask_rag_tool with a question that contains at least one
-   non-whitespace character and no more than 4,000 characters and supplies no URLs, THE
-   MCP_Server SHALL produce an answer using the configured default source URLs loaded from
-   the `Settings` configuration system.
-2. WHERE the MCP_Client supplies between 1 and 50 source URLs to the ask_rag_tool, THE
-   MCP_Server SHALL use the supplied URLs as the RAG_Engine sources for that call instead
-   of the configured default source URLs.
-3. WHEN the ask_rag_tool produces an answer, THE MCP_Server SHALL return a Tool_Result
-   containing the answer text and the list of source URLs used to ground that answer.
-4. IF the question field is empty or contains only whitespace, THEN THE MCP_Server SHALL
-   return an MCP tool error that identifies the question field as the cause, and SHALL NOT
-   invoke the RAG_Engine.
-5. IF the question field exceeds 4,000 characters or the number of supplied source URLs
-   exceeds 50, THEN THE MCP_Server SHALL return an MCP tool error that identifies the
-   field that exceeded its limit as the cause, and SHALL NOT invoke the RAG_Engine.
-6. IF the RAG_Engine raises an error while processing the ask_rag_tool call, THEN THE
-   MCP_Server SHALL return an MCP tool error containing a message that describes the
-   failure cause, SHALL preserve no partial answer in the Tool_Result, and SHALL continue
-   serving subsequent tool calls.
+1. THE system SHALL implement the Inbound_MCP_Server and Outbound_MCP_Client as distinct bounded contexts with separate configuration, lifecycle managers, startup entry points, and health state.
+2. WHEN the Inbound_MCP_Server starts, THE system SHALL NOT start an Outbound_MCP_Client or the FastAPI application.
+3. WHEN the FastAPI application or an Outbound_MCP_Client starts, THE system SHALL NOT implicitly start the Inbound_MCP_Server.
+4. THE first MCP release SHALL require only the Inbound_MCP_Server; deployment configuration SHALL reject any attempt to enable or configure an Outbound_MCP_Client until a later approved phase.
+5. THE contexts MAY share immutable tool metadata, policy interfaces, telemetry interfaces, and secret-provider interfaces, but SHALL NOT share active transport sessions.
 
-### Requirement 3: Web-search-grounded answer tool
+### Requirement 2: Canonical inbound tool contracts
 
-**User Story:** As an MCP client user, I want to ask a question that is answered from a
-live web search, so that I can get current information without supplying URLs myself.
+**User Story:** As an MCP client, I want a small stable tool surface, so that calls remain predictable and bounded.
 
 #### Acceptance Criteria
 
-1. WHEN the MCP_Client invokes the web_search_answer_tool with a query that contains at
-   least one non-whitespace character and no more than 4,096 characters, THE MCP_Server
-   SHALL discover source URLs through `discover_urls_from_web` and then ground the answer
-   with the RAG_Engine.
-2. WHEN the web_search_answer_tool produces an answer, THE MCP_Server SHALL return a
-   Tool_Result containing the answer text and the list of discovered source URLs used to
-   ground the answer.
-3. IF web search returns zero source URLs, THEN THE MCP_Server SHALL return a Tool_Result
-   whose answer text indicates that no web sources were found and whose source URL list is
-   empty.
-4. WHILE the server setting `web_search_enabled` is disabled, THE MCP_Server SHALL omit
-   the web_search_answer_tool from the advertised tool list.
-5. IF web search fails with an error, THEN THE MCP_Server SHALL return an MCP tool error
-   that indicates the web search step as the failure cause, SHALL leave the
-   Session_Registry and checkpoint state unchanged, and SHALL continue serving subsequent
-   tool calls.
-6. IF the query field is empty or contains only whitespace, THEN THE MCP_Server SHALL
-   return an MCP tool error that identifies the query field as the cause, and SHALL NOT
-   invoke web search or the RAG_Engine.
+1. WHEN inbound MCP startup succeeds, THE server SHALL atomically advertise exactly the enabled subset of the canonical tools `rag_ask` and `rag_web_search_answer`, and SHALL advertise no internal graph-node, memory-mutation, editor, file, or administration tool.
+2. THE `rag_ask` tool SHALL accept a question and zero to the configured maximum source URLs and SHALL use configured default sources when URLs are absent.
+3. THE `rag_web_search_answer` tool SHALL discover sources through the existing web-search boundary and return a grounded answer when web search is enabled.
+4. THE question field SHALL contain 1 to 16,000 characters after transport decoding and SHALL contain at least one non-whitespace character.
+5. THE default maximum source URL count SHALL be 10; an operator MAY configure a lower value or a bounded higher value that does not exceed the implementation hard ceiling.
+6. THE maximum search result and returned source counts SHALL be configurable, positive, and bounded by implementation hard ceilings.
+7. THE server SHALL accept HTTPS source URLs by default and SHALL reject unknown fields, malformed fields, and fields exceeding declared limits before graph, search, or provider invocation.
+8. EVERY source object in any tool result SHALL contain `url` and MAY contain `title` and `citation_id`; WHEN a tool succeeds, THE result SHALL contain `answer`, bounded `sources`, `request_id`, `grounded`, and bounded `warnings`.
 
-### Requirement 4: Transport selection
+### Requirement 3: Transport and production authentication
 
-**User Story:** As an operator, I want to choose how the MCP server is reached, so that I
-can support both local LLM clients and remote deployments.
+**User Story:** As an operator, I want network MCP to fail closed, so that production cannot start anonymously.
 
 #### Acceptance Criteria
 
-1. THE MCP_Server SHALL support the Stdio_Transport for local MCP_Clients.
-2. WHERE the operator selects the HTTP_Transport, THE MCP_Server SHALL serve MCP requests
-   over the configured host and the configured TCP port, where the port is an integer in
-   the range 1 to 65535.
-3. THE MCP_Server SHALL select the active transport from configuration from the set
-   {Stdio_Transport, HTTP_Transport}, defaulting to the Stdio_Transport when no transport
-   is specified.
-4. WHEN the MCP_Server starts with the Stdio_Transport, THE MCP_Server SHALL write only
-   MCP protocol messages to standard output and SHALL write diagnostic logs to standard
-   error.
-5. IF the configured transport value is not one of {Stdio_Transport, HTTP_Transport},
-   THEN THE MCP_Server SHALL fail to start and SHALL write an error indicating the invalid
-   transport value to standard error.
-6. IF the HTTP_Transport is selected and the configured host is missing or the configured
-   port is missing or outside the range 1 to 65535, THEN THE MCP_Server SHALL fail to
-   start and SHALL write an error indicating the invalid host or port to standard error.
+1. THE Inbound_MCP_Server SHALL support Stdio_Transport for local clients and authenticated streamable HTTP as a separately selected Network_Transport.
+2. WHEN Stdio_Transport is selected, THE server SHALL require no bearer credential, SHALL emit protocol messages only to standard output, and SHALL emit logs only to standard error.
+3. WHEN a Network_Transport is selected in production and trusted authentication configuration is absent or invalid, THE server SHALL fail startup before binding a socket or advertising tools.
+4. Anonymous Network_Transport SHALL be permitted only when both the environment is explicitly `development` and an explicit development-only anonymous-HTTP setting is enabled.
+5. THE development-only anonymous setting SHALL be rejected in production and SHALL default to disabled.
+6. WHEN bearer credentials remain supported, THE server SHALL compare them in constant time, reject missing or invalid credentials before tool execution, and return a bearer authentication challenge without logging the credential.
+7. THE server SHALL validate the configured transport, non-empty bind host, and port range 1 through 65535 before starting.
 
-### Requirement 5: Authentication for remote transport
+### Requirement 4: Principal identity and resource ownership
 
-**User Story:** As an operator, I want remote MCP access protected by a shared key, so
-that an exposed HTTP endpoint is not open to anonymous callers.
+**User Story:** As a security administrator, I want every network action attributed and owned, so that resources cannot be accessed by unrelated callers.
 
 #### Acceptance Criteria
 
-1. WHILE the HTTP_Transport is active and an API_Key is configured, THE MCP_Server SHALL
-   require every MCP request to present the API_Key as a bearer token whose value exactly
-   matches the configured API_Key in full.
-2. IF the HTTP_Transport is active, an API_Key is configured, and a request presents no
-   bearer token or a bearer token whose value does not exactly match the configured
-   API_Key, THEN THE MCP_Server SHALL reject the request with an unauthorized result that
-   includes a bearer authentication challenge, SHALL NOT invoke the RAG_Engine for that
-   request, and SHALL continue serving subsequent requests.
-3. WHILE the HTTP_Transport is active and no API_Key is configured, THE MCP_Server SHALL
-   serve MCP requests without requiring an API_Key, consistent with the existing HTTP API
-   behavior.
-4. WHILE the Stdio_Transport is active, THE MCP_Server SHALL serve requests without an
-   API_Key, because the transport is a local subprocess of the MCP_Client.
-5. THE MCP_Server SHALL reuse the existing API_Key configuration source used by the HTTP
-   API rather than defining a separate credential.
+1. WHEN a Network_Transport request is accepted, THE authentication boundary SHALL provide a stable Principal identifier and, where applicable, a Tenant identifier; caller-supplied identity fields SHALL NOT override trusted identity.
+2. WHEN Stdio_Transport is used, THE server SHALL assign an explicit local-process Principal rather than treating identity as absent.
+3. WHEN a session, upload, artifact, checkpoint, or durable resource is created, THE system SHALL record its Resource_Owner.
+4. BEFORE any read, write, stream, download, delete, or continuation of an owned resource, THE system SHALL verify that the Principal and Tenant are authorized for that resource.
+5. IF ownership cannot be established or verified, THEN the operation SHALL fail without revealing whether a resource identifier exists.
+6. Stateful MCP tools SHALL remain prohibited until ownership checks and per-session serialization are implemented and tested.
 
-### Requirement 6: Optional multi-turn session tools
+### Requirement 5: Rate, concurrency, cost, deadline, and cancellation controls
 
-**User Story:** As an MCP client user, I want to optionally hold a multi-turn
-conversation, so that follow-up questions keep context across calls.
+**User Story:** As an operator, I want bounded work per principal and request, so that abuse or provider stalls cannot exhaust the service.
 
 #### Acceptance Criteria
 
-1. WHERE multi-turn session support is enabled, WHEN the MCP_Client invokes the
-   session-start tool, THE MCP_Server SHALL create a session in the Session_Registry and
-   return a Tool_Result containing a `thread_id` that is unique among the currently active
-   sessions.
-2. WHERE multi-turn session support is enabled, WHEN the MCP_Client invokes a follow-up
-   tool with a `thread_id` that matches an active session in the Session_Registry and a
-   non-empty message, THE MCP_Server SHALL route the message to that existing session
-   through the Session_Registry and return a Tool_Result containing the assistant reply
-   text.
-3. WHERE multi-turn session support is enabled, IF a follow-up tool is invoked with a
-   `thread_id` that does not match any active session in the Session_Registry, THEN THE
-   MCP_Server SHALL return an MCP tool error that identifies the `thread_id` as unknown and
-   SHALL leave existing session state unchanged.
-4. WHERE multi-turn session support is enabled, IF a follow-up tool is invoked with a
-   message that is empty or contains only whitespace, THEN THE MCP_Server SHALL return an
-   MCP tool error that identifies the message field as the cause and SHALL leave the
-   addressed session state unchanged.
-5. WHERE multi-turn session support is enabled, IF the RAG_Engine raises an error while
-   processing a follow-up tool call, THEN THE MCP_Server SHALL return an MCP tool error
-   containing a descriptive message, SHALL preserve the addressed session state, and SHALL
-   continue serving subsequent tool calls.
-6. WHERE multi-turn session support is disabled, THE MCP_Server SHALL omit the session
-   tools from the advertised tool list.
+1. THE system SHALL enforce configurable bounded per-Principal and, when present, per-Tenant request-rate, concurrent-call, search, token, tool-call, retry, and cost limits.
+2. EVERY network or MCP tool request SHALL receive a Server_Deadline no greater than a configured mandatory maximum; clients MAY request a shorter deadline but SHALL NOT extend the server maximum.
+3. THE remaining Server_Deadline SHALL propagate through application services, graph execution, LLM calls, web search, retrieval, URL fetching, and outbound tool calls.
+4. WHEN a deadline expires or a client disconnect follows the configured cancellation policy, THE system SHALL cancel or stop upstream work, reject further side effects, and return a sanitized timeout or cancellation result.
+5. THE server SHALL bound response bytes, source count, warning count, debug output, and tool/provider output before serialization.
+6. Limit counters SHALL use bounded-cardinality identifiers and SHALL NOT use URLs, full thread IDs, questions, or source content as metric labels.
 
-### Requirement 7: Configuration and dependency management
+### Requirement 6: Schema, URL, and SSRF safety
 
-**User Story:** As a developer, I want the MCP server configured through the existing
-settings system, so that re-adding the MCP dependency stays consistent with the rest of
-the project.
+**User Story:** As a security administrator, I want untrusted inputs constrained before I/O, so that schemas and URLs cannot reach prohibited resources.
 
 #### Acceptance Criteria
 
-1. WHEN the MCP_Server starts, THE MCP_Server SHALL read its transport, host, port, and
-   enablement values from the existing `Settings` configuration system, where transport is
-   one of `stdio` or `http`, host is a non-empty string, port is an integer in the range 1
-   to 65535, and enablement is a boolean.
-2. THE project SHALL declare the `mcp` dependency in both `pyproject.toml` and
-   `requirements.txt` using an identical exact-version pin (a `==` constraint) in each
-   manifest.
-3. WHERE the MCP_Server enablement setting is disabled, THE MCP_Server entry point SHALL
-   not bind any transport, SHALL not advertise or serve any MCP tools, and SHALL log to
-   standard error that the server is disabled.
-4. THE MCP_Server SHALL load source URLs and web-search behavior from the same `Settings`
-   values used by the HTTP API, and SHALL NOT define a separate configuration source for
-   those values.
-5. IF the transport value is not `stdio` or `http`, or the port is outside the range 1 to
-   65535, or the host is empty, THEN THE MCP_Server SHALL fail to start, SHALL not serve
-   any MCP requests, and SHALL log an error to standard error identifying the invalid
-   setting.
+1. THE server SHALL publish closed input schemas that reject unknown properties and declare required fields, scalar lengths, collection counts, and supported formats.
+2. THE server SHALL enforce hard limits for schema byte size, nesting depth, property count, enum count, and output size before accepting external tool metadata or results.
+3. BEFORE fetching a caller-supplied, discovered, redirected, or outbound-MCP URL, THE system SHALL validate its scheme, normalized host, resolved addresses, port, and endpoint allow/deny policy.
+4. BY DEFAULT the system SHALL reject non-HTTPS URLs, embedded credentials, loopback, link-local, multicast, unspecified, private-network, and cloud-metadata destinations.
+5. THE system SHALL independently validate every redirect target and SHALL stop after a bounded redirect count.
+6. DNS resolution and connection SHALL be protected against rebinding by validating resolved addresses at the connection boundary where the HTTP client permits.
+7. Exceptions for private destinations SHALL require explicit production policy approval and SHALL be narrower than a general private-network allow switch.
 
-### Requirement 8: Observability and graceful shutdown
+### Requirement 7: Sanitized errors, audit events, and redaction
 
-**User Story:** As an operator, I want the MCP server to log its activity and shut down
-cleanly, so that I can run and monitor it reliably.
+**User Story:** As an operator, I want useful diagnostics without secret or provider leakage, so that incidents can be investigated safely.
 
 #### Acceptance Criteria
 
-1. WHEN the MCP_Server starts and before it accepts any tool call, THE MCP_Server SHALL
-   write to standard error a single startup record containing the active transport name
-   and the complete list of advertised tool names.
-2. WHEN the MCP_Server receives an interrupt (SIGINT) or termination (SIGTERM) signal,
-   THE MCP_Server SHALL stop accepting new tool calls and SHALL release the
-   Session_Registry and checkpoint resources before exiting.
-3. WHILE shutting down after an interrupt or termination signal, IF the release of the
-   Session_Registry and checkpoint resources does not complete within 10 seconds, THEN
-   THE MCP_Server SHALL exit without waiting further.
-4. WHEN an MCP tool call completes, THE MCP_Server SHALL record, in the existing metrics
-   or logging facility, the invoked tool name and an outcome value of exactly one of
-   `success` or `failure`.
-5. IF the metrics or logging facility raises an error while recording a tool outcome,
-   THEN THE MCP_Server SHALL discard that recording error and SHALL continue serving
-   subsequent tool calls without returning an error to the MCP_Client.
+1. EVERY accepted request SHALL receive an internal correlation/request ID that is returned in structured success and sanitized error results.
+2. PUBLIC errors SHALL use stable codes and sanitized messages and SHALL NOT include raw provider exceptions, stack traces, credentials, source content, authorization headers, or secret-bearing URLs.
+3. Internal exception details MAY be logged only through approved sanitization and redaction and SHALL be associated with the correlation ID.
+4. THE system SHALL emit bounded audit events for authentication outcome, authorization outcome, tool invocation, policy denial, limit rejection, timeout/cancellation, configuration publication, startup, degraded state, and shutdown.
+5. Audit events SHALL include bounded identity, tool, outcome, duration, and configuration-generation metadata but SHALL NOT include questions, full arguments, documents, tokens, secrets, or unbounded URLs.
+6. A logging, metrics, tracing, or audit sink failure SHALL NOT expose secrets or convert a successful tool operation into a client-visible failure; required audit durability MAY instead fail the protected operation according to explicit policy.
 
-## Open Questions / Assumptions
+### Requirement 8: Required and optional dependency startup
 
-The following decisions are recorded as initial assumptions and should be confirmed before
-the design phase:
+**User Story:** As an operator, I want atomic startup and explicit degradation, so that partial unsafe capability sets are never served.
 
-1. **Transport**: Assumed both Stdio_Transport (default, for local clients) and an
-   optional HTTP_Transport are supported (Requirement 4). Confirm whether HTTP is needed
-   in the first version or can be deferred.
-2. **Tool surface**: Assumed two stateless tools first — `ask_rag` and
-   `web_search_answer` (Requirements 2 and 3) — with optional session tools (Requirement
-   6). Confirm whether additional tools (for example history retrieval) are wanted.
-3. **Stateless vs session**: Assumed stateless tools are the required first deliverable and
-   multi-turn session tools are optional/deferred (Requirement 6). Confirm priority.
-4. **Authentication**: Assumed the existing API_Key bearer scheme is reused, enforced only
-   on HTTP_Transport, and skipped on Stdio_Transport (Requirement 5). Confirm this model.
+#### Acceptance Criteria
+
+1. BEFORE accepting requests, THE server SHALL validate configuration, resolve required Secret_References, initialize required dependencies, validate all required tool schemas, and construct one immutable advertised tool generation.
+2. IF any Required_Dependency or required tool fails initialization, THEN startup SHALL fail atomically without binding the selected transport or publishing a partial tool set.
+3. IF an Optional_Dependency fails, THEN the server MAY start only when all tools depending on it are omitted atomically and readiness explicitly reports a sanitized degraded state.
+4. A configuration reload SHALL publish either one fully validated generation or retain the previous generation; it SHALL NOT mutate an active generation in place.
+5. Active requests SHALL retain the generation with which they started until completion or cancellation.
+6. Detailed dependency diagnostics SHALL be restricted to an administrative interface; public readiness SHALL disclose only bounded status.
+
+### Requirement 9: Secret references and configuration safety
+
+**User Story:** As a security administrator, I want secrets referenced rather than exposed, so that configuration can be inspected safely.
+
+#### Acceptance Criteria
+
+1. Production configuration SHALL store Secret_References rather than secret values in browser-readable, API-readable, logged, or persisted tool configuration.
+2. Secret values SHALL be resolved only at runtime through an approved secret-provider interface and SHALL NOT be returned by configuration, health, audit, or tool-list endpoints.
+3. THE system SHALL redact authorization headers, access tokens, refresh tokens, client secrets, command environments, and secret-bearing URL components from errors and logs.
+4. Outbound stdio command execution SHALL remain disabled in hosted production until executable/image allowlists and fixed argument templates are implemented.
+5. Remote outbound MCP endpoints SHALL require HTTPS and explicit endpoint policy before activation.
+
+### Requirement 10: Lifecycle and graceful shutdown
+
+**User Story:** As an operator, I want deterministic lifecycle behavior, so that shutdown and replacement do not corrupt state or leak processes.
+
+#### Acceptance Criteria
+
+1. WHEN SIGINT or SIGTERM is received, THE server SHALL stop accepting new work and mark readiness false before draining or cancelling active work according to policy.
+2. THE shutdown grace period SHALL be configurable and bounded; after it expires, remaining work SHALL be cancelled and process exit SHALL continue.
+3. Shutdown SHALL close network listeners, provider clients, outbound MCP sessions/subprocesses, graph resources, checkpoint stores, audit exporters, and background workers in dependency order.
+4. Startup failure and configuration-generation replacement SHALL close every resource initialized for the unpublished generation.
+5. Stdio and Network_Transport lifecycle failures SHALL be isolated from the FastAPI and optional outbound-client processes.
+
+### Requirement 11: First supported production topology
+
+**User Story:** As an operator, I want an honest supported topology, so that local persistence is not deployed with unsafe scaling assumptions.
+
+#### Acceptance Criteria
+
+1. THE first supported deployment SHALL be single-instance internal production with exactly one chat worker/process.
+2. SQLite databases, Chroma data, uploads, and generated artifacts SHALL reside on one protected persistent volume accessible only to that instance.
+3. THE deployment SHALL use restricted ingress and egress, authenticated network transports, restart recovery, tested backup/restore, and explicit maintenance windows for SQLite/Chroma backups.
+4. Horizontal scaling and multiple chat workers SHALL be explicitly prohibited while process-local locks or local SQLite, Chroma, uploads, checkpoints, or artifacts remain authoritative.
+5. Multi-replica support SHALL require shared transactional persistence, distributed per-resource locks, object storage, a server-mode vector store, shared quota/catalog state, migrations, and tenant identifiers on durable objects before the prohibition is removed.
+6. Production launch commands and operations documentation SHALL set or require one worker while local development commands MAY retain reload behavior.
+
+### Requirement 12: Transport-neutral QA compatibility slice
+
+**User Story:** As a developer, I want the existing QA route backed by an application service, so that future HTTP and MCP adapters reuse the same behavior.
+
+#### Acceptance Criteria
+
+1. THE non-streaming stateless QA orchestration SHALL reside under `src/application/` and SHALL NOT import FastAPI or another transport framework.
+2. THE application layer SHALL define stable `RagRequest`, `RagAnswer`, and `SourceReference` models and separate sanitized public errors from retained internal causes.
+3. POST `/query` SHALL be a thin compatibility adapter over `RagApplicationService` and SHALL preserve its existing response fields, source mode/note behavior, debug-message shaping, lightweight web-search selection, graph promotion, and rebuild rollback.
+4. Unexpected provider or infrastructure exceptions SHALL produce a sanitized public message with a request/correlation ID and SHALL NOT add raw exception text to the public response.
+5. This slice SHALL NOT refactor chat streaming or alter typed tool-event behavior except for focused type corrections required to restore strict checking.
+6. Focused tests SHALL invoke the service without FastAPI and SHALL verify HTTP response parity.

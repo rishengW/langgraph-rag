@@ -24,8 +24,9 @@ tiktoken==0.13.0
 # DashScope SDK
 dashscope==1.25.21
 
-# Web framework
+# Web framework and MCP transport
 fastapi==0.119.1
+mcp==2.1.0
 uvicorn==0.49.0
 pydantic==2.13.4
 python-multipart==0.0.20

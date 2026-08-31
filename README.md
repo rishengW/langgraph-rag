@@ -19,6 +19,7 @@ langgraph-rag/
 |-- .github/workflows/        # CI
 |-- config/                   # YAML config (default + per-environment overlays)
 |-- src/
+|   |-- adapters/mcp_server/  # Separate stateless inbound MCP server (stdio or authenticated Streamable HTTP)
 |   |-- api/                  # Shared FastAPI helpers (auth, CORS, errors, streaming, dependencies)
 |   |-- chat/                 # Multi-turn chat app (API, UI, entry point)
 |   |-- config/               # Settings dataclass + YAML/env loader
@@ -30,7 +31,7 @@ langgraph-rag/
 |   |-- qa/                   # Single-shot QA app (API, CLI, UI)
 |   |-- rag/                  # Chroma retriever, embeddings (DashScope, HuggingFace), document loader/quality
 |   |-- sessions/             # Chat session registry, SQLite metadata + checkpoint persistence
-|   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, file readers) + shared HTTP helper
+|   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, live web search, file readers, document editors, long-term memory) + shared HTTP and geocoding helpers
 |   |-- utils/                # Retry, networking, URL parsing helpers
 |   |-- web_search/           # Search APIs + HTML fallbacks, discovery, ranking, fetching (HTML/PDF/JS), structural + semantic filtering, domain reputation
 |-- tests/                    # Offline-focused pytest suite
@@ -115,6 +116,7 @@ Key settings:
 | `LLM_PROVIDER` | `dashscope` | `dashscope` or `deepseek` |
 | `QWEN_MODEL` | `qwen-plus` | DashScope model name |
 | `DEEPSEEK_MODEL` | `deepseek-v4-pro` | DeepSeek model name |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | DeepSeek-compatible endpoint; override for a proxy or gateway |
 | `EMBEDDING_MODEL` | `text-embedding-v4` | Embedding model |
 | `CHAT_CONTEXT_MAX_TURNS` | `8` | Recent chat turns projected into model calls |
 | `CHAT_CONTEXT_MAX_CHARS` | `12000` | Hard character budget for the model-side chat projection |
@@ -172,7 +174,19 @@ Key settings:
 | `TEXT_EDIT_ENABLED` | `false` | Plain-text .txt creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `MARKDOWN_EDIT_ENABLED` | `false` | Markdown .md creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `CHROMA_DIR` | `.chroma` | Vector store location |
-| `API_KEY` | — | API auth key (open when unset) |
+| `API_KEY` | — | API auth key for mutation endpoints via `Authorization: Bearer`; open when unset |
+| `API_HOST` | `127.0.0.1` | Bind address for the QA and Chat servers |
+| `API_PORT` | `8000` | Listen port for the QA and Chat servers |
+| `CORS_ALLOW_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
+| `MCP_ENABLED` | `false` | Enable only the separately launched inbound MCP process |
+| `MCP_TRANSPORT` | `stdio` | `stdio` or stateless Streamable HTTP (`http`) |
+| `MCP_ENVIRONMENT` | `development` | `development`, `staging`, or `production`; controls fail-closed HTTP policy |
+| `MCP_AUTH_SECRET_ENV` | `API_KEY` | Environment-variable reference for the transitional HTTP bearer key |
+| `MCP_ALLOWED_HOSTS` | empty | Exact HTTP Host allowlist; required outside development |
+| `MCP_ALLOWED_ORIGINS` | empty | Exact browser Origin allowlist; absent Origin remains valid for non-browser clients |
+| `MCP_DEADLINE_SECONDS` | `120` | Mandatory whole-call server deadline (bounded to 600 seconds) |
+| `MCP_MAX_SEARCH_RESULTS` | `10` | Maximum discovered web-search URLs admitted before source validation and invocation |
+| `MCP_MAX_CONCURRENCY` | `4` | Process-local concurrent MCP calls for the supported single instance |
 | `RERANK_STRATEGY` | `lexical` | `lexical`, `embedding`, or `hybrid` |
 | `MEMORY_ENABLED` | `false` | Enable long-term memory tools (save/recall/forget) and auto-recall injection |
 | `MEMORY_STORE_PATH` | - | Memory store file path; defaults to `memory/long_term_memory.json` relative to working directory |
@@ -188,7 +202,7 @@ Key settings:
 | `MEMORY_EXTRACTION_MAX_CANDIDATES` | `5` | Maximum memories accepted from one extraction round (1–20) |
 | `MEMORY_EXTRACTION_MAX_TRANSCRIPT_CHARS` | `8000` | Character cap on transcript excerpt sent to one extraction (200–100000) |
 | `MEMORY_EXTRACTION_TIMEOUT_SECONDS` | `60` | Seconds to wait for the extraction LLM call (1–600) |
-| `MEMORY_EXTRACTION_MAX_CONcurrency` | `2` | Extractions allowed to run at once (1–16); excess requests are dropped |
+| `MEMORY_EXTRACTION_MAX_CONCURRENCY` | `2` | Extractions allowed to run at once (1–16); excess requests are dropped |
 | `MEMORY_EXTRACTION_MAX_SESSION_AGE_HOURS` | `168` | Skip session-start extraction for sessions idle longer than this (1–8760 hours) |
 
 ## LangGraph Architecture
@@ -256,12 +270,12 @@ Provider queries use deterministic keyword cleanup by default. Relative time wor
 
 ### Agent Tools
 
-The agent can be given any combination of these tools via per-tool config flags. All optional tools default to off; the retriever is always present in the full graph and `live_web_search` defaults to on.
+The agent can be given any combination of these tools via per-tool config flags. All optional tools default to off; the retriever is always present in the full graph and `live_web_search` defaults to on. The document editors are additionally session-scoped: they are only offered in a chat session that has an upload directory, so a sessionless or QA graph exposes none of them regardless of the flags.
 
 | Tool | Module | Config flag | Notes |
 |---|---|---|---|
 | `retrieve_source_documents` | `src/rag/chroma_retriever.py` | always on (full graph) | Chroma vectorstore retrieval |
-| `live_web_search` | `src/web_search/tool.py` | `WEB_SEARCH_ENABLED=true` (default) | Serper/Brave/Tavily/Bing APIs plus Bing/Baidu/DuckDuckGo HTML fallbacks |
+| `live_web_search` | `src/tools/web_search.py` | `WEB_SEARCH_ENABLED=true` (default) | Serper/Brave/Tavily/Bing APIs plus Bing/Baidu/DuckDuckGo HTML fallbacks |
 | `get_weather` | `src/tools/weather.py` | `WEATHER_ENABLED=true` | Open-Meteo forecast (city or coordinates), no API key |
 | `get_stock_quote` | `src/tools/stock.py` | `STOCK_ENABLED=true` | yfinance / Yahoo Finance, no API key |
 | `convert_currency` | `src/tools/currency.py` | `CURRENCY_ENABLED=true` | Frankfurter API (201 currencies), no API key |
@@ -285,7 +299,7 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `create_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Create a formatted .docx in the current session with headings, lists, and tables |
 | `inspect_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | List numbered paragraphs and table cells of a session-uploaded .docx |
 | `edit_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Apply structured edits to a session-uploaded .docx; creates a new file |
-| `inspect_powerpoint` | `src/tools/powerpoint_edit.py` | `FILE_READ_ENABLED=true` and `POWERPOINT_EDIT_ENABLED=true` | List slides, shape paths, text, and table cells of a session-uploaded .pptx |
+| `inspect_powerpoint` | `src/tools/powerpoint_edit.py` | `FILE_READ_ENABLED=true` and `POWERPOINT_EDIT_ENABLED=true` | List slides, shape paths, text, and table cells of a session-uploaded .pptx (needs `python-pptx`) |
 | `edit_powerpoint` | `src/tools/powerpoint_edit.py` | `FILE_READ_ENABLED=true` and `POWERPOINT_EDIT_ENABLED=true` | Apply expected-text-checked text/table edits to a session-uploaded .pptx; creates a new file |
 | `inspect_text_file` | `src/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | List numbered lines and text-format metadata for a session-uploaded .txt |
 | `edit_text_file` | `src/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .txt; creates a new file |
@@ -312,6 +326,22 @@ When the agent calls a non-web-search tool in the lightweight graph (weather, st
 
 - **DashScopeEmbeddings** — Tongyi text embeddings (default: `text-embedding-v4`)
 - **HuggingFaceEmbeddingModel** — Local HuggingFace embedding models
+
+## Inbound MCP Server
+
+The inbound MCP process is separate from both FastAPI applications and publishes exactly two stateless tools: `rag_ask` (configured defaults or caller-supplied HTTPS sources) and `rag_web_search_answer` (forced existing web discovery). It never advertises chat sessions, files, editors, memory mutation, administration, or internal graph tools.
+
+For a local MCP client, set `MCP_ENABLED=true` and keep `MCP_TRANSPORT=stdio`, then configure the client to launch:
+
+```text
+<repo>/.venv/Scripts/python.exe -m src.adapters.mcp_server.main
+```
+
+On macOS/Linux use `<repo>/.venv/bin/python`. Standard output is reserved for MCP protocol frames; diagnostics and bounded audit metadata go to standard error. The subprocess receives the explicit `local-process` principal.
+
+For Streamable HTTP, select `MCP_TRANSPORT=http`. Staging and production fail before socket bind unless the environment variable named by `MCP_AUTH_SECRET_ENV` contains a bearer key, `MCP_PUBLIC_BASE_URL` is HTTPS, and `MCP_ALLOWED_HOSTS` contains exact deployment hosts. Anonymous HTTP requires both `MCP_ENVIRONMENT=development` and `MCP_ALLOW_ANONYMOUS_HTTP=true`. The endpoint defaults to `http://127.0.0.1:8002/mcp`; send the shared key as `Authorization: Bearer <key>`.
+
+HTTP uses the SDK's stateless ASGI application with exact Host/Origin checks and request-body bounds. Caller-supplied and discovered source hosts are resolved before application invocation, and every resolved address must be public. The current legacy document loaders may resolve again and follow redirects without connection-address pinning, so this release does **not** claim connection-boundary DNS-rebinding protection for outbound source fetching. Deploy restricted egress and an allowlisting proxy; a future fetcher must pin validated addresses and independently validate each redirect before this limitation can be removed. Downstream synchronous graph/provider calls also cannot always be force-cancelled after the adapter deadline fires, although cancellation propagates through asynchronous seams.
 
 ## Running QA
 
@@ -491,7 +521,7 @@ MEMORY_EXTRACTION_MAX_CONURRENCY=2
 MEMORY_EXTRACTION_MAX_SESSION_AGE_HOURS=168
 ```
 
-Each extraction round runs in parallel (bounded by `MEMORY_EXTRACTION_MAX_CONcurrency`) and is capped in parallelism; excess requests are dropped rather than queued. Extracted content passes through a watermark so the model can distinguish recalled material from user input.
+Each extraction round runs in parallel (bounded by `MEMORY_EXTRACTION_MAX_CONCURRENCY`) and is capped in parallelism; excess requests are dropped rather than queued. Extracted content passes through a watermark so the model can distinguish recalled material from user input.
 
 ### Scope and eviction
 
@@ -586,7 +616,7 @@ Starts QA on `http://127.0.0.1:8000` and Chat on `http://127.0.0.1:8001` with na
 ## Verification
 
 ```powershell
-python -m pytest -q                         # Run tests (current baseline: 455 passed)
+python -m pytest -q                         # Run tests
 ruff check .                                # Lint
 mypy src/                                   # Type check
 python -m pytest --tb=short --cov=src --cov-report=term --cov-fail-under=70
@@ -602,6 +632,6 @@ git diff --check                            # Whitespace check
 - Noise filtering is measured rather than pattern-matched: structural page assessment and the learned domain prior are on by default, and semantic similarity is available as an opt-in recall layer. The tradeoff is that structural filtering needs a fetch first, so a noisy URL still costs one concurrent request.
 - The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
 - Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.
-- Location questions route to `find_on_map` before `live_web_search`. Place lookup goes through the shared geocoder in `src/tools/_geocoding.py`: request wording is stripped ("在地图上找出上海的位置" → "上海"), Open-Meteo resolves populated places (using `language=zh` for Chinese input), and Photon resolves points of interest and non-Latin names. Since text-similarity geocoding can return a neighbouring or same-named place, results below the confidence threshold are labelled `APPROXIMATE MATCH` and same-name ties are labelled `AMBIGUOUS`; the agent is instructed to verify those with a web search rather than assert them.
-- Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (the five file readers — .txt, .md, .docx, .xlsx, .pdf — share `FILE_READ_ENABLED`). None require an API key; only `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.
+- Location questions route to `find_on_map` before `live_web_search`. Place lookup goes through the shared geocoder in `src/tools/_geocoding.py`: request wording is stripped ("在地图上找出上海的位置" → "上海"), then AMap resolves the place in three fallback stages — POI text search first, address geocoding if that yields no confident match, administrative district lookup last — and the candidates are deduped and ranked by match score. Coordinates come back in GCJ-02, which the map artifact renders directly. Requires `AMAP_WEB_SERVICE_KEY`; with no key configured the geocoder returns no candidates. Since text-similarity geocoding can return a neighbouring or same-named place, results below the confidence threshold are labelled `APPROXIMATE MATCH` and same-name ties are labelled `AMBIGUOUS`; the agent is instructed to verify those with a web search rather than assert them.
+- Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (the five file readers — .txt, .md, .docx, .xlsx, .pdf — share `FILE_READ_ENABLED`). Most need no API key; the exceptions are `get_directions` and `find_on_map`, which require `AMAP_WEB_SERVICE_KEY`. `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.
 - The lightweight graph's conditional expansion fires only on web-search retrieval failure — single-keyword questions that get a readable, relevant page back take the fast path with one search and one LLM call. Compound questions that decompose into multiple sub-Qs still take the fast path; expansion only fires when no fetched page yields usable evidence.

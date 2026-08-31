@@ -15,7 +15,7 @@ import re
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from urllib.parse import quote
 
 from langchain_core.tools import BaseTool, StructuredTool
@@ -424,25 +424,25 @@ def _apply_operation(workbook: Any, operation: ExcelEditOperation) -> None:
         return
 
     if action == "insert_rows":
-        worksheet.insert_rows(int(operation.row_index), amount=int(operation.count))
+        worksheet.insert_rows(cast(int, operation.row_index), amount=int(operation.count))
         return
     if action == "delete_rows":
-        worksheet.delete_rows(int(operation.row_index), amount=int(operation.count))
+        worksheet.delete_rows(cast(int, operation.row_index), amount=int(operation.count))
         return
     if action == "insert_columns":
-        worksheet.insert_cols(int(operation.column_index), amount=int(operation.count))
+        worksheet.insert_cols(cast(int, operation.column_index), amount=int(operation.count))
         return
     if action == "delete_columns":
-        worksheet.delete_cols(int(operation.column_index), amount=int(operation.count))
+        worksheet.delete_cols(cast(int, operation.column_index), amount=int(operation.count))
         return
 
     if action == "set_column_width":
-        letter = _column_letter(int(operation.column_index))
-        worksheet.column_dimensions[letter].width = float(operation.column_width)
+        letter = _column_letter(cast(int, operation.column_index))
+        worksheet.column_dimensions[letter].width = cast(float, operation.column_width)
         return
 
     if action == "set_number_format":
-        letter = _column_letter(int(operation.column_index))
+        letter = _column_letter(cast(int, operation.column_index))
         worksheet.column_dimensions[letter].number_format = operation.number_format
         return
 
@@ -676,7 +676,7 @@ def _require_cell_address(cell: str) -> str:
 def _column_letter(index: int) -> str:
     from openpyxl.utils import get_column_letter
 
-    return get_column_letter(index)
+    return cast(str, get_column_letter(index))
 
 
 def _sheet_exists(workbook: Any, name: str) -> bool:

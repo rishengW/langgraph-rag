@@ -21,7 +21,7 @@ from ..core.web_search import (
     discover_urls_from_web,
     settings_for_discovered_urls,
 )
-from ..graph.events import DoneEvent, ErrorEvent, TokenEvent
+from ..graph.events import DoneEvent, ErrorEvent, TokenEvent, ToolEndEvent, ToolStartEvent
 from ..graph.executor import GraphExecutor
 from ..memory.recall import build_turn_messages
 from .memory_hooks import after_turn, build_extraction_runtime
@@ -117,9 +117,7 @@ def _repl(args: argparse.Namespace) -> None:
     )
     base_settings = settings
     graph_owned_web = (
-        urls is None
-        and settings.web_search_enabled
-        and settings.web_search_lightweight
+        urls is None and settings.web_search_enabled and settings.web_search_lightweight
     )
     print(f"DashScope API key loaded: {secret_fingerprint(settings.dashscope_api_key)}")
 
@@ -141,7 +139,9 @@ def _repl(args: argparse.Namespace) -> None:
             rebuild = True
             _print_urls("Discovered source URLs:", found)
         else:
-            _print_urls("No web search results; using configured source URLs:", settings.source_urls)
+            _print_urls(
+                "No web search results; using configured source URLs:", settings.source_urls
+            )
     elif urls:
         _print_urls("Using explicit source URLs:", urls)
     else:
@@ -182,11 +182,7 @@ def _repl(args: argparse.Namespace) -> None:
         if prompt.lower() in {"exit", "quit", ":q"}:
             break
 
-        if (
-            not graph_owned_web
-            and urls is None
-            and base_settings.web_search_enabled
-        ):
+        if not graph_owned_web and urls is None and base_settings.web_search_enabled:
             try:
                 found = discover_urls_from_web(prompt, base_settings)
             except Exception as exc:
@@ -213,9 +209,7 @@ def _repl(args: argparse.Namespace) -> None:
             # Same turn builder as the FastAPI path, so the CLI gets identical
             # memory selection, placement, and character limits.
             inputs: dict[str, object] = {
-                "messages": build_turn_messages(
-                    settings, thread_id=thread_id, message=prompt
-                )
+                "messages": build_turn_messages(settings, thread_id=thread_id, message=prompt)
             }
             if graph_owned_web:
                 inputs.update(
@@ -238,7 +232,17 @@ def _repl(args: argparse.Namespace) -> None:
                 config,
                 stream_tokens=True,
             ):
-                if isinstance(event, TokenEvent):
+                if isinstance(event, ToolStartEvent):
+                    if printed_prefix:
+                        print()
+                        printed_prefix = False
+                    print(f"Tool started: {event.tool}")
+                elif isinstance(event, ToolEndEvent):
+                    if printed_prefix:
+                        print()
+                        printed_prefix = False
+                    print(f"Tool completed: {event.tool}")
+                elif isinstance(event, TokenEvent):
                     if not printed_prefix:
                         print("Assistant: ", end="", flush=True)
                         printed_prefix = True

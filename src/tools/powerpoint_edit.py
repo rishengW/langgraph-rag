@@ -16,7 +16,7 @@ import zipfile
 from collections.abc import Iterator
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import quote
 
 from langchain_core.tools import BaseTool, StructuredTool
@@ -232,7 +232,10 @@ def _apply_operations(presentation: Any, operations: list[PowerPointEditOperatio
 def _shape_text(shape: Any, operation: PowerPointEditOperation) -> str:
     if operation.action == "replace_table_cell" and getattr(shape, "has_table", False):
         try:
-            return shape.table.cell(operation.row_index, operation.column_index).text
+            return cast(
+                str,
+                shape.table.cell(operation.row_index, operation.column_index).text,
+            )
         except IndexError as exc:
             raise PowerPointEditError("table row or column index is out of range.") from exc
     return getattr(shape, "text", "") or ""

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import gc
 import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
@@ -30,6 +29,13 @@ from ..api.dependencies import (
 from ..api.errors import register_error_handlers
 from ..api.models import QueryRequest, QueryResponse
 from ..api.streaming import format_sse
+from ..application import (
+    RagApplicationError,
+    RagApplicationService,
+    RagGraphState,
+    RagRequest,
+    RagServiceDependencies,
+)
 from ..config import Settings, load_cors_allow_origins, load_settings
 from ..core.graph import build_graph
 from ..core.graph_executor import run_rag_query
@@ -83,9 +89,7 @@ def create_app(
         try:
             logger.info("Loading settings and building graph...")
             settings = (
-                load_settings()
-                if config_file is None
-                else load_settings(config_file=config_file)
+                load_settings() if config_file is None else load_settings(config_file=config_file)
             )
             graph = build_graph(settings, rebuild_vectorstore=rebuild_db)
             initialize_qa_app_state(app, settings=settings, graph=graph)
@@ -109,9 +113,7 @@ def create_app(
     # REFACTOR: Register typed RAG error responses for this app instance.
     register_error_handlers(app)
     cors_origins = (
-        load_cors_allow_origins()
-        if config_file is None
-        else load_cors_allow_origins(config_file)
+        load_cors_allow_origins() if config_file is None else load_cors_allow_origins(config_file)
     )
     configure_cors(app, cors_origins)
     initialize_qa_app_state(app)
@@ -163,176 +165,52 @@ def create_app(
             QueryResponse with answer or error message.
         """
 
+        service = RagApplicationService(
+            settings=settings,
+            graph=graph,
+            rebuild_lock=rebuild_lock,
+            graph_state=RagGraphState(
+                current_graph=lambda: getattr(fastapi_request.app.state, "qa_graph", None),
+                current_settings=lambda: getattr(fastapi_request.app.state, "settings", settings),
+                clear=lambda: clear_qa_graph(fastapi_request.app),
+                promote=lambda new_graph, new_settings: update_qa_graph_state(
+                    fastapi_request.app,
+                    graph=new_graph,
+                    settings=new_settings,
+                ),
+            ),
+            dependencies=RagServiceDependencies(
+                build_graph=lambda graph_settings, rebuild: build_graph(
+                    graph_settings, rebuild_vectorstore=rebuild
+                ),
+                build_lightweight_graph=build_lightweight_graph,
+                discover_urls=discover_urls_from_web,
+                settings_for_discovered_urls=settings_for_discovered_urls,
+                run_query=run_rag_query,
+            ),
+        )
         try:
-            urls = _parse_request_urls(request.urls)
-
-            discovered_from_search = False
-            search_error: str | None = None
-
-            if urls is None and request.web_search and settings.web_search_enabled:
-                try:
-                    discovered_urls = discover_urls_from_web(request.question, settings)
-                    if discovered_urls:
-                        urls = discovered_urls
-                        discovered_from_search = True
-                    else:
-                        search_error = "web search returned no usable URLs"
-                except Exception as exc:
-                    search_error = str(exc)
-                    logger.warning("Web search failed; falling back to configured URLs: %s", exc)
-
-            source_mode: str | None = None
-            source_note: str | None = None
-            # `urls` here is the normalized list from _parse_request_urls.
-            # Don't call .strip() on request.urls directly — it may be a list,
-            # which would raise AttributeError for API clients that send an array.
-            explicit_urls = urls is not None and not discovered_from_search
-            if explicit_urls:
-                source_mode = "explicit"
-            elif discovered_from_search:
-                source_mode = "web_search"
-            else:
-                source_mode = "defaults"
-                if request.web_search and settings.web_search_enabled:
-                    source_note = "web_search_failed" if search_error else "web_search_no_results"
-                elif request.web_search and not settings.web_search_enabled:
-                    source_note = "web_search_disabled"
-
-            # Decide whether we must rebuild/refresh the graph.
-            # Important: `_graph` is built with a specific retriever (and URL set). If a
-            # request asks for a rebuild, or supplies a different URL list, we must rebuild
-            # the graph so the retriever tool points at the right Chroma collection.
-            urls_changed = urls is not None and urls != settings.source_urls
-            needs_new_graph = request.rebuild or urls_changed or discovered_from_search
-
-            # If the user supplied different URLs but forgot to tick rebuild, auto-upgrade.
-            # Otherwise Chroma would be loaded from disk and the new URLs would never be ingested.
-            effective_rebuild = request.rebuild or urls_changed or discovered_from_search
-            if urls_changed and not request.rebuild:
-                logger.info("URLs changed; enabling rebuild to ingest them")
-
-            logger.info(f"Processing query: {request.question}")
-            if urls:
-                logger.info(f"Using {len(urls)} custom URLs")
-
-            # Build a per-request graph when required; optionally promote it to the global graph
-            # after a rebuild so subsequent requests use the refreshed database.
-            graph_to_use = graph
-            settings_to_use = settings
-            use_lightweight_web_search = (
-                discovered_from_search and settings.web_search_lightweight
-            )
-
-            if use_lightweight_web_search and urls is not None:
-                settings_to_use = replace(settings, source_urls=urls)
-                graph_to_use = build_lightweight_graph(settings_to_use)
-            elif needs_new_graph:
-                if discovered_from_search and urls is not None:
-                    settings_to_use = settings_for_discovered_urls(settings, urls)
-                else:
-                    settings_to_use = replace(settings, source_urls=urls) if urls is not None else settings
-
-                if effective_rebuild:
-                    logger.info(
-                        "Rebuilding vector DB in %s (collection=%s)",
-                        str(settings_to_use.chroma_dir),
-                        settings_to_use.collection_name,
-                    )
-
-                if effective_rebuild:
-                    async with rebuild_lock:
-                        new_settings = settings_to_use
-                        replacing_global_graph = not discovered_from_search
-                        previous_graph = getattr(fastapi_request.app.state, "qa_graph", None)
-                        previous_settings = getattr(fastapi_request.app.state, "settings", settings)
-
-                        try:
-                            if replacing_global_graph:
-                                # Drop the global graph before deleting Chroma so Windows can
-                                # release SQLite/file handles held by the old retriever.
-                                clear_qa_graph(fastapi_request.app)
-                                graph_to_use = None
-                                gc.collect()
-
-                            graph_to_use = build_graph(new_settings, rebuild_vectorstore=True)
-                            settings_to_use = new_settings
-                        except Exception:
-                            # Rebuild failed (e.g., all source URLs unreachable).
-                            # Restore the previous global graph so the server
-                            # stays usable instead of being permanently bricked
-                            # with no app-level graph.
-                            if replacing_global_graph:
-                                update_qa_graph_state(
-                                    fastapi_request.app,
-                                    graph=previous_graph,
-                                    settings=previous_settings,
-                                )
-                                graph_to_use = previous_graph
-                                settings_to_use = previous_settings
-                            raise
-                        finally:
-                            gc.collect()
-                else:
-                    graph_to_use = build_graph(settings_to_use, rebuild_vectorstore=effective_rebuild)
-
-                if effective_rebuild and not discovered_from_search:
-                    # Promote rebuilt graph/settings globally.
-                    update_qa_graph_state(
-                        fastapi_request.app,
-                        graph=graph_to_use,
-                        settings=settings_to_use,
-                    )
-
-            # Run the query
-            result = run_rag_query(
-                question=request.question,
-                urls=urls,
-                settings=settings_to_use,
-                rebuild_vectorstore=False,
-                graph=graph_to_use,
-                verbose=request.debug,
-            )
-
-            if result["error"]:
-                logger.error(f"Query error: {result['error']}")
-                return QueryResponse(
-                    answer=None,
-                    error=result["error"],
-                    success=False,
-                    messages=None,
-                    source_urls=settings_to_use.source_urls,
-                    source_mode=source_mode,
-                    source_note=source_note,
+            answer = await service.ask(
+                RagRequest(
+                    question=request.question,
+                    urls=request.urls,
+                    rebuild=request.rebuild,
+                    web_search=request.web_search,
+                    debug=request.debug,
                 )
-
-            # Optionally include simplified intermediate messages for debugging
-            messages: list[str] | None = None
-            if request.debug:
-                raw_messages = result.get("messages", []) or []
-                messages = [getattr(m, "content", str(m)) for m in raw_messages]
-
-            logger.info("Query processed successfully")
-            answer = result["answer"]
-            if search_error:
-                answer = (
-                    f"Web search failed, so I used the configured default URLs instead.\n\n"
-                    f"{answer}"
-                )
-            return QueryResponse(
-                answer=answer,
-                error=None,
-                success=True,
-                messages=messages,
-                source_urls=settings_to_use.source_urls,
-                source_mode=source_mode,
-                source_note=source_note,
             )
+        except RagApplicationError as exc:
+            raise RAGError(exc.public_detail) from exc.internal_cause
 
-        except RAGError:
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error during query: {e}", exc_info=True)
-            raise RAGError(f"Internal server error: {str(e)}") from e
+        return QueryResponse(
+            answer=answer.answer,
+            error=answer.error,
+            success=answer.success,
+            messages=answer.messages,
+            source_urls=answer.source_urls,
+            source_mode=answer.source_mode,
+            source_note=answer.source_note,
+        )
 
     @app.post("/query/stream", dependencies=[Depends(require_api_key)])
     async def query_stream(

@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-import shutil
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -59,13 +58,20 @@ from ..api.models import (
     UploadResponse,
 )
 from ..api.streaming import format_sse
+from ..application import (
+    ChatApplicationService,
+    SessionLifecycleDependencies,
+    SessionLifecycleService,
+    StartSessionRequest,
+    TurnExecutionDependencies,
+    TurnExecutionService,
+    TurnRequest,
+    serialize_history,
+)
 from ..config import Settings, load_cors_allow_origins, load_settings
 from ..core.web_search import discover_urls_from_web
-from ..errors import RAGError, ResourceNotFoundError, RetrieverError
-from ..graph.artifacts import extract_artifacts_from_messages
+from ..errors import ResourceNotFoundError
 from ..graph.builder import build_lightweight_graph
-from ..graph.events import ErrorEvent
-from ..graph.executor import GraphExecutor
 from ..graph.metrics import MetricsCollector, MetricsSnapshot
 from ..graph.nodes.condense import condense_followup_question
 from ..memory.recall import build_turn_messages
@@ -77,7 +83,6 @@ from ..sessions import (
     SQLiteStorage,
     _settings_for_session,
 )
-from ..utils.urls import parse_url_input
 from .graph import build_chat_graph
 from .memory_hooks import (
     after_turn,
@@ -120,55 +125,17 @@ MetricsDep: TypeAlias = Annotated[MetricsCollector, Depends(get_metrics)]
 # ---- helpers --------------------------------------------------------------
 
 
-def _parse_urls(raw: str | list[str] | None) -> list[str] | None:
-    return parse_url_input(raw)
-
-
 def _serialize_messages(messages: Iterable[Any]) -> list[HistoryTurn]:
-    """Convert LangChain messages into visible turns with attached artifacts."""
+    """Compatibility wrapper around the application history serializer."""
 
-    turns: list[HistoryTurn] = []
-    pending_artifacts: list[dict[str, Any]] = []
-    for msg in messages:
-        kind = getattr(msg, "type", None) or msg.__class__.__name__.lower()
-        content = getattr(msg, "content", str(msg))
-        if kind.startswith("human") or kind == "user":
-            role = "user"
-        elif kind.startswith("ai") or kind == "assistant":
-            role = "assistant"
-        elif kind in ("tool", "function"):
-            role = "tool"
-        elif kind.startswith("system"):
-            role = "system"
-        else:
-            role = kind
-
-        if role == "tool":
-            pending_artifacts.extend(extract_artifacts_from_messages([msg]))
-            continue
-        if role == "system":
-            continue
-        if role == "user":
-            # A new human turn is a hard boundary: never attach a stale tool
-            # artifact to a later assistant response.
-            pending_artifacts = []
-        if role == "assistant":
-            tool_calls = getattr(msg, "tool_calls", None)
-            if tool_calls or not (content or "").strip():
-                continue
-
-        turn_content = content if isinstance(content, str) else str(content)
-        artifacts = pending_artifacts if role == "assistant" else []
-        turns.append(
-            HistoryTurn(
-                role=role,
-                content=turn_content,
-                artifacts=list(artifacts),
-            )
+    return [
+        HistoryTurn(
+            role=turn.role,
+            content=turn.content,
+            artifacts=list(turn.artifacts),
         )
-        if role == "assistant":
-            pending_artifacts = []
-    return turns
+        for turn in serialize_history(messages)
+    ]
 
 
 def _session_database_paths(settings: Settings) -> tuple[Path, Path]:
@@ -207,8 +174,7 @@ def _call_graph_factory(
 
     parameters = signature.parameters
     accepts_kwargs = any(
-        parameter.kind is inspect.Parameter.VAR_KEYWORD
-        for parameter in parameters.values()
+        parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
     )
     accepted_names = set(parameters)
     supported = (
@@ -217,10 +183,7 @@ def _call_graph_factory(
         else {name: value for name, value in kwargs.items() if name in accepted_names}
     )
     settings_parameter = parameters.get("settings")
-    if (
-        settings_parameter is not None
-        and settings_parameter.kind is inspect.Parameter.KEYWORD_ONLY
-    ):
+    if settings_parameter is not None and settings_parameter.kind is inspect.Parameter.KEYWORD_ONLY:
         return factory(settings=settings, **supported)
     return factory(settings, **supported)
 
@@ -369,9 +332,7 @@ def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
     try:
         available = list_session_uploads(settings, session.thread_id)
     except Exception as exc:
-        logger.warning(
-            "Could not list uploads for thread %s: %s", session.thread_id, exc
-        )
+        logger.warning("Could not list uploads for thread %s: %s", session.thread_id, exc)
         return None
 
     new_paths = [p for p in available if p not in session.announced_uploads]
@@ -391,191 +352,56 @@ def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
     )
 
 
-def _source_refresh_allowed(session: ChatSession, settings: Settings) -> bool:
-    """Return whether chat should refresh this session from web search."""
-
-    return (
-        session.source_mode != "explicit"
-        and settings.web_search_enabled
-        and not settings.web_search_lightweight
-    )
-
-
-def _sync_graph_owned_web_sources(
+def _build_chat_application_service(
     *,
-    session: ChatSession,
-    values: Any,
-    sessions: ChatSessionRegistry,
-) -> ChatSession:
-    """Persist graph-discovered URLs as session metadata without rebuilding."""
-
-    if session.source_mode != "web_search" or not session.settings.web_search_lightweight:
-        return session
-    if not isinstance(values, dict):
-        return session
-
-    raw_urls = values.get("source_urls")
-    if not isinstance(raw_urls, list):
-        return session
-    urls = [str(url).strip() for url in raw_urls if str(url).strip()]
-    if urls == session.source_urls:
-        return session
-
-    return sessions.update_sources(
-        session.thread_id,
-        graph=session.graph,
-        settings=session.settings,
-        source_urls=urls,
-        source_mode="web_search",
-        isolated_chroma=False,
-    ) or session
-
-
-async def _condense_query_for_refresh(
-    *,
-    session: ChatSession,
-    message: str,
-    settings: Settings,
-) -> str:
-    """Contextualize a follow-up message against the session transcript.
-
-    The web-search chat path runs the lightweight graph, which has no
-    ``condense`` node, so a vague follow-up ("Argentina and Jordan", "group
-    stage not knockout") would otherwise drive the source search with no
-    conversation context and surface off-topic pages. We read the prior turns
-    from the per-thread checkpoint and rewrite the message into a standalone
-    question before searching. Falls back to the raw message on any error.
-    """
-
-    try:
-        config = {"configurable": {"thread_id": session.thread_id}}
-        snapshot = await asyncio.to_thread(session.graph.get_state, config)
-        values = getattr(snapshot, "values", {}) or {}
-        prior_messages = (
-            values.get("messages", []) or [] if isinstance(values, dict) else []
-        )
-    except Exception as exc:
-        logger.debug(
-            "Could not read prior messages for condense on thread %s: %s",
-            session.thread_id,
-            exc,
-        )
-        return message
-
-    if not prior_messages:
-        return message
-
-    try:
-        standalone = await asyncio.to_thread(
-            condense_followup_question,
-            prior_messages,
-            message,
-            settings,
-        )
-    except Exception as exc:
-        logger.warning(
-            "Follow-up condense failed for thread %s; using raw message: %s",
-            session.thread_id,
-            exc,
-        )
-        return message
-
-    if standalone and standalone.strip() and standalone.strip() != message.strip():
-        logger.info(
-            "Condensed chat follow-up for search: original=%r → standalone=%r",
-            message,
-            standalone,
-        )
-    return standalone or message
-
-
-async def _refresh_session_sources_from_web(
-    *,
-    session: ChatSession,
-    query: str,
     settings: Settings,
     sessions: ChatSessionRegistry,
     graph_factory_lock: asyncio.Lock,
     checkpointer: Any,
-) -> ChatSession:
-    """Refresh a chat session's retriever sources from web search for a turn."""
+    extraction_runtime: Any,
+    metrics: MetricsCollector | None = None,
+) -> ChatApplicationService:
+    """Compose transport-neutral chat services from existing infrastructure."""
 
-    if not _source_refresh_allowed(session, settings):
-        return session
+    def purge_session_memory(memory_settings: Settings, thread_id: str) -> None:
+        get_memory_store(memory_settings).purge_session(thread_id)
 
-    search_query = await _condense_query_for_refresh(
-        session=session,
-        message=query,
+    lifecycle = SessionLifecycleService(
         settings=settings,
+        sessions=sessions,
+        graph_factory_lock=graph_factory_lock,
+        checkpointer=checkpointer,
+        dependencies=SessionLifecycleDependencies(
+            discover_urls=discover_urls_from_web,
+            build_graph=_build_chat_graph_for_session,
+            build_lightweight_graph=_build_lightweight_chat_graph_for_session,
+            settings_for_session=_settings_for_session,
+            condense_question=condense_followup_question,
+            on_session_start=lambda thread_id: on_session_start(
+                extraction_runtime,
+                new_thread_id=thread_id,
+            ),
+            upload_directory=session_upload_dir,
+            purge_memory=purge_session_memory,
+        ),
     )
-
-    try:
-        urls = discover_urls_from_web(search_query, settings)
-    except Exception as exc:
-        logger.warning(
-            "Web search failed during chat turn for thread %s: %s",
-            session.thread_id,
-            exc,
+    turns = TurnExecutionService(
+        TurnExecutionDependencies(
+            build_inputs=lambda session, message: _graph_inputs_for_turn(
+                session,
+                message,
+                settings,
+            ),
+            checkpointer=checkpointer,
+            metrics=metrics,
+            after_turn=lambda thread_id: after_turn(
+                extraction_runtime,
+                thread_id=thread_id,
+            ),
+            sync_sources=lifecycle.sync_graph_owned_sources,
         )
-        return session
-
-    if not urls:
-        logger.info(
-            "Web search returned no usable URLs for chat thread %s",
-            session.thread_id,
-        )
-        return session
-
-    if session.source_mode == "web_search" and urls == session.source_urls:
-        return session
-
-    if settings.web_search_lightweight:
-        session_settings = replace(settings, source_urls=urls)
-        isolated_chroma = False
-    else:
-        session_settings = _settings_for_session(
-            replace(settings, web_search_enabled=False),
-            urls,
-            session.thread_id,
-            isolated=True,
-        )
-        isolated_chroma = True
-    try:
-        async with graph_factory_lock:
-            if settings.web_search_lightweight:
-                graph = await asyncio.to_thread(
-                    _build_lightweight_chat_graph_for_session,
-                    session_settings,
-                    checkpointer,
-                    session.thread_id,
-                )
-            else:
-                graph = await asyncio.to_thread(
-                    _build_chat_graph_for_session,
-                    session_settings,
-                    True,
-                    checkpointer,
-                    session.thread_id,
-                )
-    except RAGError:
-        raise
-    except Exception as exc:
-        logger.warning(
-            "Failed to rebuild chat graph from web search for thread %s: %s",
-            session.thread_id,
-            exc,
-            exc_info=True,
-        )
-        return session
-
-    return sessions.update_sources(
-        session.thread_id,
-        graph=graph,
-        settings=session_settings,
-        source_urls=urls,
-        source_mode="web_search",
-        isolated_chroma=isolated_chroma,
-    ) or session
+    )
+    return ChatApplicationService(lifecycle=lifecycle, turns=turns)
 
 
 # ---- app factory ----------------------------------------------------------
@@ -592,9 +418,7 @@ def create_app(
         try:
             logger.info("Loading settings for chat app...")
             settings = (
-                load_settings()
-                if config_file is None
-                else load_settings(config_file=config_file)
+                load_settings() if config_file is None else load_settings(config_file=config_file)
             )
             metadata_path, checkpoint_path = _session_database_paths(settings)
             storage = SQLiteStorage(metadata_path)
@@ -640,9 +464,7 @@ def create_app(
     # REFACTOR: Register typed RAG error responses for this app instance.
     register_error_handlers(app)
     cors_origins = (
-        load_cors_allow_origins()
-        if config_file is None
-        else load_cors_allow_origins(config_file)
+        load_cors_allow_origins() if config_file is None else load_cors_allow_origins(config_file)
     )
     configure_cors(app, cors_origins)
     initialize_chat_app_state(app)
@@ -724,157 +546,25 @@ def create_app(
         sessions: SessionRegistryDep,
         graph_factory_lock: GraphFactoryLockDep,
     ) -> StartChatResponse:
-        urls = _parse_urls(request.urls)
-        discovered_from_search = False
-        search_error: str | None = None
-        graph_owned_web = (
-            urls is None
-            and settings.web_search_enabled
-            and settings.web_search_lightweight
+        service = _build_chat_application_service(
+            settings=settings,
+            sessions=sessions,
+            graph_factory_lock=graph_factory_lock,
+            checkpointer=getattr(app.state, "chat_checkpointer", None),
+            extraction_runtime=getattr(app.state, "extraction_runtime", None),
         )
-
-        if urls is None and settings.web_search_enabled and not graph_owned_web:
-            seed = (request.seed_question or "").strip()
-            if seed:
-                try:
-                    found = discover_urls_from_web(seed, settings)
-                    if found:
-                        urls = found
-                        discovered_from_search = True
-                    else:
-                        search_error = "web search returned no usable URLs"
-                except Exception as exc:
-                    search_error = str(exc)
-                    logger.warning(f"Web search failed during chat start: {exc}")
-
-        if request.urls:
-            source_mode = "explicit"
-        elif graph_owned_web or discovered_from_search:
-            source_mode = "web_search"
-        else:
-            source_mode = "defaults"
-
-        # Settle on the URL list. For "defaults" we fall back to the configured
-        # source URLs from ``Settings``.
-        if graph_owned_web:
-            urls = []
-            isolated = False
-        elif urls is None:
-            urls = list(settings.source_urls)
-            isolated = False
-        else:
-            isolated = True
-
-        # Allocate a thread id, then build a graph against settings keyed on it
-        # so isolated-session Chroma directories live under .chroma/chat/<id>/.
-        from uuid import uuid4
-
-        thread_id = uuid4().hex
-        if graph_owned_web:
-            session_settings = replace(settings, source_urls=[])
-        else:
-            graph_settings = (
-                replace(settings, web_search_enabled=False)
-                if discovered_from_search
-                else settings
+        result = await service.start(
+            StartSessionRequest(
+                urls=request.urls,
+                web_search=request.web_search,
+                seed_question=request.seed_question,
             )
-            session_settings = _settings_for_session(
-                graph_settings, urls, thread_id, isolated
-            )
-
-        checkpointer = getattr(app.state, "chat_checkpointer", None)
-
-        # Build the graph (this triggers indexing if Chroma needs to be created).
-        # Run in a thread so we don't block the event loop.
-        build_failed_for_web_search = False
-        try:
-            async with graph_factory_lock:
-                if graph_owned_web:
-                    graph = await asyncio.to_thread(
-                        _build_lightweight_chat_graph_for_session,
-                        session_settings,
-                        checkpointer,
-                        thread_id,
-                    )
-                else:
-                    graph = await asyncio.to_thread(
-                        _build_chat_graph_for_session,
-                        session_settings,
-                        isolated,  # rebuild_vectorstore for fresh isolated stores
-                        checkpointer,
-                        thread_id,
-                    )
-        except RAGError:
-            raise
-        except Exception as exc:
-            # Web-search-discovered URLs are unreliable (timeouts, thin or
-            # junk pages). When they yield no indexable content, fall back to
-            # the configured default sources instead of failing the session.
-            if discovered_from_search:
-                logger.warning(
-                    "Failed to build chat graph from web search sources; "
-                    "falling back to configured source URLs: %s",
-                    exc,
-                    exc_info=True,
-                )
-                build_failed_for_web_search = True
-                urls = list(settings.source_urls)
-                isolated = False
-                source_mode = "defaults"
-                discovered_from_search = False
-                session_settings = _settings_for_session(
-                    settings, urls, thread_id, isolated
-                )
-                try:
-                    async with graph_factory_lock:
-                        graph = await asyncio.to_thread(
-                            _build_chat_graph_for_session,
-                            session_settings,
-                            isolated,
-                            checkpointer,
-                            thread_id,
-                        )
-                except RAGError:
-                    raise
-                except Exception as fallback_exc:
-                    logger.error(
-                        f"Failed to build chat graph: {fallback_exc}",
-                        exc_info=True,
-                    )
-                    raise RetrieverError(
-                        f"Failed to build chat graph: {fallback_exc}"
-                    ) from fallback_exc
-            else:
-                logger.error(f"Failed to build chat graph: {exc}", exc_info=True)
-                raise RetrieverError(f"Failed to build chat graph: {exc}") from exc
-
-        session = sessions.create(
-            graph=graph,
-            settings=session_settings,
-            source_urls=urls,
-            source_mode=source_mode,
-            thread_id=thread_id,
-            isolated_chroma=isolated,
         )
-
-        note: str | None = None
-        if source_mode == "defaults" and (search_error or build_failed_for_web_search):
-            note = "web_search_failed"
-
-        try:
-            on_session_start(
-                getattr(app.state, "extraction_runtime", None),
-                new_thread_id=session.thread_id,
-            )
-        except Exception:
-            # The hook is deliberately best-effort; a session response must win.
-            logger.debug("memory extraction session-start hook failed", exc_info=True)
-
         return StartChatResponse(
-            thread_id=session.thread_id,
-            source_urls=session.source_urls,
-            source_mode=session.source_mode,
-            source_note=note,
+            thread_id=result.thread_id,
+            source_urls=list(result.source_urls),
+            source_mode=result.source_mode,
+            source_note=result.source_note,
         )
 
     @app.post(
@@ -888,109 +578,31 @@ def create_app(
         fastapi_request: Request,
         sessions: SessionRegistryDep,
     ) -> MessageResponse:
-        session = sessions.get(thread_id)
-        if session is None:
+        # Preserve the legacy typed 404 even when app configuration has not
+        # completed initialization yet.
+        if sessions.get(thread_id) is None:
             raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
-
-        # REFACTOR: Resolve app config after session lookup so typed 404 wins.
         settings = get_config(fastapi_request)
-        graph_factory_lock = get_chat_graph_factory_lock(fastapi_request)
-        session = await _refresh_session_sources_from_web(
-            session=session,
-            query=request.message,
+        service = _build_chat_application_service(
             settings=settings,
             sessions=sessions,
-            graph_factory_lock=graph_factory_lock,
+            graph_factory_lock=get_chat_graph_factory_lock(fastapi_request),
             checkpointer=getattr(fastapi_request.app.state, "chat_checkpointer", None),
+            extraction_runtime=getattr(
+                fastapi_request.app.state,
+                "extraction_runtime",
+                None,
+            ),
         )
-
-        config = {"configurable": {"thread_id": thread_id}}
-        inputs = _graph_inputs_for_turn(session, request.message, settings)
-
-        # Snapshot how many messages exist before this turn so we can isolate
-        # the messages produced *during* this turn when extracting the answer.
-        try:
-            prev_snapshot = await asyncio.to_thread(session.graph.get_state, config)
-            prev_values = getattr(prev_snapshot, "values", {}) or {}
-            prev_count = (
-                len(prev_values.get("messages", []) or [])
-                if isinstance(prev_values, dict)
-                else 0
-            )
-        except Exception:
-            prev_count = 0
-
-        try:
-            # Run the graph in a thread (LangGraph invocation is sync-bound).
-            result = await asyncio.to_thread(session.graph.invoke, inputs, config)
-        except Exception as exc:
-            logger.error(
-                f"Chat invocation error in thread {thread_id}: {exc}",
-                exc_info=True,
-            )
-            return MessageResponse(
-                thread_id=thread_id,
-                answer="",
-                error=str(exc),
-                artifacts=[],
-            )
-
-        session = _sync_graph_owned_web_sources(
-            session=session,
-            values=result,
-            sessions=sessions,
+        result = await service.complete_turn(
+            TurnRequest(thread_id=thread_id, message=request.message)
         )
-
-        messages = result.get("messages", []) if isinstance(result, dict) else []
-        # Only consider messages added during this turn. This prevents echoing
-        # the user's own question (the rewrite node may append an AIMessage
-        # carrying the question text as a fallback) or a prior turn's reply.
-        new_messages = messages[prev_count:] if prev_count <= len(messages) else messages
-        artifacts = extract_artifacts_from_messages(new_messages)
-
-        # The assistant's reply is the last AI message with non-empty content
-        # that is NOT a tool-call carrier.
-        answer = ""
-        for msg in reversed(new_messages):
-            kind = getattr(msg, "type", None) or msg.__class__.__name__.lower()
-            content = getattr(msg, "content", "")
-            tool_calls = getattr(msg, "tool_calls", None)
-            if tool_calls:
-                # AI message that only selects a tool; not a user-facing answer.
-                continue
-            if (kind.startswith("ai") or kind == "assistant") and (content or "").strip():
-                answer = content if isinstance(content, str) else str(content)
-                break
-
-        if not answer:
-            response = MessageResponse(
-                thread_id=thread_id,
-                answer="",
-                error="No assistant reply was produced.",
-                artifacts=artifacts,
-            )
-            try:
-                after_turn(
-                    getattr(fastapi_request.app.state, "extraction_runtime", None),
-                    thread_id=thread_id,
-                )
-            except Exception:
-                logger.debug("memory extraction after-turn hook failed", exc_info=True)
-            return response
-
-        response = MessageResponse(
-            thread_id=thread_id,
-            answer=answer,
-            artifacts=artifacts,
+        return MessageResponse(
+            thread_id=result.thread_id,
+            answer=result.answer,
+            error=result.error,
+            artifacts=list(result.artifacts),
         )
-        try:
-            after_turn(
-                getattr(fastapi_request.app.state, "extraction_runtime", None),
-                thread_id=thread_id,
-            )
-        except Exception:
-            logger.debug("memory extraction after-turn hook failed", exc_info=True)
-        return response
 
     @app.post(
         "/chat/{thread_id}/message/stream",
@@ -1004,156 +616,75 @@ def create_app(
         metrics: MetricsDep,
         tokens: bool = True,
     ) -> StreamingResponse:
-        session = sessions.get(thread_id)
-        if session is None:
+        # Resolve the session before constructing StreamingResponse so the
+        # existing typed 404 remains an HTTP response rather than an SSE error.
+        if sessions.get(thread_id) is None:
             raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
-
-        # REFACTOR: Resolve app config after session lookup so typed 404 wins.
-        settings = get_config(fastapi_request)
-        graph_factory_lock = get_chat_graph_factory_lock(fastapi_request)
-        session = await _refresh_session_sources_from_web(
-            session=session,
-            query=request.message,
-            settings=settings,
+        service = _build_chat_application_service(
+            settings=get_config(fastapi_request),
             sessions=sessions,
-            graph_factory_lock=graph_factory_lock,
+            graph_factory_lock=get_chat_graph_factory_lock(fastapi_request),
             checkpointer=getattr(fastapi_request.app.state, "chat_checkpointer", None),
+            extraction_runtime=getattr(
+                fastapi_request.app.state,
+                "extraction_runtime",
+                None,
+            ),
+            metrics=metrics,
         )
 
-        config = {"configurable": {"thread_id": thread_id}}
-        inputs = _graph_inputs_for_turn(session, request.message, settings)
-        checkpointer = getattr(fastapi_request.app.state, "chat_checkpointer", None)
-
         async def event_iter() -> AsyncIterator[str]:
-            # StreamingResponse cannot reliably close a synchronous generator
-            # that is blocked inside a graph node. Own the producer explicitly
-            # so disconnect cleanup can stop it at the next event and await the
-            # pre-turn checkpoint rollback.
-            queue: asyncio.Queue[object] = asyncio.Queue()
-            producer_done = object()
-            stop_requested = asyncio.Event()
-            loop = asyncio.get_running_loop()
-
-            def publish(item: object) -> None:
-                try:
-                    loop.call_soon_threadsafe(queue.put_nowait, item)
-                except RuntimeError:
-                    # The application event loop is already shutting down.
-                    return
-
-            def produce_events() -> None:
-                with session.turn_lock:
-                    turn_snapshot = (
-                        checkpointer.snapshot_thread(thread_id)
-                        if checkpointer is not None
-                        else None
-                    )
-                    executor = GraphExecutor(session.graph, metrics=metrics)
-                    completed = False
-                    failed = False
-                    events = executor.stream(
-                        inputs,
-                        config=config,
-                        stream_tokens=tokens,
-                    )
-                    try:
-                        for event in events:
-                            if stop_requested.is_set():
-                                break
-                            if isinstance(event, ErrorEvent):
-                                failed = True
-                            publish(format_sse(event))
-                        else:
-                            completed = not failed
-                    except BaseException as exc:
-                        publish(exc)
-                    finally:
-                        close = getattr(events, "close", None)
-                        if callable(close):
-                            close()
-
-                        if not completed and turn_snapshot is not None:
-                            try:
-                                checkpointer.restore_thread(thread_id, turn_snapshot)
-                            except Exception:
-                                logger.exception(
-                                    "Could not roll back cancelled chat turn for %s",
-                                    thread_id,
-                                )
-
-                        if completed:
-                            try:
-                                snapshot = session.graph.get_state(config)
-                                values = getattr(snapshot, "values", {}) or {}
-                                _sync_graph_owned_web_sources(
-                                    session=session,
-                                    values=values,
-                                    sessions=sessions,
-                                )
-                            except Exception as exc:
-                                logger.debug(
-                                    "Could not synchronize graph-owned web sources for %s: %s",
-                                    session.thread_id,
-                                    exc,
-                                )
-                            try:
-                                after_turn(
-                                    getattr(
-                                        fastapi_request.app.state,
-                                        "extraction_runtime",
-                                        None,
-                                    ),
-                                    thread_id=thread_id,
-                                )
-                            except Exception:
-                                logger.debug(
-                                    "memory extraction after-turn hook failed",
-                                    exc_info=True,
-                                )
-                        publish(producer_done)
-
-            worker = asyncio.create_task(asyncio.to_thread(produce_events))
-            try:
-                while True:
-                    item = await queue.get()
-                    if item is producer_done:
-                        break
-                    if isinstance(item, BaseException):
-                        raise item
-                    if isinstance(item, str):
-                        yield item
-            finally:
-                stop_requested.set()
-                try:
-                    await asyncio.shield(worker)
-                except asyncio.CancelledError:
-                    # Finish rollback even though the HTTP response task was
-                    # cancelled by the browser disconnect or server shutdown.
-                    await worker
-                    raise
+            events = service.stream_turn(
+                TurnRequest(
+                    thread_id=thread_id,
+                    message=request.message,
+                    stream_tokens=tokens,
+                )
+            )
+            async for event in events:
+                # SSE serialization belongs exclusively to this HTTP adapter.
+                yield format_sse(event)
 
         return StreamingResponse(event_iter(), media_type="text/event-stream")
 
-    @app.get("/chat/{thread_id}/history", response_model=HistoryResponse)
+    @app.get(
+        "/chat/{thread_id}/history",
+        response_model=HistoryResponse,
+        dependencies=[Depends(require_api_key)],
+    )
     async def get_history(
         thread_id: str,
+        fastapi_request: Request,
         sessions: SessionRegistryDep,
     ) -> HistoryResponse:
-        session = sessions.get(thread_id)
-        if session is None:
+        # Preserve the pre-service route contract: unknown threads are 404s
+        # even if application configuration is unavailable.
+        if sessions.get(thread_id) is None:
             raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
-
-        config = {"configurable": {"thread_id": thread_id}}
-        # Pull the latest checkpoint state from MemorySaver.
-        snapshot = await asyncio.to_thread(session.graph.get_state, config)
-        values = getattr(snapshot, "values", {}) or {}
-        messages = values.get("messages", []) if isinstance(values, dict) else []
-
+        service = _build_chat_application_service(
+            settings=get_config(fastapi_request),
+            sessions=sessions,
+            graph_factory_lock=get_chat_graph_factory_lock(fastapi_request),
+            checkpointer=getattr(fastapi_request.app.state, "chat_checkpointer", None),
+            extraction_runtime=getattr(
+                fastapi_request.app.state,
+                "extraction_runtime",
+                None,
+            ),
+        )
+        result = await service.history(thread_id)
         return HistoryResponse(
-            thread_id=thread_id,
-            turns=_serialize_messages(messages),
-            source_urls=session.source_urls,
-            source_mode=session.source_mode,
+            thread_id=result.thread_id,
+            turns=[
+                HistoryTurn(
+                    role=turn.role,
+                    content=turn.content,
+                    artifacts=list(turn.artifacts),
+                )
+                for turn in result.turns
+            ],
+            source_urls=list(result.source_urls),
+            source_mode=result.source_mode,
         )
 
     @app.post(
@@ -1196,9 +727,7 @@ def create_app(
             except UploadError as exc:
                 return None, f"{name}: {exc}"
             except Exception as exc:
-                logger.warning(
-                    "Upload failed for %s on thread %s: %s", name, thread_id, exc
-                )
+                logger.warning("Upload failed for %s on thread %s: %s", name, thread_id, exc)
                 return None, f"{name}: could not process the file."
             finally:
                 await upload.close()
@@ -1276,30 +805,23 @@ def create_app(
         fastapi_request: Request,
         sessions: SessionRegistryDep,
     ) -> dict[str, str]:
-        deleted = sessions.delete(thread_id)
-        if not deleted:
+        # Preserve the pre-service route contract: unknown threads are 404s
+        # even if application configuration is unavailable.
+        if sessions.get(thread_id) is None:
             raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
-        # Remove any files uploaded for this thread so they are not orphaned.
-        try:
-            settings = get_config(fastapi_request)
-            upload_dir = session_upload_dir(settings, thread_id)
-            if upload_dir.exists():
-                await asyncio.to_thread(shutil.rmtree, upload_dir, True)
-        except Exception as exc:
-            logger.warning("Failed to remove uploads for thread %s: %s", thread_id, exc)
-        # Drop this session's session-scoped memories. Global memories survive.
-        # Best effort: a purge failure must not fail the session deletion.
-        try:
-            settings = get_config(fastapi_request)
-            if settings.memory_enabled:
-                await asyncio.to_thread(
-                    get_memory_store(settings).purge_session, thread_id
-                )
-        except Exception as exc:
-            logger.warning(
-                "Failed to purge session memory for thread %s: %s", thread_id, exc
-            )
-        return {"status": "deleted", "thread_id": thread_id}
+        service = _build_chat_application_service(
+            settings=get_config(fastapi_request),
+            sessions=sessions,
+            graph_factory_lock=get_chat_graph_factory_lock(fastapi_request),
+            checkpointer=getattr(fastapi_request.app.state, "chat_checkpointer", None),
+            extraction_runtime=getattr(
+                fastapi_request.app.state,
+                "extraction_runtime",
+                None,
+            ),
+        )
+        result = await service.delete(thread_id)
+        return {"status": result.status, "thread_id": result.thread_id}
 
     @app.get("/metrics")
     async def metrics(metrics: MetricsDep) -> MetricsSnapshot:

@@ -33,5 +33,23 @@ jobs:
       - name: Run Ruff
         run: ruff check .
 
+      - name: Check production-refactor formatting
+        # The legacy repository is not yet uniformly Ruff-formatted (108 files
+        # at Phase 0 baseline). Scope this gate to the refactor-owned Python
+        # paths to avoid a noisy repository-wide rewrite.
+        run: >-
+          ruff format --check
+          src/application
+          src/adapters/mcp_server
+          src/mcp
+          src/graph/builder.py
+          src/graph/events.py
+          src/graph/executor.py
+          src/graph/metrics.py
+          src/qa/api.py
+          tests/test_rag_application_service.py
+          tests/test_mcp_server.py
+          tests/test_tool_catalog_policy.py
+
       - name: Run mypy
         run: mypy src/

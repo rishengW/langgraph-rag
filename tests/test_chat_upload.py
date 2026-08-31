@@ -13,7 +13,7 @@ from src.chat import api as chat_api
 from src.chat.uploads import build_upload_context_note
 from src.graph.artifacts import normalize_file_artifact
 from src.tools import build_text_file_tool, build_word_tool
-from src.tools.excel_edit import ExcelEditOperation, XLSX_MIME_TYPE, edit_excel
+from src.tools.excel_edit import XLSX_MIME_TYPE, ExcelEditOperation, edit_excel
 from src.tools.text_edit import TextEditOperation, create_text_file, edit_text_file
 from src.tools.word_edit import WordEditOperation, edit_word_document
 

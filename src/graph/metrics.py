@@ -17,6 +17,9 @@ from .events import (
     NodeStartEvent,
     RetrieverResultEvent,
     TokenEvent,
+    ToolEndEvent,
+    ToolEventOutcome,
+    ToolStartEvent,
 )
 
 
@@ -45,6 +48,10 @@ class MetricsSnapshot:
     retriever_total_docs: int = 0
     grade_distribution: dict[str, int] = field(default_factory=dict)
     rewrite_count_distribution: dict[int, int] = field(default_factory=dict)
+    tool_call_count: int = 0
+    tool_total_duration_ms: int = 0
+    tool_outcomes: dict[ToolEventOutcome, int] = field(default_factory=dict)
+    catalog_generation: int = 0
 
     @property
     def retriever_average_docs(self) -> float:
@@ -69,6 +76,10 @@ class MetricsCollector:
         self._retriever_total_docs = 0
         self._grade_distribution: Counter[str] = Counter()
         self._rewrite_count_distribution: Counter[int] = Counter()
+        self._tool_call_count = 0
+        self._tool_total_duration_ms = 0
+        self._tool_outcomes: Counter[ToolEventOutcome] = Counter()
+        self._catalog_generation = 0
 
     def record_event(self, event: GraphEvent) -> None:
         """Record metrics for one graph event."""
@@ -89,6 +100,13 @@ class MetricsCollector:
         elif isinstance(event, GraderDecisionEvent):
             self._grade_distribution[event.score] += 1
             self._rewrite_count_distribution[event.rewrite_count] += 1
+        elif isinstance(event, ToolStartEvent):
+            self._tool_call_count += 1
+            self._catalog_generation = max(self._catalog_generation, event.catalog_generation)
+        elif isinstance(event, ToolEndEvent):
+            self._tool_total_duration_ms += event.duration_ms
+            self._tool_outcomes[event.outcome] += 1
+            self._catalog_generation = max(self._catalog_generation, event.catalog_generation)
 
     def snapshot(self) -> MetricsSnapshot:
         """Return an immutable metrics snapshot for API or test consumers."""
@@ -102,6 +120,10 @@ class MetricsCollector:
             retriever_total_docs=self._retriever_total_docs,
             grade_distribution=dict(self._grade_distribution),
             rewrite_count_distribution=dict(self._rewrite_count_distribution),
+            tool_call_count=self._tool_call_count,
+            tool_total_duration_ms=self._tool_total_duration_ms,
+            tool_outcomes=dict(self._tool_outcomes),
+            catalog_generation=self._catalog_generation,
         )
 
     def _record_node_end(self, event: NodeEndEvent) -> None:

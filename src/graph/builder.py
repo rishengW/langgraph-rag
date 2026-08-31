@@ -2,14 +2,23 @@ from __future__ import annotations
 
 from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass, field
-from importlib import import_module
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from langchain_core.tools import BaseTool
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from ..config import Settings
+from ..mcp import (
+    InjectedToolProvider,
+    ToolCatalogSnapshot,
+    ToolExecutionPipeline,
+    ToolPolicy,
+    compose_snapshot,
+    default_provider_entries,
+    default_provider_tools,
+)
 from .edges import (
     AGENT_EDGE_MAP,
     GRADE_EDGE_MAP,
@@ -103,6 +112,10 @@ class GraphProviders:
     """
 
     tools: Sequence[Any] | None = None
+    catalog_snapshot: ToolCatalogSnapshot | None = None
+    tool_policy: ToolPolicy | None = None
+    tool_pipeline: ToolExecutionPipeline | None = None
+    catalog_generation: int = 1
     nodes: GraphNodeOverrides = field(default_factory=GraphNodeOverrides)
     checkpointer: Any = _DEFAULT_CHECKPOINTER
 
@@ -151,13 +164,15 @@ def build_graph(
     # confine writes to, which QA mode has no concept of.
     edit_root = session_root if mode == "chat" else None
     edit_thread_id = thread_id if mode == "chat" else ""
-    tools = _resolve_tools(
+    snapshot = _resolve_catalog_snapshot(
         settings,
         providers,
-        rebuild_vectorstore,
+        lightweight=False,
+        rebuild_vectorstore=rebuild_vectorstore,
         session_root=edit_root,
         thread_id=edit_thread_id,
     )
+    tools = snapshot.tools
     question_resolver = qa_question_resolver if mode == "qa" else chat_question_resolver
     state_type = AgentState if mode == "qa" else ChatState
 
@@ -194,7 +209,9 @@ def build_graph(
         workflow.add_node(
             "execute_subgoal",
             nodes.subgoal_worker
-            or subgoal_worker_node(_require_settings(settings, "sub-goal worker"), question_resolver),
+            or subgoal_worker_node(
+                _require_settings(settings, "sub-goal worker"), question_resolver
+            ),
         )
         workflow.add_node(
             "subgoal_aggregator",
@@ -204,7 +221,9 @@ def build_graph(
     workflow.add_node(
         "agent",
         nodes.agent
-        or agent_factory(_require_settings(settings, "agent"), tools, question_resolver),
+        or agent_factory(
+            _require_settings(settings, "agent"), list(tools), question_resolver
+        ),
     )
 
     if nodes.retrieve is not None:
@@ -253,17 +272,14 @@ def build_graph(
 
     workflow.add_conditional_edges(
         "agent",
-        lambda state: route_after_agent_with_critique(
-            state, critique_enabled=planning_enabled
+        lambda state: route_after_agent_with_critique(state, critique_enabled=planning_enabled),
+        cast(
+            dict[Hashable, str],
+            {
+                **AGENT_EDGE_MAP,
+                **({"answer_self_critique": "answer_self_critique"} if planning_enabled else {}),
+            },
         ),
-        {
-            **AGENT_EDGE_MAP,
-            **(
-                {"answer_self_critique": "answer_self_critique"}
-                if planning_enabled
-                else {}
-            ),
-        },
     )
     workflow.add_conditional_edges(
         "retrieve",
@@ -278,7 +294,9 @@ def build_graph(
         workflow.add_node(
             "answer_self_critique",
             nodes.answer_self_critique
-            or answer_self_critique_node(_require_settings(settings, "answer self-critique"), question_resolver),
+            or answer_self_critique_node(
+                _require_settings(settings, "answer self-critique"), question_resolver
+            ),
         )
         workflow.add_node(
             "reflection_revise",
@@ -305,9 +323,7 @@ def build_graph(
     workflow.add_edge("rewrite", "agent")
 
     resolved_checkpointer = _resolve_checkpointer(mode, providers, checkpointer)
-    if resolved_checkpointer is None:
-        return workflow.compile()
-    return workflow.compile(checkpointer=resolved_checkpointer)
+    return _compile_with_catalog(workflow, resolved_checkpointer, snapshot)
 
 
 def build_lightweight_graph(
@@ -334,12 +350,15 @@ def build_lightweight_graph(
 
     providers = providers or GraphProviders()
     nodes = providers.nodes
-    tools = _resolve_lightweight_tools(
+    snapshot = _resolve_catalog_snapshot(
         settings,
         providers,
+        lightweight=True,
+        rebuild_vectorstore=False,
         session_root=session_root if mode == "chat" else None,
         thread_id=thread_id if mode == "chat" else "",
     )
+    tools = snapshot.tools
     question_resolver = qa_question_resolver if mode == "qa" else chat_question_resolver
     state_type = AgentState if mode == "qa" else ChatState
 
@@ -384,7 +403,7 @@ def build_lightweight_graph(
         nodes.agent
         or agent_factory(
             _require_settings(settings, "lightweight agent"),
-            tools,
+            list(tools),
             question_resolver,
         ),
     )
@@ -485,14 +504,13 @@ def build_lightweight_graph(
         lambda state: route_after_lightweight_agent_with_critique(
             state, critique_enabled=planning_enabled
         ),
-        {
-            **LIGHTWEIGHT_AGENT_EDGE_MAP,
-            **(
-                {"answer_self_critique": "answer_self_critique"}
-                if planning_enabled
-                else {}
-            ),
-        },
+        cast(
+            dict[Hashable, str],
+            {
+                **LIGHTWEIGHT_AGENT_EDGE_MAP,
+                **({"answer_self_critique": "answer_self_critique"} if planning_enabled else {}),
+            },
+        ),
     )
     # REFACTOR: Deterministic edges for the conditional-expansion path.
     # ``decompose -> execute_search_queries`` executes the bounded first query batch.
@@ -539,9 +557,7 @@ def build_lightweight_graph(
         workflow.add_edge("reflection_revise", "answer_self_critique")
 
     resolved_checkpointer = _resolve_checkpointer(mode, providers, checkpointer)
-    if resolved_checkpointer is None:
-        return workflow.compile()
-    return workflow.compile(checkpointer=resolved_checkpointer)
+    return _compile_with_catalog(workflow, resolved_checkpointer, snapshot)
 
 
 def _resolve_tools(
@@ -552,98 +568,16 @@ def _resolve_tools(
     session_root: Path | None = None,
     thread_id: str = "",
 ) -> list[Any]:
-    if providers.tools is not None:
-        return list(providers.tools)
+    """Return raw heavy-path tools through the shared provider composition."""
 
-    if settings is None:
-        return []
-
-    from ..core.retriever import build_retriever_tool as build_retriever_tool
-
-    # Agent-facing tools are owned by src.tools; web-search provider and
-    # ranking modules remain pure domain modules under src.web_search.
-    tool_module = cast(Any, import_module("..tools", package=__package__))
-    tools = [build_retriever_tool(settings, rebuild=rebuild_vectorstore)]
-    if settings.web_search_enabled:
-        tools.append(tool_module.build_web_search_tool(settings))
-    if settings.memory_enabled:
-        # Keep this in sync with _resolve_lightweight_tools. build_memory_tools
-        # returns a fixed list so both graphs expose identical names/schemas.
-        tools.extend(tool_module.build_memory_tools(settings))
-    if settings.weather_enabled:
-        tools.append(tool_module.build_weather_tool(settings))
-    if settings.stock_enabled:
-        tools.append(tool_module.build_stock_tool(settings))
-    if settings.currency_enabled:
-        tools.append(tool_module.build_currency_tool(settings))
-    if settings.wikipedia_enabled:
-        tools.append(tool_module.build_wikipedia_tool(settings))
-    if settings.directions_enabled:
-        tools.append(tool_module.build_directions_tool(settings))
-    if settings.map_enabled:
-        tools.append(tool_module.build_map_tool(settings))
-    if settings.math_enabled:
-        tools.append(tool_module.build_math_tool(settings))
-    if settings.statistics_enabled:
-        tools.append(tool_module.build_statistics_tool(settings))
-    if settings.linalg_enabled:
-        tools.append(tool_module.build_linalg_tool(settings))
-    if settings.number_theory_enabled:
-        tools.append(tool_module.build_number_theory_tool(settings))
-    if settings.datetime_enabled:
-        tools.append(tool_module.build_datetime_tool(settings))
-    if settings.summarize_url_enabled:
-        tools.append(tool_module.build_summarize_url_tool(settings))
-    if settings.file_read_enabled:
-        tools.append(tool_module.build_text_file_tool(settings))
-        tools.append(tool_module.build_markdown_file_tool(settings))
-        tools.append(tool_module.build_word_tool(settings))
-        tools.append(tool_module.build_excel_tool(settings))
-        tools.append(tool_module.build_pdf_tool(settings))
-    # Document editing is chat-only: it needs a per-session upload directory
-    # to confine writes to, which ``session_root`` supplies. Each factory
-    # returns an empty list when its flag is off or no session scope was given.
-    tools.extend(
-        tool_module.build_word_edit_tools(
-            settings,
-            session_root=session_root,
-            thread_id=thread_id,
-        )
+    return _resolve_raw_tools(
+        settings,
+        providers,
+        lightweight=False,
+        rebuild_vectorstore=rebuild_vectorstore,
+        session_root=session_root,
+        thread_id=thread_id,
     )
-    tools.extend(
-        tool_module.build_text_edit_tools(
-            settings,
-            session_root=session_root,
-            thread_id=thread_id,
-        )
-    )
-    tools.extend(
-        tool_module.build_markdown_edit_tools(
-            settings,
-            session_root=session_root,
-            thread_id=thread_id,
-        )
-    )
-    tools.extend(
-        tool_module.build_excel_create_tools(
-            settings,
-            session_root=session_root,
-            thread_id=thread_id,
-        )
-    )
-    tools.extend(
-        tool_module.build_excel_edit_tools(
-            settings,
-            session_root=session_root,
-            thread_id=thread_id,
-        )
-    )
-    tools.extend(
-        tool_module.build_powerpoint_edit_tools(
-            settings, session_root=session_root, thread_id=thread_id
-        )
-    )
-    return tools
 
 
 def _resolve_lightweight_tools(
@@ -653,90 +587,90 @@ def _resolve_lightweight_tools(
     session_root: Path | None = None,
     thread_id: str = "",
 ) -> list[Any]:
+    """Return raw lightweight tools through the shared provider composition."""
+
+    return _resolve_raw_tools(
+        settings,
+        providers,
+        lightweight=True,
+        rebuild_vectorstore=False,
+        session_root=session_root,
+        thread_id=thread_id,
+    )
+
+
+def _resolve_raw_tools(
+    settings: Settings | None,
+    providers: GraphProviders,
+    *,
+    lightweight: bool,
+    rebuild_vectorstore: bool,
+    session_root: Path | None,
+    thread_id: str,
+) -> list[Any]:
+    if providers.catalog_snapshot is not None:
+        return list(providers.catalog_snapshot.tools)
     if providers.tools is not None:
         return list(providers.tools)
-
     if settings is None:
         return []
+    return list(
+        default_provider_tools(
+            settings,
+            lightweight=lightweight,
+            rebuild_vectorstore=rebuild_vectorstore,
+            session_root=session_root,
+            thread_id=thread_id,
+        )
+    )
 
-    tool_module = cast(Any, import_module("..tools", package=__package__))
-    tools: list[Any] = [tool_module.build_web_search_tool(settings)]
-    if settings.memory_enabled:
-        # Keep this in sync with _resolve_tools.
-        tools.extend(tool_module.build_memory_tools(settings))
-    if settings.weather_enabled:
-        tools.append(tool_module.build_weather_tool(settings))
-    if settings.stock_enabled:
-        tools.append(tool_module.build_stock_tool(settings))
-    if settings.currency_enabled:
-        tools.append(tool_module.build_currency_tool(settings))
-    if settings.wikipedia_enabled:
-        tools.append(tool_module.build_wikipedia_tool(settings))
-    if settings.directions_enabled:
-        tools.append(tool_module.build_directions_tool(settings))
-    if settings.map_enabled:
-        tools.append(tool_module.build_map_tool(settings))
-    if settings.math_enabled:
-        tools.append(tool_module.build_math_tool(settings))
-    if settings.statistics_enabled:
-        tools.append(tool_module.build_statistics_tool(settings))
-    if settings.linalg_enabled:
-        tools.append(tool_module.build_linalg_tool(settings))
-    if settings.number_theory_enabled:
-        tools.append(tool_module.build_number_theory_tool(settings))
-    if settings.datetime_enabled:
-        tools.append(tool_module.build_datetime_tool(settings))
-    if settings.summarize_url_enabled:
-        tools.append(tool_module.build_summarize_url_tool(settings))
-    if settings.file_read_enabled:
-        tools.append(tool_module.build_text_file_tool(settings))
-        tools.append(tool_module.build_markdown_file_tool(settings))
-        tools.append(tool_module.build_word_tool(settings))
-        tools.append(tool_module.build_excel_tool(settings))
-        tools.append(tool_module.build_pdf_tool(settings))
-    # Keep this in sync with _resolve_tools: a web-search chat session can also
-    # have uploads, so editors must not silently vanish on this graph.
-    tools.extend(
-        tool_module.build_word_edit_tools(
+
+def _resolve_catalog_snapshot(
+    settings: Settings | None,
+    providers: GraphProviders,
+    *,
+    lightweight: bool,
+    rebuild_vectorstore: bool,
+    session_root: Path | None,
+    thread_id: str,
+) -> ToolCatalogSnapshot:
+    if providers.catalog_snapshot is not None:
+        return providers.catalog_snapshot
+    if providers.tools is not None:
+        injected = tuple(providers.tools)
+        if not all(isinstance(tool, BaseTool) for tool in injected):
+            raise ValueError("GraphProviders.tools must contain BaseTool instances")
+        entries = InjectedToolProvider(cast(Sequence[BaseTool], injected)).entries()
+    elif settings is not None:
+        entries = default_provider_entries(
             settings,
+            lightweight=lightweight,
+            rebuild_vectorstore=rebuild_vectorstore,
             session_root=session_root,
             thread_id=thread_id,
         )
+    else:
+        entries = ()
+    pipeline = providers.tool_pipeline or ToolExecutionPipeline(policy=providers.tool_policy)
+    return compose_snapshot(
+        entries,
+        generation=providers.catalog_generation,
+        transform=pipeline.wrap,
     )
-    tools.extend(
-        tool_module.build_text_edit_tools(
-            settings,
-            session_root=session_root,
-            thread_id=thread_id,
-        )
+
+
+def _compile_with_catalog(
+    workflow: Any,
+    checkpointer: Any,
+    snapshot: ToolCatalogSnapshot,
+) -> Any:
+    compiled = (
+        workflow.compile() if checkpointer is None else workflow.compile(checkpointer=checkpointer)
     )
-    tools.extend(
-        tool_module.build_markdown_edit_tools(
-            settings,
-            session_root=session_root,
-            thread_id=thread_id,
-        )
-    )
-    tools.extend(
-        tool_module.build_excel_create_tools(
-            settings,
-            session_root=session_root,
-            thread_id=thread_id,
-        )
-    )
-    tools.extend(
-        tool_module.build_excel_edit_tools(
-            settings,
-            session_root=session_root,
-            thread_id=thread_id,
-        )
-    )
-    tools.extend(
-        tool_module.build_powerpoint_edit_tools(
-            settings, session_root=session_root, thread_id=thread_id
-        )
-    )
-    return tools
+    compiled.tool_catalog_snapshot = snapshot
+    compiled.tool_catalog_generation = snapshot.generation
+    compiled.tool_descriptors = snapshot.descriptors
+    return compiled
 
 
 def _resolve_checkpointer(

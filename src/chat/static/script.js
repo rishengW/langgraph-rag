@@ -328,6 +328,10 @@ function appendTurn(role, content, opts = {}) {
     } else {
         bubble.textContent = String(content);
     }
+    if (role === "assistant" && opts.thinking) {
+        bubble.setAttribute("role", "status");
+        bubble.setAttribute("aria-live", "polite");
+    }
     div.appendChild(bubble);
     if (role === "assistant" && !opts.thinking) {
         renderArtifactStack(div, opts.artifacts);
@@ -1146,6 +1150,40 @@ async function restoreSession() {
 
 // ---- send a message ----------------------------------------------------
 
+const TOOL_STATUS_MIN_MS = 1200;
+
+const TOOL_ACTION_LABELS = Object.freeze({
+    retrieve_source_documents: "Searching source documents",
+    live_web_search: "Searching the web",
+    search_wikipedia: "Searching Wikipedia",
+    get_weather: "Checking the weather",
+    get_stock_quote: "Checking the stock market",
+    convert_currency: "Converting currency",
+    get_directions: "Finding directions",
+    find_on_map: "Finding the location",
+    solve_math: "Solving the calculation",
+    compute_statistics: "Calculating statistics",
+    linear_algebra: "Solving the linear algebra",
+    number_theory: "Solving the number theory problem",
+    calculate_datetime: "Calculating date and time",
+    summarize_url: "Summarizing the web page",
+    save_memory: "Saving to memory",
+    recall_memory: "Recalling memory",
+    forget_memory: "Updating memory",
+});
+
+function toolActionLabel(toolName) {
+    const name = String(toolName || "");
+    if (TOOL_ACTION_LABELS[name]) return TOOL_ACTION_LABELS[name];
+    if (name.startsWith("read_") || name.startsWith("inspect_")) {
+        return "Parsing the file(s)";
+    }
+    if (name.startsWith("edit_")) return "Editing the file(s)";
+    if (name.startsWith("create_")) return "Creating file(s)";
+    const readableName = name.replaceAll("_", " ").trim();
+    return readableName ? `Using ${readableName}` : "Using a tool";
+}
+
 const stopBtn = document.getElementById("stopBtn");
 let activeTurnController = null;
 
@@ -1199,7 +1237,22 @@ async function streamMessage(message, thinking, signal) {
     let bubble = null;
     let answer = "";
     let streamError = "";
+    let toolStatusVisibleUntil = 0;
+    let answerRenderTimer = null;
     const responseArtifacts = new Map();
+    const activeTools = new Map();
+    const statusBubble = thinking.querySelector(".bubble");
+
+    const updateToolStatus = () => {
+        if (bubble || !thinking.isConnected || !statusBubble) return;
+        const activeNames = Array.from(activeTools.values());
+        if (activeNames.length) {
+            statusBubble.textContent = toolActionLabel(activeNames[activeNames.length - 1]);
+        } else if (Date.now() >= toolStatusVisibleUntil) {
+            statusBubble.textContent = "Thinking...";
+        }
+        transcript.scrollTop = transcript.scrollHeight;
+    };
 
     const ensureBubble = () => {
         if (bubble) return bubble;
@@ -1210,6 +1263,20 @@ async function streamMessage(message, thinking, signal) {
         return bubble;
     };
 
+    const renderStreamedAnswer = () => {
+        if (!answer) return;
+        const remaining = toolStatusVisibleUntil - Date.now();
+        if (!bubble && remaining > 0) {
+            clearTimeout(answerRenderTimer);
+            answerRenderTimer = setTimeout(renderStreamedAnswer, remaining);
+            return;
+        }
+        answerRenderTimer = null;
+        const el = ensureBubble();
+        el.textContent = answer;
+        transcript.scrollTop = transcript.scrollHeight;
+    };
+
     const handleEvent = (eventType, dataStr) => {
         let payload = {};
         try {
@@ -1217,11 +1284,21 @@ async function streamMessage(message, thinking, signal) {
         } catch (_) {
             return;
         }
-        if (eventType === "token" && typeof payload.token === "string") {
+        if (eventType === "tool_start" && typeof payload.tool === "string") {
+            const toolCallId = String(payload.tool_call_id || payload.tool);
+            activeTools.set(toolCallId, payload.tool);
+            toolStatusVisibleUntil = Math.max(
+                toolStatusVisibleUntil,
+                Date.now() + TOOL_STATUS_MIN_MS,
+            );
+            updateToolStatus();
+        } else if (eventType === "tool_end") {
+            const toolCallId = String(payload.tool_call_id || payload.tool || "");
+            activeTools.delete(toolCallId);
+            updateToolStatus();
+        } else if (eventType === "token" && typeof payload.token === "string") {
             answer += payload.token;
-            const el = ensureBubble();
-            el.textContent = answer;
-            transcript.scrollTop = transcript.scrollHeight;
+            renderStreamedAnswer();
         } else if (eventType === "artifact") {
             collectArtifactsFromPayload(payload, responseArtifacts);
         } else if (eventType === "error") {
@@ -1270,6 +1347,8 @@ async function streamMessage(message, thinking, signal) {
             }
         }
     } catch (err) {
+        clearTimeout(answerRenderTimer);
+        answerRenderTimer = null;
         if (err.name !== "AbortError") throw err;
 
         thinking.remove();
@@ -1290,6 +1369,12 @@ async function streamMessage(message, thinking, signal) {
         return { stopped: true };
     }
 
+    const remainingToolStatusMs = toolStatusVisibleUntil - Date.now();
+    if (!bubble && remainingToolStatusMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, remainingToolStatusMs));
+    }
+    clearTimeout(answerRenderTimer);
+    answerRenderTimer = null;
     thinking.remove();
     const artifacts = Array.from(responseArtifacts.values());
     if (streamError && !answer) {

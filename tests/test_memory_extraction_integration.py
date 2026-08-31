@@ -390,7 +390,8 @@ def test_failed_http_turns_do_not_call_after_turn(monkeypatch, isolated_settings
         )
 
     assert reply.status_code == 200
-    assert reply.json()["error"] == "turn failed"
+    assert "turn failed" not in reply.json()["error"]
+    assert "Internal server error. Request ID:" in reply.json()["error"]
     assert "event: error" in stream.text
     assert calls == []
 

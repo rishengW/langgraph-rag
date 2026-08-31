@@ -3,6 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+ToolEventOutcome = Literal[
+    "started",
+    "success",
+    "denied",
+    "invalid",
+    "limited",
+    "timeout",
+    "cancelled",
+    "failed",
+]
+
 
 @dataclass(frozen=True)
 class NodeStartEvent:
@@ -15,6 +26,36 @@ class NodeEndEvent:
     node: str
     output: dict[str, Any] | None = None
     type: Literal["node_end"] = "node_end"
+
+
+@dataclass(frozen=True)
+class ToolStartEvent:
+    tool: str
+    tool_call_id: str
+    node: str
+    source_server: str | None = None
+    catalog_generation: int = 0
+    duration_ms: int = 0
+    outcome: ToolEventOutcome = "started"
+    type: Literal["tool_start"] = "tool_start"
+
+    def __post_init__(self) -> None:
+        _validate_tool_metadata(self)
+
+
+@dataclass(frozen=True)
+class ToolEndEvent:
+    tool: str
+    tool_call_id: str
+    node: str
+    source_server: str | None = None
+    catalog_generation: int = 0
+    duration_ms: int = 0
+    outcome: ToolEventOutcome = "success"
+    type: Literal["tool_end"] = "tool_end"
+
+    def __post_init__(self) -> None:
+        _validate_tool_metadata(self)
 
 
 @dataclass(frozen=True)
@@ -65,9 +106,21 @@ class DoneEvent:
     type: Literal["done"] = "done"
 
 
+def _validate_tool_metadata(event: ToolStartEvent | ToolEndEvent) -> None:
+    for value in (event.tool, event.tool_call_id, event.node, event.source_server or ""):
+        if len(value) > 128 or any(ord(char) < 32 for char in value):
+            raise ValueError("Invalid bounded tool event metadata")
+    if not 0 <= event.catalog_generation <= 2_147_483_647:
+        raise ValueError("Invalid tool event catalog generation")
+    if not 0 <= event.duration_ms <= 86_400_000:
+        raise ValueError("Invalid tool event duration")
+
+
 GraphEvent = (
     NodeStartEvent
     | NodeEndEvent
+    | ToolStartEvent
+    | ToolEndEvent
     | TokenEvent
     | RetrieverResultEvent
     | GraderDecisionEvent
@@ -87,4 +140,7 @@ __all__ = [
     "NodeStartEvent",
     "RetrieverResultEvent",
     "TokenEvent",
+    "ToolEndEvent",
+    "ToolEventOutcome",
+    "ToolStartEvent",
 ]

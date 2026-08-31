@@ -84,9 +84,15 @@ def read_markdown_file(
         return f"Could not read Markdown file: {exc}"
 
     try:
-        # errors="replace" keeps the tool resilient to mixed/unknown encodings
-        # instead of raising on a single bad byte.
-        text = resolved.read_text(encoding="utf-8", errors="replace")
+        from ._file_cache import PARSED_FILE_CACHE
+
+        # Markdown and plain text share a parser key, so identical uploaded
+        # content is decoded only once even when reached through either tool.
+        text = PARSED_FILE_CACHE.get_or_compute(
+            resolved,
+            parser_key="utf8-text-v1",
+            loader=lambda: resolved.read_text(encoding="utf-8", errors="replace"),
+        )
     except OSError as exc:
         return f"Could not read Markdown file {resolved.name!r}: {exc}"
 

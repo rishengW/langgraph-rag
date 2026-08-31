@@ -166,6 +166,7 @@ Key settings:
 | `WORD_EDIT_ENABLED` | `false` | Word .docx creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `POWERPOINT_EDIT_ENABLED` | `false` | PowerPoint .pptx inspection/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `EXCEL_CREATE_ENABLED` | `false` | Excel .xlsx creation; needs FILE_READ_ENABLED and the artifact-tool Node runtime |
+| `EXCEL_EDIT_ENABLED` | `false` | Excel .xlsx editing (openpyxl); needs FILE_READ_ENABLED too; files stay in session uploads |
 | `EXCEL_NODE_EXECUTABLE` | `node` | Loader-provided Node.js executable used for Excel creation |
 | `EXCEL_NODE_MODULES_PATH` | - | Loader-provided `node_modules` directory containing `@oai/artifact-tool` |
 | `TEXT_EDIT_ENABLED` | `false` | Plain-text .txt creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
@@ -173,6 +174,22 @@ Key settings:
 | `CHROMA_DIR` | `.chroma` | Vector store location |
 | `API_KEY` | — | API auth key (open when unset) |
 | `RERANK_STRATEGY` | `lexical` | `lexical`, `embedding`, or `hybrid` |
+| `MEMORY_ENABLED` | `false` | Enable long-term memory tools (save/recall/forget) and auto-recall injection |
+| `MEMORY_STORE_PATH` | - | Memory store file path; defaults to `memory/long_term_memory.json` relative to working directory |
+| `MEMORY_MAX_RECORDS` | `500` | Total records kept across all scopes (1–10000); oldest by last-recall time evicted first |
+| `MEMORY_MAX_RECORD_CHARS` | `1000` | Maximum characters per memory record (1–10000) |
+| `MEMORY_RECALL_TOP_K` | `5` | Records returned per recall call (1–50) |
+| `MEMORY_CONTEXT_MAX_CHARS` | `2000` | Character cap on memory text injected into each prompt (1–20000) |
+| `MEMORY_DEFAULT_SCOPE` | `global` | Default scope: `global` (all sessions) or `session` (this conversation only) |
+| `MEMORY_AUTO_RECALL_ENABLED` | `true` | Prepend relevant memories to each chat turn automatically |
+| `MEMORY_EXTRACTION_ENABLED` | `false` | Auto-extract durable facts from finished sessions and every `MEMORY_EXTRACTION_TURN_INTERVAL` turns |
+| `MEMORY_EXTRACTION_ON_SESSION_START` | `true` | Also extract from the previous session when a new session starts |
+| `MEMORY_EXTRACTION_TURN_INTERVAL` | `10` | Turns per extraction round (1–1000) |
+| `MEMORY_EXTRACTION_MAX_CANDIDATES` | `5` | Maximum memories accepted from one extraction round (1–20) |
+| `MEMORY_EXTRACTION_MAX_TRANSCRIPT_CHARS` | `8000` | Character cap on transcript excerpt sent to one extraction (200–100000) |
+| `MEMORY_EXTRACTION_TIMEOUT_SECONDS` | `60` | Seconds to wait for the extraction LLM call (1–600) |
+| `MEMORY_EXTRACTION_MAX_CONcurrency` | `2` | Extractions allowed to run at once (1–16); excess requests are dropped |
+| `MEMORY_EXTRACTION_MAX_SESSION_AGE_HOURS` | `168` | Skip session-start extraction for sessions idle longer than this (1–8760 hours) |
 
 ## LangGraph Architecture
 
@@ -276,6 +293,9 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `inspect_markdown_file` | `src/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | List numbered lines and text-format metadata for a session-uploaded .md |
 | `edit_markdown_file` | `src/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .md; creates a new file |
 | `create_markdown_file` | `src/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | Create a new UTF-8 Markdown .md in the current chat session |
+| `save_memory` | `src/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Remember a durable fact, preference, or task the user states about themselves; stores with optional category, tags, and scope |
+| `recall_memory` | `src/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Look up what is already remembered about the user by keyword; used before answering questions about the user not covered in the current conversation |
+| `forget_memory` | `src/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Delete stored memories by id or keyword when the user asks to forget something |
 
 When the agent calls a non-web-search tool in the lightweight graph (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, or a file reader), the post-tool edge routes back to the agent so it can synthesize the structured tool output into a final answer — bypassing the `decompose → search_queries → merge → web_answer` chain that's specific to `live_web_search`.
 
@@ -355,8 +375,11 @@ API endpoints:
 | `POST` | `/chat/{id}/message` | Send a turn |
 | `POST` | `/chat/{id}/message/stream` | SSE stream: node events + per-token answer deltas (`?tokens=false` for node events only) |
 | `POST` | `/chat/{id}/upload` | Upload files (.txt/.md/.log/.csv, .docx, .xlsx, .pdf; .pptx when PowerPoint editing is enabled) for the thread's file tools |
+| `GET` | `/chat/{id}/files/{filename}` | Download a session-scoped file (uploaded source or created/edited artifact) |
 | `GET` | `/chat/{id}/history` | Read transcript |
 | `DELETE` | `/chat/{id}` | Delete a thread (also removes the thread's uploaded files) |
+| `GET` | `/chat/config` | Returns AMap client configuration (key, timeout) to the browser |
+| `GET` | `/_AMapService/{proxied_path}` | Proxies AMap JS API requests (avoids CORS); uses `AMAP_JS_SECURITY_CODE` server-side |
 
 ## Persistence
 
@@ -432,6 +455,55 @@ Shape locations are zero-based paths. A top-level shape is addressed as `shape_p
 - The upload endpoint respects `API_KEY` auth like other mutation endpoints.
 
 The filesystem is the source of truth for uploads, so a server restart preserves uploaded files; the next turn re-announces the full current set to the model.
+
+## Long-term Memory
+
+Long-term memory gives the chat agent a persistent store of facts, preferences, and tasks about the user that survive across sessions. It is completely opt-in and off by default.
+
+### Configuration
+
+```text
+MEMORY_ENABLED=true
+MEMORY_STORE_PATH=                    # blank → memory/long_term_memory.json (git-ignored)
+MEMORY_DEFAULT_SCOPE=global           # "global" (all sessions) or "session" (this conversation only)
+MEMORY_AUTO_RECALL_ENABLED=true       # prepend relevant memories to each chat turn
+```
+
+When enabled, three agent-callable tools appear:
+
+| Tool | Purpose |
+|---|---|
+| `save_memory` | Store a durable fact, preference, or task with optional category, tags, and scope |
+| `recall_memory` | Look up remembered content by keyword before answering a question about the user |
+| `forget_memory` | Delete a memory by id or by keyword when the user asks to forget something |
+
+### Automatic extraction (self-updating memory)
+
+When `MEMORY_EXTRACTION_ENABLED=true`, the agent distils durable facts from finished sessions and from every `MEMORY_EXTRACTION_TURN_INTERVAL` turns without being asked. This costs one extra LLM call per extraction round.
+
+```text
+MEMORY_EXTRACTION_ENABLED=true
+MEMORY_EXTRACTION_TURN_INTERVAL=10
+MEMORY_EXTRACTION_MAX_CANDIDATES=5
+MEMORY_EXTRACTION_MAX_TRANSCRIPT_CHARS=8000
+MEMORY_EXTRACTION_TIMEOUT_SECONDS=60
+MEMORY_EXTRACTION_MAX_CONURRENCY=2
+MEMORY_EXTRACTION_MAX_SESSION_AGE_HOURS=168
+```
+
+Each extraction round runs in parallel (bounded by `MEMORY_EXTRACTION_MAX_CONcurrency`) and is capped in parallelism; excess requests are dropped rather than queued. Extracted content passes through a watermark so the model can distinguish recalled material from user input.
+
+### Scope and eviction
+
+Memories carry a scope (`global` or `session`). Global memories are shared across all threads and persist to the store file; session-scoped memories are deleted when their thread is deleted. The store keeps at most `MEMORY_MAX_RECORDS` records total — the oldest by last-recall time are evicted first once the cap is reached.
+
+### Security model
+
+- Memory is entirely off when `MEMORY_ENABLED=false`; no memory file is read or created.
+- The store file path resolves relative to the working directory; a `..` segment is refused.
+- The store file is git-ignored by default.
+- Tool results that indicate a failure are prefixed with `MEMORY_ERROR:` so the agent loop continues rather than crashing.
+- Per-turn call budgets prevent runaway tool loops.
 
 ## Web Search
 

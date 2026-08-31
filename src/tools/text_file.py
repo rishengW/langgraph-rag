@@ -82,9 +82,15 @@ def read_text_file(
         return f"Could not read text file: {exc}"
 
     try:
-        # errors="replace" keeps the tool resilient to mixed/unknown encodings
-        # instead of raising on a single bad byte.
-        text = resolved.read_text(encoding="utf-8", errors="replace")
+        from ._file_cache import PARSED_FILE_CACHE
+
+        # Cache the complete decoded text; callers can request different
+        # truncation limits without rereading the file.
+        text = PARSED_FILE_CACHE.get_or_compute(
+            resolved,
+            parser_key="utf8-text-v1",
+            loader=lambda: resolved.read_text(encoding="utf-8", errors="replace"),
+        )
     except OSError as exc:
         return f"Could not read text file {resolved.name!r}: {exc}"
 

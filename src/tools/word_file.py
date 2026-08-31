@@ -95,7 +95,13 @@ def read_word_document(
         return f"Could not read Word document: {exc}"
 
     try:
-        paragraphs = _extract_docx_paragraphs(resolved)
+        from ._file_cache import PARSED_FILE_CACHE
+
+        paragraphs = PARSED_FILE_CACHE.get_or_compute(
+            resolved,
+            parser_key="docx-paragraphs-v1",
+            loader=lambda: tuple(_extract_docx_paragraphs(resolved)),
+        )
     except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
         return f"Could not parse Word document {resolved.name!r}: {exc}"
     except OSError as exc:

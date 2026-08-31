@@ -101,25 +101,34 @@ def read_excel_spreadsheet(
             f"to enable the Excel tool: {exc}"
         )
 
+    row_limit = max(1, int(max_rows))
+    sheet_key = str(sheet).strip() if sheet is not None else ""
+
+    def _load_and_format() -> str:
+        workbook = openpyxl.load_workbook(resolved, read_only=True, data_only=True)
+        try:
+            sheet_names = list(workbook.sheetnames)
+            worksheet = _select_sheet(workbook, sheet)
+            if worksheet is None:
+                available = ", ".join(sheet_names)
+                return (
+                    f"Sheet {sheet!r} not found in {resolved.name}. "
+                    f"Available sheets: {available}."
+                )
+            return _format_sheet(resolved.name, sheet_names, worksheet, row_limit)
+        finally:
+            workbook.close()
+
     try:
-        workbook = openpyxl.load_workbook(
-            resolved, read_only=True, data_only=True
+        from ._file_cache import PARSED_FILE_CACHE
+
+        return PARSED_FILE_CACHE.get_or_compute(
+            resolved,
+            parser_key=f"xlsx-render-v1:sheet={sheet_key!r}:rows={row_limit}",
+            loader=_load_and_format,
         )
     except Exception as exc:
         return f"Could not open spreadsheet {resolved.name!r}: {exc}"
-
-    try:
-        sheet_names = list(workbook.sheetnames)
-        worksheet = _select_sheet(workbook, sheet)
-        if worksheet is None:
-            available = ", ".join(sheet_names)
-            return (
-                f"Sheet {sheet!r} not found in {resolved.name}. "
-                f"Available sheets: {available}."
-            )
-        return _format_sheet(resolved.name, sheet_names, worksheet, max_rows)
-    finally:
-        workbook.close()
 
 
 def _select_sheet(workbook: Any, sheet: str | None) -> Any:

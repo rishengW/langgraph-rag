@@ -90,7 +90,7 @@ from .uploads import (
     build_upload_context_note,
     list_session_uploads,
     sanitize_filename,
-    save_upload,
+    save_upload_stream,
     session_upload_dir,
 )
 
@@ -1172,38 +1172,41 @@ def create_app(
             raise ResourceNotFoundError(f"Unknown chat thread {thread_id!r}")
 
         settings = get_config(fastapi_request)
-        saved: list[UploadedFile] = []
-        errors: list[str] = []
+        # Keep upload work bounded so large batches do not exhaust the shared
+        # worker pool. Per-name locks preserve deterministic overwrite order
+        # when one multipart request contains duplicate filenames.
+        semaphore = asyncio.Semaphore(min(4, max(1, len(files))))
+        name_locks: dict[str, asyncio.Lock] = {}
 
-        for upload in files:
+        async def process_upload(
+            upload: UploadFile,
+        ) -> tuple[UploadedFile | None, str | None]:
             name = upload.filename or "upload"
+            lock_key = sanitize_filename(name).casefold() or name.casefold()
+            name_lock = name_locks.setdefault(lock_key, asyncio.Lock())
             try:
-                content = await upload.read()
-                result = await asyncio.to_thread(
-                    save_upload,
-                    settings=settings,
-                    thread_id=thread_id,
-                    filename=name,
-                    content=content,
-                )
+                async with semaphore, name_lock:
+                    result = await asyncio.to_thread(
+                        save_upload_stream,
+                        settings=settings,
+                        thread_id=thread_id,
+                        filename=name,
+                        stream=upload.file,
+                    )
             except UploadError as exc:
-                errors.append(f"{name}: {exc}")
-                continue
+                return None, f"{name}: {exc}"
             except Exception as exc:
                 logger.warning(
                     "Upload failed for %s on thread %s: %s", name, thread_id, exc
                 )
-                errors.append(f"{name}: could not process the file.")
-                continue
+                return None, f"{name}: could not process the file."
             finally:
                 await upload.close()
 
-            saved.append(
-                UploadedFile(
-                    filename=result.filename,
-                    relative_path=result.relative_path,
-                    size_bytes=result.size_bytes,
-                )
+            uploaded = UploadedFile(
+                filename=result.filename,
+                relative_path=result.relative_path,
+                size_bytes=result.size_bytes,
             )
             logger.info(
                 "Stored upload %r (%d bytes) for thread %s at %s",
@@ -1212,7 +1215,11 @@ def create_app(
                 thread_id,
                 result.relative_path,
             )
+            return uploaded, None
 
+        results = await asyncio.gather(*(process_upload(upload) for upload in files))
+        saved = [uploaded for uploaded, _ in results if uploaded is not None]
+        errors = [error for _, error in results if error is not None]
         return UploadResponse(thread_id=thread_id, files=saved, errors=errors)
 
     @app.get(

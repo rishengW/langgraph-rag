@@ -26,6 +26,7 @@ FILE_KIND_DOWNLOAD = "download"
 FILE_PROVIDER = "chat_upload"
 DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 TXT_MIME_TYPE = "text/plain"
+MARKDOWN_MIME_TYPE = "text/markdown"
 XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PPTX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
@@ -47,6 +48,7 @@ _THREAD_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 _FILE_MIME_TYPES = {
     ".docx": DOCX_MIME_TYPE,
     ".txt": TXT_MIME_TYPE,
+    ".md": MARKDOWN_MIME_TYPE,
     ".xlsx": XLSX_MIME_TYPE,
     ".pptx": PPTX_MIME_TYPE,
 }
@@ -815,6 +817,7 @@ __all__ = [
     "MAX_POLYLINE_POINTS",
     "MAX_STEPS",
     "MAX_THREAD_ID_CHARS",
+    "MARKDOWN_MIME_TYPE",
     "TXT_MIME_TYPE",
     "XLSX_MIME_TYPE",
     "PPTX_MIME_TYPE",

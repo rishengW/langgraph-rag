@@ -10,8 +10,10 @@ is capped using the same limit the tools enforce.
 from __future__ import annotations
 
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 from ..config import Settings
 
@@ -172,18 +174,11 @@ def validate_suffix(filename: str) -> str:
     return suffix
 
 
-def save_upload(
-    *,
+def _upload_target(
     settings: Settings,
     thread_id: str,
     filename: str,
-    content: bytes,
-) -> SavedUpload:
-    """Validate and persist one uploaded file for a chat session.
-
-    Raises ``UploadError`` on an empty/oversized payload or disallowed type.
-    """
-
+) -> tuple[str, Path]:
     if not settings.file_read_enabled:
         raise UploadError(
             "file reading is disabled; set FILE_READ_ENABLED=true to accept uploads."
@@ -199,38 +194,102 @@ def save_upload(
             "POWERPOINT_EDIT_ENABLED=true to inspect or edit .pptx files."
         )
 
+    target_dir = session_upload_dir(settings, thread_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return safe_name, target_dir / safe_name
+
+
+def _saved_upload(
+    settings: Settings,
+    safe_name: str,
+    target_path: Path,
+    size_bytes: int,
+) -> SavedUpload:
+    root = Path(settings.file_read_root).expanduser().resolve()
+    try:
+        relative = target_path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        raise UploadError(
+            "internal error: upload path escaped the file-read root."
+        ) from None
+    return SavedUpload(safe_name, relative, size_bytes)
+
+
+def save_upload(
+    *,
+    settings: Settings,
+    thread_id: str,
+    filename: str,
+    content: bytes,
+) -> SavedUpload:
+    """Validate and persist an in-memory upload (compatibility API)."""
+
+    safe_name, target_path = _upload_target(settings, thread_id, filename)
+    max_bytes = settings.file_read_max_bytes
     if not content:
         raise UploadError("the uploaded file is empty.")
-    max_bytes = settings.file_read_max_bytes
     if len(content) > max_bytes:
         raise UploadError(
             f"file is too large ({len(content):,} bytes; limit {max_bytes:,} bytes)."
         )
 
-    target_dir = session_upload_dir(settings, thread_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_path = target_dir / safe_name
-
     try:
         target_path.write_bytes(content)
     except OSError as exc:
         raise UploadError(f"could not save the uploaded file: {exc}") from exc
+    return _saved_upload(settings, safe_name, target_path, len(content))
 
-    root = Path(settings.file_read_root).expanduser().resolve()
+
+def save_upload_stream(
+    *,
+    settings: Settings,
+    thread_id: str,
+    filename: str,
+    stream: BinaryIO,
+    chunk_bytes: int = 1024 * 1024,
+) -> SavedUpload:
+    """Stream an upload to disk with bounded memory and atomic publication."""
+
+    safe_name, target_path = _upload_target(settings, thread_id, filename)
+    max_bytes = settings.file_read_max_bytes
+    size_bytes = 0
+    temp_path: Path | None = None
+
     try:
-        relative = target_path.resolve().relative_to(root).as_posix()
-    except ValueError:
-        # Should not happen (target is built under root), but never return a
-        # path the tools would refuse as outside the root.
-        raise UploadError(
-            "internal error: upload path escaped the file-read root."
-        ) from None
+        if stream.seekable():
+            stream.seek(0)
+        # Keep the temporary file outside the session directory so turn-time
+        # upload discovery never announces a partially written file.
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=target_path.parent.parent,
+            prefix=".chat-upload-",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temp_path = Path(temporary.name)
+            while chunk := stream.read(max(1, int(chunk_bytes))):
+                size_bytes += len(chunk)
+                if size_bytes > max_bytes:
+                    raise UploadError(
+                        f"file is too large ({size_bytes:,}+ bytes; "
+                        f"limit {max_bytes:,} bytes)."
+                    )
+                temporary.write(chunk)
 
-    return SavedUpload(
-        filename=safe_name,
-        relative_path=relative,
-        size_bytes=len(content),
-    )
+        if size_bytes == 0:
+            raise UploadError("the uploaded file is empty.")
+        temp_path.replace(target_path)
+    except UploadError:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
+    except OSError as exc:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise UploadError(f"could not save the uploaded file: {exc}") from exc
+
+    return _saved_upload(settings, safe_name, target_path, size_bytes)
 
 
 __all__ = [
@@ -240,6 +299,7 @@ __all__ = [
     "build_upload_context_note",
     "list_session_uploads",
     "save_upload",
+    "save_upload_stream",
     "sanitize_filename",
     "session_upload_dir",
     "validate_suffix",

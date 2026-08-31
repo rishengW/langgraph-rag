@@ -30,6 +30,7 @@ const FILE_DOWNLOAD_TYPES = Object.freeze({
         label: "Word document",
     }),
     ".txt": Object.freeze({ mimeType: "text/plain", label: "Text file" }),
+    ".md": Object.freeze({ mimeType: "text/markdown", label: "Markdown file" }),
     ".xlsx": Object.freeze({
         mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         label: "Excel workbook",

@@ -146,4 +146,4 @@ def test_index_has_responsive_amap_styles_and_bumped_script_cache_version() -> N
     assert ".amap-card" in index
     assert ".amap-card__map" in index
     assert "@media (max-width: 640px)" in index
-    assert '<script src="/static/script.js?v=9"></script>' in index
+    assert '<script src="/static/script.js?v=11"></script>' in index

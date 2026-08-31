@@ -103,8 +103,15 @@ def read_pdf(
             f"enable the PDF tool: {exc}"
         )
 
+    page_limit = max(1, int(max_pages))
     try:
-        page_texts, total_pages = _extract_pdf_text(pypdf, resolved, max_pages)
+        from ._file_cache import PARSED_FILE_CACHE
+
+        page_texts, total_pages = PARSED_FILE_CACHE.get_or_compute(
+            resolved,
+            parser_key=f"pdf-text-v1:pages={page_limit}",
+            loader=lambda: _extract_pdf_text(pypdf, resolved, page_limit),
+        )
     except Exception as exc:
         return f"Could not parse PDF {resolved.name!r}: {exc}"
 

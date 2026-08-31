@@ -18,6 +18,9 @@ benchmarks/
 memory/long_term_memory.json
 memory/long_term_memory.json.corrupt-*
 
+# User-uploaded chat files (runtime artifacts)
+chat_uploads/
+
 # Jupyter scratch
 .ipynb_checkpoints/
 

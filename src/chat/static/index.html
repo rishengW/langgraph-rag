@@ -29,16 +29,33 @@
         }
 
         header {
+            position: relative;
+            min-height: 86px;
             padding: 16px 24px;
             border-bottom: 1px solid #f0f0f0;
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: center;
             gap: 12px;
         }
 
-        h1 { font-size: 18px; }
-        .subtitle { font-size: 12px; color: #6b7280; }
+        header #sessionControls {
+            position: absolute;
+            right: 24px;
+        }
+
+        h1 {
+            font-size: clamp(36px, 6vw, 56px);
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            line-height: 1.2;
+            padding-bottom: 0.12em;
+            background: linear-gradient(90deg, #ec4899, #8b5cf6, #3b82f6, #10b981, #f59e0b);
+            background-clip: text;
+            -webkit-background-clip: text;
+            color: transparent;
+            filter: drop-shadow(0 2px 5px rgba(99, 102, 241, 0.22));
+        }
 
         .start-screen,
         .transcript-screen { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -443,8 +460,7 @@
     <div class="app">
         <header>
             <div>
-                <h1>only Subscribers</h1>
-                <div class="subtitle">Start a conversation — I'll search the web when needed</div>
+                <h1>OnlySubscriber</h1>
             </div>
             <div id="sessionControls" class="hidden">
                 <button id="newChatBtn" class="btn-ghost" type="button">New chat</button>

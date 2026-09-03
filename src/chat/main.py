@@ -152,7 +152,6 @@ def _repl(args: argparse.Namespace) -> None:
     if graph_owned_web:
         graph = build_lightweight_graph(
             settings=settings,
-            mode="chat",
             checkpointer=checkpointer,
         )
     else:

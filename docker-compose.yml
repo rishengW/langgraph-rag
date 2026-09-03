@@ -1,24 +1,7 @@
 ---
-# Purpose: Local container orchestration for the QA and chat services.
+# Purpose: Local container orchestration for the chat service.
 
 services:
-  qa:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: ["python", "-m", "src.qa.main", "serve", "--host", "0.0.0.0", "--port", "8000"]
-    ports:
-      - "8000:8000"
-    environment:
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
-      CHROMA_DIR: /app/.chroma
-      API_HOST: 0.0.0.0
-      API_PORT: "8000"
-    volumes:
-      - chroma-data:/app/.chroma
-      - session-data:/app/data
-    restart: unless-stopped
-
   chat:
     build:
       context: .

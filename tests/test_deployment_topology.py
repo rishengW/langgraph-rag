@@ -24,7 +24,6 @@ from src.deployment import (
     UnsupportedDeploymentTopologyError,
     validate_single_instance_deployment,
 )
-from src.qa import api as qa_api
 
 
 def _set_single_instance_environment(
@@ -316,7 +315,6 @@ def test_property_12_incomplete_shared_state_proof_never_enables_scaling(
 @pytest.mark.parametrize(
     "app_factory",
     [
-        pytest.param(qa_api.create_app, id="qa"),
         pytest.param(chat_api.create_app, id="chat"),
     ],
 )

@@ -2,14 +2,12 @@
 
 ## 1. Full RAG Graph (`build_graph`)
 
-Used for **QA** and **Chat** modes with Chroma vectorstore retrieval, document grading, and query rewriting.
+Used for **chat** with Chroma vectorstore retrieval, document grading, and query rewriting.
 
 ```mermaid
 graph TD
     START((START)) --> condense["🔵 condense<br/><i>Condense chat history<br/>into standalone question</i>"]
     condense --> agent["🟢 agent<br/><i>LLM + tools<br/>Decide: answer or call tool?</i>"]
-
-    START -->|"QA mode<br/>(skip condense)"| agent
 
     agent -->|"tool called"| retrieve["📚 retrieve<br/><i>ToolNode: execute tool<br/>(Chroma search, web search,<br/>weather, stock, etc.)</i>"]
     agent -->|"direct answer"| END((END))
@@ -33,14 +31,7 @@ graph TD
     style generate fill:#1ABC9C,stroke:#16A085,color:#fff
 ```
 
-### QA Mode (no condense)
-```
-START → agent → retrieve → grade → generate → END
-                  ↑                    |
-                  +—— rewrite ←———————+
-```
-
-### Chat Mode (with condense)
+### Execution Path
 ```
 START → condense → agent → retrieve → grade → generate → END
                       ↑                    |

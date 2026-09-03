@@ -48,6 +48,11 @@ def test_qa_builder_accepts_injected_nodes_and_tools():
     providers = GraphProviders(
         tools=[retrieve_source_documents],
         nodes=GraphNodeOverrides(
+            condense=lambda state: {
+                "current_question": state["messages"][-1].content,
+                "current_question_index": len(state["messages"]) - 1,
+                "rewrite_count": 0,
+            },
             agent=agent,
             grade_documents=grade_documents,
             rewrite=lambda _state: {"messages": [AIMessage(content="unused")]},
@@ -55,7 +60,7 @@ def test_qa_builder_accepts_injected_nodes_and_tools():
         ),
     )
 
-    graph = build_graph(mode="qa", providers=providers)
+    graph = build_graph(providers=providers)
     state = graph.invoke({"messages": [HumanMessage(content="What is PAI?")]})
 
     assert state["messages"][-1].content == "final answer"
@@ -90,7 +95,7 @@ def test_chat_builder_adds_condense_and_allows_checkpointer_injection():
         ),
     )
 
-    graph = build_graph(mode="chat", providers=providers)
+    graph = build_graph(providers=providers)
     state = graph.invoke({"messages": [HumanMessage(content="raw follow-up")]})
 
     assert seen == ["condense", "agent"]
@@ -99,7 +104,7 @@ def test_chat_builder_adds_condense_and_allows_checkpointer_injection():
 
 def test_builder_requires_settings_for_default_nodes():
     with pytest.raises(ValueError, match="settings are required"):
-        build_graph(mode="qa")
+        build_graph()
 
 
 def test_resolve_tools_adds_web_search_when_enabled(monkeypatch, isolated_settings):
@@ -675,33 +680,19 @@ def test_both_graphs_register_excel_editor_with_session_scope(
 
 def test_legacy_graph_wrappers_delegate_to_shared_builder(monkeypatch, mock_settings):
     import src.chat.graph as chat_graph
-    import src.core.graph as core_graph
 
-    qa_sentinel = object()
     chat_sentinel = object()
     captured = []
-
-    def fake_core_builder(**kwargs):
-        captured.append(kwargs)
-        return qa_sentinel
 
     def fake_chat_builder(**kwargs):
         captured.append(kwargs)
         return chat_sentinel
 
-    monkeypatch.setattr(core_graph, "_build_graph", fake_core_builder)
     monkeypatch.setattr(chat_graph, "_build_graph", fake_chat_builder)
 
-    assert core_graph.build_graph(mock_settings, rebuild_vectorstore=True) is qa_sentinel
     assert chat_graph.build_chat_graph(mock_settings, rebuild_vectorstore=False) is chat_sentinel
     assert captured == [
         {
-            "mode": "qa",
-            "settings": mock_settings,
-            "rebuild_vectorstore": True,
-        },
-        {
-            "mode": "chat",
             "settings": mock_settings,
             "rebuild_vectorstore": False,
         },

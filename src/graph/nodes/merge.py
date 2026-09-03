@@ -19,7 +19,7 @@ from ...web_search.common import (
     text_relevance_delta,
 )
 from ...web_search.reputation import build_reputation_store, reputation_delta
-from .common import qa_question_resolver
+from .common import chat_question_resolver
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ _URL_RE = re.compile(r"https?://[^\s<>()\[\]{}　-〿＀-￯一-鿿]+")
 
 def merge_factory(
     settings: Settings,
-    question_resolver: QuestionResolver = qa_question_resolver,
+    question_resolver: QuestionResolver = chat_question_resolver,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Return a node that combines and ranks search URL candidates.
 

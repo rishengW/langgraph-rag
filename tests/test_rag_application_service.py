@@ -4,7 +4,6 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
 
 from src.application import (
     RagApplicationError,
@@ -13,7 +12,6 @@ from src.application import (
     RagRequest,
     RagServiceDependencies,
 )
-from src.qa import api as qa_api
 
 
 def _service(*, settings, graph, dependencies, promoted):
@@ -121,42 +119,6 @@ def test_service_sanitizes_unexpected_dependency_errors(mock_settings):
     assert raised.value.public_detail == "Internal server error. Request ID: request-error"
     assert "provider-secret-detail" not in raised.value.public_detail
     assert isinstance(raised.value.internal_cause, RuntimeError)
-
-
-def test_query_http_adapter_preserves_legacy_response_shape(monkeypatch, isolated_settings):
-    settings = isolated_settings(
-        source_urls=["https://default.test"],
-        web_search_enabled=False,
-    )
-    graph = object()
-    monkeypatch.setattr(qa_api, "load_settings", lambda: settings)
-    monkeypatch.setattr(qa_api, "build_graph", lambda *args, **kwargs: graph)
-    monkeypatch.setattr(
-        qa_api,
-        "run_rag_query",
-        lambda **kwargs: {
-            "answer": "HTTP answer",
-            "error": None,
-            "messages": [SimpleNamespace(content="HTTP debug")],
-        },
-    )
-
-    with TestClient(qa_api.create_app()) as client:
-        response = client.post(
-            "/query",
-            json={"question": "Hello", "web_search": False, "debug": True},
-        )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "answer": "HTTP answer",
-        "error": None,
-        "success": True,
-        "messages": ["HTTP debug"],
-        "source_urls": ["https://default.test"],
-        "source_mode": "defaults",
-        "source_note": None,
-    }
 
 
 def test_failed_rebuild_restores_previous_global_graph(mock_settings):

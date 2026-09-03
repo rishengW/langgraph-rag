@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from ...config import Settings
 from ...utils.retry import invoke_with_retry
 from ...web_search.query_constraints import validate_query_candidate
-from .common import new_structured_chat_model, qa_question_resolver
+from .common import chat_question_resolver, new_structured_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class _DecomposeResult(BaseModel):
 
 def decompose_factory(
     settings: Settings,
-    question_resolver: QuestionResolver = qa_question_resolver,
+    question_resolver: QuestionResolver = chat_question_resolver,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Return a node that decomposes a question into 1-3 sub-questions.
 

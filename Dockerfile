@@ -1,4 +1,4 @@
-# Runtime image for the LangGraph RAG QA and chat services.
+# Runtime image for the LangGraph RAG chat service.
 
 FROM python:3.11-slim AS builder
 
@@ -33,6 +33,6 @@ RUN useradd --create-home --shell /usr/sbin/nologin appuser \
 
 USER appuser
 
-EXPOSE 8000 8001
+EXPOSE 8001
 
-CMD ["python", "-m", "src.qa.main", "serve", "--host", "0.0.0.0"]
+CMD ["python", "-m", "src.chat.main", "serve", "--host", "0.0.0.0", "--port", "8001"]

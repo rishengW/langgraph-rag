@@ -14,7 +14,6 @@ from src.graph.nodes import (
     format_history,
     grade_documents_factory,
     latest_user_index,
-    qa_question_resolver,
 )
 from src.graph.nodes import common as common_nodes
 from src.graph.state import RAGState
@@ -37,10 +36,7 @@ def test_core_node_helpers_preserve_old_import_paths():
     ]
 
 
-def test_question_resolvers_handle_qa_and_chat_shapes():
-    qa_state = {"messages": [HumanMessage(content="first question")]}
-    assert qa_question_resolver(qa_state) == "first question"
-
+def test_question_resolver_handles_chat_shapes():
     chat_state = {
         "messages": [
             HumanMessage(content="old"),
@@ -491,6 +487,7 @@ def test_low_relevance_generate_requires_at_least_one_keyword_match(
                 HumanMessage(content="DeepSeek latest"),
                 AIMessage(content="Qwen fine tuning guide"),
             ],
+            "current_question": "DeepSeek latest",
             "rewrite_count": 0,
         }
     )

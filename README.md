@@ -1,8 +1,8 @@
 # Only Subscribers
 
-A local LangGraph retrieval-augmented generation project with two FastAPI apps:
+A local LangGraph retrieval-augmented generation project with a multi-turn chat
+FastAPI app:
 
-- **QA** (`src/qa`): single-shot question answering on configured URLs, custom URLs, or web-search results.
 - **Chat** (`src/chat`): multi-turn chat with per-thread source sets, persisted session metadata, and SQLite-backed LangGraph checkpoints.
 
 The project supports two LangGraph workflows:
@@ -345,40 +345,6 @@ On macOS/Linux use `<repo>/.venv/bin/python`. Standard output is reserved for MC
 For Streamable HTTP, select `MCP_TRANSPORT=http`. Staging and production fail before socket bind unless the environment variable named by `MCP_AUTH_SECRET_ENV` contains a bearer key, `MCP_PUBLIC_BASE_URL` is HTTPS, and `MCP_ALLOWED_HOSTS` contains exact deployment hosts. Anonymous HTTP requires both `MCP_ENVIRONMENT=development` and `MCP_ALLOW_ANONYMOUS_HTTP=true`. The endpoint defaults to `http://127.0.0.1:8002/mcp`; send the shared key as `Authorization: Bearer <key>`.
 
 HTTP uses the SDK's stateless ASGI application with exact Host/Origin checks and request-body bounds. Caller-supplied and discovered source hosts are resolved before application invocation, and every resolved address must be public. The current legacy document loaders may resolve again and follow redirects without connection-address pinning, so this release does **not** claim connection-boundary DNS-rebinding protection for outbound source fetching. Deploy restricted egress and an allowlisting proxy; a future fetcher must pin validated addresses and independently validate each redirect before this limitation can be removed. Downstream synchronous graph/provider calls also cannot always be force-cancelled after the adapter deadline fires, although cancellation propagates through asynchronous seams.
-
-## Running QA
-
-Ask a question from the terminal:
-
-```powershell
-python -m src.qa.main query "What does this source say about fine-tuning?" --rebuild
-```
-
-Use custom sources:
-
-```powershell
-python -m src.qa.main query "Your question" --urls "https://example.com,https://another.com" --rebuild
-```
-
-Start the QA web/API server:
-
-```powershell
-python -m src.qa.main serve --host 127.0.0.1 --port 8000
-```
-
-Then open `http://127.0.0.1:8000`.
-
-API endpoints:
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/` | Browser UI |
-| `GET` | `/health` | Public dependency-free liveness probe |
-| `GET` | `/ready` | Public bounded readiness status |
-| `GET` | `/admin/health/dependencies` | API-key-protected dependency diagnostics |
-| `GET` | `/metrics` | In-process graph metrics |
-| `POST` | `/query` | Non-streaming answer |
-| `POST` | `/query/stream` | SSE graph event stream |
 
 ## Running Chat
 

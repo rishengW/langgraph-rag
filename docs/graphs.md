@@ -1,6 +1,6 @@
 # LangGraph RAG — Node Graphs
 
-## Full RAG Graph — QA Mode
+## Full RAG Graph
 
 ```mermaid
 ---
@@ -146,8 +146,8 @@ flowchart TD
 
 | From | To | Graph | Condition |
 |------|----|-------|-----------|
-| `START` | `agent` | Both | QA mode |
-| `START` | `condense` | Full | Chat mode |
+| `START` | `condense` | Full | Always |
+| `START` | `agent` | Lightweight | No condense node |
 | `condense` | `agent` | Full | Always |
 | `agent` | `retrieve` | Full | Agent called a tool |
 | `agent` | `END` | Both | Agent answered directly |

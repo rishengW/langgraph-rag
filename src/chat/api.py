@@ -223,7 +223,6 @@ def _build_lightweight_chat_graph_for_session(
     return _call_graph_factory(
         build_lightweight_graph,
         settings,
-        mode="chat",
         checkpointer=checkpointer,
         session_root=_session_edit_root(settings, thread_id),
         thread_id=thread_id,

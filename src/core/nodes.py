@@ -17,7 +17,7 @@ from ..graph.nodes import (
     new_chat_model as _new_chat_model,
 )
 from ..graph.nodes import (
-    qa_question_resolver as _question_from_state,
+    chat_question_resolver as _question_from_state,
 )
 from ..graph.nodes.common import (
     _question_tokens,

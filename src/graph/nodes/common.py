@@ -262,11 +262,6 @@ def _sanitized_ai_message(message: Any) -> Any:
     return _copy_message_with_content(message, cleaned)
 
 
-def qa_question_resolver(state: dict[str, Any]) -> str:
-    messages = state["messages"]
-    return message_text(messages[0])
-
-
 def chat_question_resolver(state: dict[str, Any]) -> str:
     standalone = (state.get("current_question") or "").strip()
     if standalone:
@@ -568,7 +563,7 @@ def build_extractive_answer(question: str, context: str) -> str:
 
 def grade_documents_factory(
     settings: Settings,
-    question_resolver: QuestionResolver = qa_question_resolver,
+    question_resolver: QuestionResolver = chat_question_resolver,
 ) -> GradeCallable:
     """Return a conditional edge function that grades retrieved context."""
 
@@ -654,7 +649,7 @@ def grade_documents_factory(
 def agent_factory(
     settings: Settings,
     tools: Sequence[Any],
-    question_resolver: QuestionResolver = qa_question_resolver,
+    question_resolver: QuestionResolver = chat_question_resolver,
 ) -> NodeCallable:
     """Return the agent node."""
 
@@ -718,7 +713,7 @@ def agent_factory(
 
 def rewrite_factory(
     settings: Settings,
-    question_resolver: QuestionResolver = qa_question_resolver,
+    question_resolver: QuestionResolver = chat_question_resolver,
     *,
     update_current_question: bool = False,
 ) -> NodeCallable:
@@ -768,7 +763,7 @@ def rewrite_factory(
 
 def generate_factory(
     settings: Settings,
-    question_resolver: QuestionResolver = qa_question_resolver,
+    question_resolver: QuestionResolver = chat_question_resolver,
 ) -> NodeCallable:
     """Return the final RAG answer generation node."""
 
@@ -800,10 +795,6 @@ def generate_factory(
         return {"messages": [response]}
 
     return generate
-
-
-def build_core_agent_factory(settings: Settings, tools: Sequence[Any]) -> NodeCallable:
-    return agent_factory(settings, tools, qa_question_resolver)
 
 
 def build_chat_agent_factory(settings: Settings, tools: Sequence[Any]) -> NodeCallable:

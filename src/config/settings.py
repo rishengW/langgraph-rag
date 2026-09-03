@@ -167,6 +167,10 @@ class Settings:
     # Markdown .md creation and editing. Same session-scoped, never-overwrite
     # model as the .txt editor, layered on top of file_read_enabled.
     markdown_edit_enabled: bool = False
+    # CSV .csv creation and editing. Standard-library csv module for quoting;
+    # needs file_read_enabled. Same session-scoped, never-overwrite model as the
+    # .txt editor, layered on top of file_read_enabled.
+    csv_edit_enabled: bool = False
     # Chat-agent long-term memory. Disabled by default so existing
     # deployments keep their current tool set and touch no memory file.
     memory_enabled: bool = False

@@ -1416,14 +1416,65 @@ messageInput.addEventListener("keydown", (e) => {
 
 // ---- file uploads ------------------------------------------------------
 
+const FILE_CHIP_TYPES = {
+    csv: { letter: "C", cls: "csv", label: "CSV" },
+    tsv: { letter: "C", cls: "csv", label: "TSV" },
+    xlsx: { letter: "X", cls: "xlsx", label: "XLSX" },
+    xls: { letter: "X", cls: "xlsx", label: "XLS" },
+    docx: { letter: "W", cls: "docx", label: "DOCX" },
+    doc: { letter: "W", cls: "docx", label: "DOC" },
+    pptx: { letter: "P", cls: "pptx", label: "PPTX" },
+    pdf: { letter: "P", cls: "pdf", label: "PDF" },
+    txt: { letter: "T", cls: "txt", label: "TXT" },
+    md: { letter: "M", cls: "txt", label: "MD" },
+    log: { letter: "L", cls: "txt", label: "LOG" },
+};
+
+function fileChipType(filename) {
+    const dot = filename.lastIndexOf(".");
+    const ext = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";
+    return (
+        FILE_CHIP_TYPES[ext] || {
+            letter: (ext[0] || "F").toUpperCase(),
+            cls: "txt",
+            label: (ext || "file").toUpperCase(),
+        }
+    );
+}
+
+function formatFileSize(bytes) {
+    if (bytes >= 1024 * 1024) {
+        const mb = bytes / (1024 * 1024);
+        return `${mb >= 10 ? Math.round(mb) : mb.toFixed(1)}MB`;
+    }
+    return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+}
+
+function buildFileChip(file) {
+    const type = fileChipType(file.filename);
+    const chip = document.createElement("span");
+    chip.className = "file-chip";
+    const icon = document.createElement("span");
+    icon.className = `file-chip__icon ${type.cls}`;
+    icon.textContent = type.letter;
+    const body = document.createElement("span");
+    body.className = "file-chip__body";
+    const name = document.createElement("span");
+    name.className = "file-chip__name";
+    name.textContent = file.filename;
+    name.title = file.filename;
+    const meta = document.createElement("span");
+    meta.className = "file-chip__meta";
+    meta.textContent = `${type.label} · ${formatFileSize(file.size_bytes)}`;
+    body.append(name, meta);
+    chip.append(icon, body);
+    return chip;
+}
+
 function renderAttachmentChips(files, errors) {
     attachments.innerHTML = "";
     for (const f of files || []) {
-        const chip = document.createElement("span");
-        chip.className = "chip";
-        const kb = Math.max(1, Math.round(f.size_bytes / 1024));
-        chip.textContent = `${f.filename} (${kb} KB)`;
-        attachments.appendChild(chip);
+        attachments.appendChild(buildFileChip(f));
     }
     for (const err of errors || []) {
         const chip = document.createElement("span");
@@ -1481,7 +1532,7 @@ fileInput.addEventListener("change", () => uploadFiles(fileInput.files));
 
 function autoresize() {
     messageInput.style.height = "auto";
-    messageInput.style.height = Math.min(messageInput.scrollHeight, 160) + "px";
+    messageInput.style.height = Math.min(messageInput.scrollHeight, 240) + "px";
 }
 messageInput.addEventListener("input", autoresize);
 

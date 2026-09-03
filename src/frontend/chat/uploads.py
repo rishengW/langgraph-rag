@@ -84,6 +84,7 @@ def build_upload_context_note(
     markdown_edit_enabled: bool = False,
     powerpoint_edit_enabled: bool = False,
     excel_edit_enabled: bool = False,
+    csv_edit_enabled: bool = False,
 ) -> str:
     """Build a system-message note telling the LLM which uploads it can read.
 
@@ -128,6 +129,16 @@ def build_upload_context_note(
             "edit when the user explicitly asks; always inspect before editing "
             "and pass the exact current text as expected_text. Writes create a "
             "new file and never overwrite an existing file."
+        )
+    if csv_edit_enabled:
+        edit_notes.append(
+            "For .csv files you may call create_csv_file to create a new CSV "
+            "file from a header row and data rows, inspect_csv_file to list "
+            "columns and numbered rows, and edit_csv_file to apply row and "
+            "cell edits. Only create or edit when the user explicitly asks; "
+            "always inspect before editing and pass the exact current row as "
+            "expected_row or the exact current cell as expected_value. Writes "
+            "create a new file and never overwrite an existing file."
         )
     if powerpoint_edit_enabled:
         edit_notes.append(

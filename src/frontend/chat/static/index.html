@@ -239,31 +239,96 @@
             font-style: italic;
         }
 
+        .input-shell {
+            margin: 4px 24px 10px;
+            background: #fff;
+            border: 1px solid #e3e6ee;
+            border-radius: 14px;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-height: 150px;
+        }
+        .input-shell:focus-within { border-color: #667eea; }
+
         .composer {
-            border-top: 1px solid #f0f0f0;
-            padding: 14px 24px;
+            margin-top: auto;
+            padding: 2px;
             display: flex;
             gap: 10px;
             align-items: flex-end;
         }
         .composer textarea {
             flex: 1;
-            min-height: 44px;
-            max-height: 160px;
+            min-height: 72px;
+            max-height: 240px;
             resize: none;
+            border: none;
+            background: transparent;
+            padding: 8px 6px;
+            font-size: 14px;
+            line-height: 1.45;
         }
+        .composer textarea:focus { outline: none; }
 
         .session-info {
             font-size: 11px;
             color: #6b7280;
+            padding: 6px 14px 8px;
+            display: block;
         }
         .session-info a { color: #4f46e5; }
 
         .attachments {
             display: flex;
             flex-wrap: wrap;
-            gap: 6px;
-            padding: 0 24px 8px;
+            gap: 10px;
+            padding: 2px 2px 0;
+        }
+        .file-chip {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #f5f6f8;
+            border: 1px solid #eceef2;
+            border-radius: 12px;
+            padding: 9px 20px 9px 10px;
+            max-width: 320px;
+        }
+        .file-chip__icon {
+            width: 38px;
+            height: 38px;
+            flex: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 18px;
+            font-weight: 700;
+        }
+        .file-chip__icon.csv { background: #16a34a; }
+        .file-chip__icon.xlsx { background: #16a34a; }
+        .file-chip__icon.docx { background: #2563eb; }
+        .file-chip__icon.pdf { background: #dc2626; }
+        .file-chip__icon.pptx { background: #ea580c; }
+        .file-chip__icon.txt { background: #64748b; }
+        .file-chip__body { min-width: 0; }
+        .file-chip__name {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #1f2329;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .file-chip__meta {
+            display: block;
+            font-size: 12px;
+            color: #8a9099;
+            margin-top: 2px;
         }
         .chip {
             background: #eef2ff;
@@ -410,7 +475,9 @@
                 max-width: none;
             }
             header,
-            .composer {
+            .input-shell {
+                margin-left: 14px;
+                margin-right: 14px;
                 padding-left: 14px;
                 padding-right: 14px;
             }
@@ -483,21 +550,23 @@
         <section id="chatScreen" class="transcript-screen hidden">
             <div id="transcript" class="transcript"></div>
             <div id="errorBanner" class="error-banner hidden"></div>
-            <div id="attachments" class="attachments hidden"></div>
-            <div class="composer">
+            <div class="input-shell">
                 <input id="fileInput" type="file" class="hidden"
                     accept=".txt,.md,.log,.csv,.docx,.xlsx,.pptx,.pdf" multiple>
-                <button id="attachBtn" class="btn-ghost" type="button"
-                    title="Attach .txt, .md, .csv, .docx, .xlsx, .pptx, or .pdf files">📎</button>
-                <textarea id="messageInput" placeholder="Ask a follow-up..." rows="1"></textarea>
-                <button id="stopBtn" class="btn-ghost hidden" type="button" disabled
-                    aria-label="Stop generating the current reply">Stop</button>
-                <button id="sendBtn" class="btn-primary" type="button">Send</button>
+                <div id="attachments" class="attachments hidden"></div>
+                <div class="composer">
+                    <button id="attachBtn" class="btn-ghost" type="button"
+                        title="Attach .txt, .md, .csv, .docx, .xlsx, .pptx, or .pdf files">📎</button>
+                    <textarea id="messageInput" placeholder="Ask a follow-up..." rows="1"></textarea>
+                    <button id="stopBtn" class="btn-ghost hidden" type="button" disabled
+                        aria-label="Stop generating the current reply">Stop</button>
+                    <button id="sendBtn" class="btn-primary" type="button">Send</button>
+                </div>
             </div>
             <div class="composer session-info" id="sessionInfo"></div>
         </section>
     </div>
 
-    <script src="/static/script.js?v=14"></script>
+    <script src="/static/script.js?v=16"></script>
 </body>
 </html>

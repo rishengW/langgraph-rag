@@ -359,6 +359,7 @@ def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
         markdown_edit_enabled=settings.markdown_edit_enabled,
         powerpoint_edit_enabled=settings.powerpoint_edit_enabled,
         excel_edit_enabled=settings.excel_edit_enabled,
+        csv_edit_enabled=settings.csv_edit_enabled,
     )
 
 

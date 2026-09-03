@@ -118,6 +118,9 @@ text_edit_enabled: false
 # Markdown .md creation and editing. Needs file_read_enabled too; same
 # session-scoped, never-overwrite model as the .txt editor.
 markdown_edit_enabled: false
+# CSV .csv creation and editing. Needs file_read_enabled too; standard-library
+# csv quoting, session-scoped, never-overwrite model as the .txt editor.
+csv_edit_enabled: false
 # Chat-agent long-term memory. Off by default; the store file is git-ignored.
 memory_enabled: false
 # Blank means memory/long_term_memory.json relative to the working directory.

@@ -212,6 +212,7 @@ class SessionEditingToolProvider(FactoryToolProvider):
                 *tools.build_word_edit_tools(settings, **keyword),
                 *tools.build_text_edit_tools(settings, **keyword),
                 *tools.build_markdown_edit_tools(settings, **keyword),
+                *tools.build_csv_edit_tools(settings, **keyword),
                 *tools.build_excel_create_tools(settings, **keyword),
                 *tools.build_excel_edit_tools(settings, **keyword),
                 *tools.build_powerpoint_edit_tools(settings, **keyword),

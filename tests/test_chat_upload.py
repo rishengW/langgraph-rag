@@ -539,3 +539,85 @@ def test_create_text_artifact_download_and_cleanup(
         assert download.content == b"first\nsecond\n"
         assert client.delete(f"/chat/{thread_id}").status_code == 200
         assert not session_root.exists()
+
+
+def test_delete_upload_removes_file_and_returns_remaining(
+    monkeypatch, isolated_settings, tmp_path
+):
+    client, settings = _client(monkeypatch, isolated_settings, tmp_path)
+    with client:
+        thread_id = _start_thread(client)
+        client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("notes.txt", b"keep me", "text/plain")},
+        )
+        client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("todo.txt", b"delete me", "text/plain")},
+        )
+
+        response = client.delete(f"/chat/{thread_id}/files/todo.txt")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["errors"] == []
+        assert [f["filename"] for f in body["files"]] == ["notes.txt"]
+
+        # The deleted file is gone from disk; the kept file is intact.
+        names = {Path(p).name for p in chat_api.list_session_uploads(settings, thread_id)}
+        assert "todo.txt" not in names
+        assert "notes.txt" in names
+        kept = chat_api.session_upload_dir(settings, thread_id) / "notes.txt"
+        assert kept.read_bytes() == b"keep me"
+
+
+def test_delete_upload_404_for_missing_file(monkeypatch, isolated_settings, tmp_path):
+    client, _ = _client(monkeypatch, isolated_settings, tmp_path)
+    with client:
+        thread_id = _start_thread(client)
+        response = client.delete(f"/chat/{thread_id}/files/never.txt")
+        assert response.status_code == 404
+
+
+def test_delete_upload_404_for_unknown_thread(monkeypatch, isolated_settings, tmp_path):
+    client, _ = _client(monkeypatch, isolated_settings, tmp_path)
+    with client:
+        response = client.delete("/chat/missing-thread/files/notes.txt")
+        assert response.status_code == 404
+
+
+def test_delete_upload_re_announces_remaining(
+    monkeypatch, isolated_settings, tmp_path
+):
+    client, settings = _client(monkeypatch, isolated_settings, tmp_path)
+    with client:
+        thread_id = _start_thread(client)
+        client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("a.txt", b"aaa", "text/plain")},
+        )
+        client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("b.txt", b"bbb", "text/plain")},
+        )
+        # Capture the tool-ready relative paths the context note will list.
+        paths = chat_api.list_session_uploads(settings, thread_id)
+        a_path = next(p for p in paths if p.endswith("a.txt"))
+        b_path = next(p for p in paths if p.endswith("b.txt"))
+
+        registry = client.app.state.session_registry
+        graph = registry.get(thread_id).graph
+
+        client.post(f"/chat/{thread_id}/message", json={"message": "first"})
+        client.delete(f"/chat/{thread_id}/files/a.txt")
+        client.post(f"/chat/{thread_id}/message", json={"message": "second"})
+
+        system_texts = [
+            getattr(m, "content", "")
+            for m in graph.messages
+            if m.__class__.__name__ == "SystemMessage"
+        ]
+        # First turn announced both; deleting a.txt clears the announced set, so
+        # the second turn re-emits a fresh note listing only the remaining file.
+        assert len(system_texts) == 2
+        assert b_path in system_texts[1]
+        assert a_path not in system_texts[1]

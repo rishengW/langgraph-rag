@@ -1468,6 +1468,15 @@ function buildFileChip(file) {
     meta.textContent = `${type.label} · ${formatFileSize(file.size_bytes)}`;
     body.append(name, meta);
     chip.append(icon, body);
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "file-chip__close";
+    close.textContent = "×";
+    close.title = "Remove attachment";
+    close.setAttribute("aria-label", `Remove ${file.filename}`);
+    close.addEventListener("click", () => deleteAttachment(file, close));
+    chip.append(close);
     return chip;
 }
 
@@ -1483,6 +1492,28 @@ function renderAttachmentChips(files, errors) {
         attachments.appendChild(chip);
     }
     attachments.classList.toggle("hidden", attachments.childElementCount === 0);
+}
+
+async function deleteAttachment(file, closeBtn) {
+    if (!threadId || !file) return;
+    if (closeBtn) closeBtn.disabled = true;
+    try {
+        const res = await fetch(
+            `${API}/chat/${threadId}/files/${encodeURIComponent(file.filename)}`,
+            { method: "DELETE" },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+        }
+        // Re-render from the server's remaining-file list (source of truth).
+        renderAttachmentChips(data.files, data.errors);
+        clearError();
+    } catch (err) {
+        showError(`Could not remove attachment: ${err.message}`);
+        // The chip was not removed; re-enable its close button.
+        if (closeBtn) closeBtn.disabled = false;
+    }
 }
 
 async function uploadFiles(fileList) {

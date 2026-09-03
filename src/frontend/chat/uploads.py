@@ -76,6 +76,83 @@ def list_session_uploads(settings: Settings, thread_id: str) -> list[str]:
     return paths
 
 
+def list_session_uploads_detailed(
+    settings: Settings,
+    thread_id: str,
+) -> list[SavedUpload]:
+    """Return the session's uploads with sizes, like ``list_session_uploads``.
+
+    Paths are relative to the file-read root (tool-ready) and the filesystem is
+    the source of truth, so this survives a server restart. Files that vanish or
+    escape the root mid-listing are skipped, mirroring ``list_session_uploads``.
+    """
+
+    target_dir = session_upload_dir(settings, thread_id)
+    if not target_dir.exists():
+        return []
+
+    try:
+        root = Path(settings.file_read_root).expanduser().resolve()
+    except OSError:
+        return []
+
+    saved: list[SavedUpload] = []
+    for entry in sorted(target_dir.iterdir()):
+        if not entry.is_file():
+            continue
+        try:
+            resolved = entry.resolve()
+            relative = resolved.relative_to(root).as_posix()
+            size_bytes = resolved.stat().st_size
+        except (ValueError, OSError):
+            continue
+        saved.append(SavedUpload(entry.name, relative, size_bytes))
+    return saved
+
+
+def delete_session_upload(
+    *,
+    settings: Settings,
+    thread_id: str,
+    filename: str,
+) -> str:
+    """Delete one session upload and return its tool-ready relative path.
+
+    Mirrors the path-safety guards of the download path: the name must already
+    be sanitized, the suffix allowlisted, and the resolved target must live
+    directly inside this session's upload directory. Raises
+    :class:`UploadError` ("file not found") for any mismatch so callers can
+    surface a 404 without leaking whether a file exists.
+    """
+
+    safe_name = sanitize_filename(filename)
+    if not safe_name or safe_name != filename:
+        raise UploadError("file not found.")
+    if Path(safe_name).suffix.lower() not in ALLOWED_UPLOAD_SUFFIXES:
+        raise UploadError("file not found.")
+
+    upload_dir = session_upload_dir(settings, thread_id)
+    try:
+        base = upload_dir.resolve()
+        target = (base / safe_name).resolve()
+    except OSError:
+        raise UploadError("file not found.") from None
+    if target.parent != base or not target.is_file():
+        raise UploadError("file not found.")
+
+    try:
+        target.unlink()
+    except OSError as exc:
+        raise UploadError(f"could not delete the uploaded file: {exc}") from exc
+
+    root = Path(settings.file_read_root).expanduser().resolve()
+    try:
+        return target.relative_to(root).as_posix()
+    except ValueError:
+        # Containment is already verified above; fall back to the safe name.
+        return safe_name
+
+
 def build_upload_context_note(
     relative_paths: list[str],
     *,
@@ -308,7 +385,9 @@ __all__ = [
     "SavedUpload",
     "UploadError",
     "build_upload_context_note",
+    "delete_session_upload",
     "list_session_uploads",
+    "list_session_uploads_detailed",
     "save_upload",
     "save_upload_stream",
     "sanitize_filename",

@@ -10,6 +10,9 @@ Endpoints
   receive the assistant's reply.
 * ``GET  /chat/{thread_id}/history`` — read the full transcript so
   the UI can repaint after a reload.
+* ``POST /chat/{thread_id}/upload`` — accept file uploads for a session.
+* ``DELETE /chat/{thread_id}/files/{filename}`` — remove one uploaded
+  file from a session so the model can no longer read it.
 * ``DELETE /chat/{thread_id}`` — drop a session from memory.
 * ``GET /health``  — liveness probe.
 * ``GET /``        — serves the chat UI.
@@ -99,7 +102,9 @@ from .uploads import (
     ALLOWED_UPLOAD_SUFFIXES,
     UploadError,
     build_upload_context_note,
+    delete_session_upload,
     list_session_uploads,
+    list_session_uploads_detailed,
     sanitize_filename,
     save_upload_stream,
     session_upload_dir,
@@ -943,6 +948,70 @@ def create_app(
         except BaseException:
             lease.release()
             raise
+
+    @app.delete(
+        "/chat/{thread_id}/files/{filename}",
+        response_model=UploadResponse,
+    )
+    async def delete_session_file(
+        thread_id: str,
+        filename: str,
+        fastapi_request: Request,
+        sessions: SessionRegistryDep,
+        principal: PrincipalDep,
+        quotas: QuotaManagerDep,
+    ) -> UploadResponse:
+        """Remove one owned upload so the model can no longer read it.
+
+        Returns the session's remaining uploads so the UI can re-render the
+        attachment strip from the server's source of truth.
+        """
+
+        session = sessions.get_owned(thread_id, principal)
+        if session is None:
+            raise ResourceNotFoundError("Resource not found.")
+
+        settings = get_config(fastapi_request)
+        lease = quotas.acquire(principal)
+        try:
+            try:
+                relative = await asyncio.to_thread(
+                    delete_session_upload,
+                    settings=settings,
+                    thread_id=thread_id,
+                    filename=filename,
+                )
+            except UploadError as exc:
+                raise ResourceNotFoundError("Resource not found.") from exc
+        finally:
+            lease.release()
+
+        logger.info(
+            "Deleted upload %r for thread %s",
+            filename,
+            thread_id,
+        )
+        # The upload-context SystemMessage from an earlier turn still sits in
+        # the checkpoint and would keep listing the deleted file. Clearing the
+        # announced set makes the remaining files look new again, so the next
+        # turn re-emits a fresh, accurate note via _new_upload_context.
+        session.announced_uploads.clear()
+        remaining = await asyncio.to_thread(
+            list_session_uploads_detailed,
+            settings=settings,
+            thread_id=thread_id,
+        )
+        return UploadResponse(
+            thread_id=thread_id,
+            files=[
+                UploadedFile(
+                    filename=saved.filename,
+                    relative_path=saved.relative_path,
+                    size_bytes=saved.size_bytes,
+                )
+                for saved in remaining
+            ],
+        )
 
     @app.delete("/chat/{thread_id}")
     async def delete_chat(

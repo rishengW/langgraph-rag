@@ -312,6 +312,7 @@ def test_http_owner_boundary_covers_session_stream_upload_artifact_and_delete(
                 headers=headers,
             ),
             client.get(f"/chat/{thread_id}/files/{filename}", headers=headers),
+            client.delete(f"/chat/{thread_id}/files/{filename}", headers=headers),
             client.delete(f"/chat/{thread_id}", headers=headers),
         ]
         unknown = client.get("/chat/unknown/history", headers=headers)

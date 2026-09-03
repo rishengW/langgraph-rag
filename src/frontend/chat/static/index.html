@@ -283,10 +283,11 @@
         .attachments {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
-            padding: 2px 2px 0;
+            gap: 12px;
+            padding: 8px 8px 0;
         }
         .file-chip {
+            position: relative;
             display: flex;
             align-items: center;
             gap: 12px;
@@ -295,6 +296,38 @@
             border-radius: 12px;
             padding: 9px 20px 9px 10px;
             max-width: 320px;
+        }
+        .file-chip__close {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 20px;
+            height: 20px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: #fff;
+            border: 1px solid #d4d7dd;
+            color: #6b7280;
+            font-size: 13px;
+            line-height: 1;
+            cursor: pointer;
+            transition: background 0.12s ease, color 0.12s ease,
+                border-color 0.12s ease, transform 0.12s ease;
+        }
+        .file-chip__close:hover {
+            background: #fef2f2;
+            border-color: #fca5a5;
+            color: #b91c1c;
+        }
+        .file-chip__close:active {
+            transform: scale(0.92);
+        }
+        .file-chip__close:disabled {
+            cursor: default;
+            opacity: 0.45;
         }
         .file-chip__icon {
             width: 38px;
@@ -567,6 +600,6 @@
         </section>
     </div>
 
-    <script src="/static/script.js?v=16"></script>
+    <script src="/static/script.js?v=17"></script>
 </body>
 </html>

@@ -1,9 +1,12 @@
 # Only Subscribers
 
-A local LangGraph retrieval-augmented generation project with two FastAPI apps:
+A local LangGraph retrieval-augmented generation project built around one FastAPI app:
 
-- **QA** (`src/qa`): single-shot question answering on configured URLs, custom URLs, or web-search results.
 - **Chat** (`src/chat`): multi-turn chat with per-thread source sets, persisted session metadata, and SQLite-backed LangGraph checkpoints.
+
+The project started as a Python extraction of a Jupyter notebook; it is now organized as a reusable codebase with YAML configuration, typed graph events, SSE streaming, health/readiness/metrics endpoints, optional API-key auth, Docker support, CI quality gates, and company-readiness documentation.
+
+The same stateless RAG engine that grounds the chat app is also exposed outside the web app as stateless MCP tools (`rag_ask`, `rag_web_search_answer`); see [MCP RAG tools](#mcp-rag-tools).
 
 The project supports two LangGraph workflows:
 
@@ -28,7 +31,6 @@ langgraph-rag/
 |   |-- graph/                # LangGraph builder, state, edges, executor, metrics
 |   |   |-- nodes/            # Node factories (agent, condense, decompose, bounded search, expand, generate, grade, merge, rewrite, web_answer)
 |   |-- llm/                  # LLM provider seam (DashScope, DeepSeek) + prompt templates
-|   |-- qa/                   # Single-shot QA app (API, CLI, UI)
 |   |-- rag/                  # Chroma retriever, embeddings (DashScope, HuggingFace), document loader/quality
 |   |-- sessions/             # Chat session registry, SQLite metadata + checkpoint persistence
 |   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, live web search, file readers, document editors, long-term memory) + shared HTTP and geocoding helpers
@@ -178,8 +180,8 @@ Key settings:
 | `RAG_WORKER_COUNT` | `1` | Declared production worker count; must remain `1` while local state or locks are authoritative |
 | `RAG_REPLICA_COUNT` | `1` | Declared production replica count; must remain `1` while local state or locks are authoritative |
 | `API_KEY` | — | API auth key for mutation endpoints via `Authorization: Bearer`; open when unset |
-| `API_HOST` | `127.0.0.1` | Bind address for the QA and Chat servers |
-| `API_PORT` | `8000` | Listen port for the QA and Chat servers |
+| `API_HOST` | `127.0.0.1` | Bind address for the Chat server |
+| `API_PORT` | `8001` | Listen port for the Chat server |
 | `CORS_ALLOW_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
 | `MCP_ENABLED` | `false` | Enable only the separately launched inbound MCP process |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or stateless Streamable HTTP (`http`) |
@@ -210,7 +212,7 @@ Key settings:
 
 ## LangGraph Architecture
 
-### Full Graph (QA and Chat)
+### Full Graph
 
 ```
 START → agent → retrieve → grade → generate → END
@@ -273,7 +275,7 @@ Provider queries use deterministic keyword cleanup by default. Relative time wor
 
 ### Agent Tools
 
-The agent can be given any combination of these tools via per-tool config flags. All optional tools default to off; the retriever is always present in the full graph and `live_web_search` defaults to on. The document editors are additionally session-scoped: they are only offered in a chat session that has an upload directory, so a sessionless or QA graph exposes none of them regardless of the flags.
+The agent can be given any combination of these tools via per-tool config flags. All optional tools default to off; the retriever is always present in the full graph and `live_web_search` defaults to on. The document editors are additionally session-scoped: they are only offered in a chat session that has an upload directory, so sessionless callers (the stateless MCP RAG tools) expose none of them regardless of the flags.
 
 | Tool | Module | Config flag | Notes |
 |---|---|---|---|
@@ -346,39 +348,22 @@ For Streamable HTTP, select `MCP_TRANSPORT=http`. Staging and production fail be
 
 HTTP uses the SDK's stateless ASGI application with exact Host/Origin checks and request-body bounds. Caller-supplied and discovered source hosts are resolved before application invocation, and every resolved address must be public. The current legacy document loaders may resolve again and follow redirects without connection-address pinning, so this release does **not** claim connection-boundary DNS-rebinding protection for outbound source fetching. Deploy restricted egress and an allowlisting proxy; a future fetcher must pin validated addresses and independently validate each redirect before this limitation can be removed. Downstream synchronous graph/provider calls also cannot always be force-cancelled after the adapter deadline fires, although cancellation propagates through asynchronous seams.
 
-## Running QA
+## MCP RAG tools
 
-Ask a question from the terminal:
+Single-shot (stateless) question answering is no longer exposed as a standalone web app or CLI. It is exposed outside the chat app as stateless tools published by the inbound MCP server, which shares the same RAG engine the chat graph is built on:
 
-```powershell
-python -m src.qa.main query "What does this source say about fine-tuning?" --rebuild
-```
+- **`rag_ask`** — answer a question from the configured default sources or from caller-supplied HTTPS sources.
+- **`rag_web_search_answer`** — discover web sources first, then return a grounded answer.
 
-Use custom sources:
-
-```powershell
-python -m src.qa.main query "Your question" --urls "https://example.com,https://another.com" --rebuild
-```
-
-Start the QA web/API server:
+Launch the MCP server (stdio, or authenticated Streamable HTTP):
 
 ```powershell
-python -m src.qa.main serve --host 127.0.0.1 --port 8000
+python -m src.adapters.mcp_server.main
 ```
 
-Then open `http://127.0.0.1:8000`.
+`rag_ask` and `rag_web_search_answer` are documented in [MCP Server](#mcp-server) above. They run in a separate process from the chat FastAPI app and publish only these two stateless tools — never chat sessions, files, editors, memory mutation, administration, or internal graph tools.
 
-API endpoints:
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/` | Browser UI |
-| `GET` | `/health` | Public dependency-free liveness probe |
-| `GET` | `/ready` | Public bounded readiness status |
-| `GET` | `/admin/health/dependencies` | API-key-protected dependency diagnostics |
-| `GET` | `/metrics` | In-process graph metrics |
-| `POST` | `/query` | Non-streaming answer |
-| `POST` | `/query/stream` | SSE graph event stream |
+For a multi-turn chat experience (the only FastAPI app), see [Running Chat](#running-chat) below.
 
 ## Running Chat
 
@@ -585,10 +570,9 @@ URLs, markdown links, ordinary brackets like `[1]` or `[sic]`, and a lone `†` 
 
 ## Streaming
 
-Both apps expose SSE streaming endpoints, but they stream at different granularities:
+The chat app exposes an SSE streaming endpoint:
 
-- **QA `/query/stream`**: node lifecycle events (`node_start`, `node_end`, retriever/grader summaries) plus a final `done` event carrying the full answer.
-- **Chat `/chat/{id}/message/stream`**: the same node lifecycle events, and — by default — per-token `token` events streamed from the answer-producing nodes (`generate`, `web_answer`, `agent`) as the LLM generates them, followed by a final `done` event. Pass `?tokens=false` to fall back to node-events-only streaming.
+- **Chat `/chat/{id}/message/stream`**: node lifecycle events (`node_start`, `node_end`, retriever/grader summaries), and — by default — per-token `token` events streamed from the answer-producing nodes (`generate`, `web_answer`, `agent`) as the LLM generates them, followed by a final `done` event. Pass `?tokens=false` to fall back to node-events-only streaming.
 
 Token streaming uses LangGraph's combined `stream_mode=["updates", "messages"]`. Only genuine streaming chunks (`AIMessageChunk`) are forwarded; the aggregated final message a node returns is dropped so the answer is not duplicated. Tokens from internal structured-output calls (decompose, expand, grade, condense, rewrite) are filtered out so they never leak into the user-visible answer.
 
@@ -604,7 +588,7 @@ Local development is open when `API_KEY` is unset. When set, mutation endpoints 
 Authorization: Bearer <API_KEY>
 ```
 
-Protected endpoints: `POST /query`, `POST /query/stream`, `POST /chat`, `POST /chat/{id}/message`, `POST /chat/{id}/message/stream`, `DELETE /chat/{id}`, and `GET /admin/health/dependencies`. The administrative health route is hidden with `404` when no API key is configured.
+Protected endpoints: `POST /chat`, `POST /chat/{id}/message`, `POST /chat/{id}/message/stream`, `DELETE /chat/{id}`, and `GET /admin/health/dependencies`. The administrative health route is hidden with `404` when no API key is configured.
 
 CORS is configured via `cors_allow_origins` in YAML or `CORS_ALLOW_ORIGINS` env var. Public liveness and readiness expose only bounded status; dependency names and states are available only through the authenticated administrative route.
 
@@ -616,7 +600,7 @@ $env:API_KEY = "optional_key"
 docker compose up --build
 ```
 
-Starts QA on `http://127.0.0.1:8000` and Chat on `http://127.0.0.1:8001` with named volumes for `.chroma` and session data.
+Starts Chat on `http://127.0.0.1:8001` with named volumes for `.chroma` and session data.
 
 ## Verification
 

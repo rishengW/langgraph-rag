@@ -3,7 +3,7 @@
 A local LangGraph retrieval-augmented generation project with a multi-turn chat
 FastAPI app:
 
-- **Chat** (`src/chat`): multi-turn chat with per-thread source sets, persisted session metadata, and SQLite-backed LangGraph checkpoints.
+- **Chat** (`src/frontend/chat`): multi-turn chat with per-thread source sets, persisted session metadata, and SQLite-backed LangGraph checkpoints.
 
 The project started as a Python extraction of a Jupyter notebook; it is now organized as a reusable codebase with YAML configuration, typed graph events, SSE streaming, health/readiness/metrics endpoints, optional API-key auth, Docker support, CI quality gates, and company-readiness documentation.
 
@@ -27,7 +27,7 @@ langgraph-rag/
 |   |-- api/                  # Shared FastAPI helpers (auth, CORS, errors, streaming, dependencies)
 |   |-- chat/                 # Multi-turn chat app (API, UI, entry point)
 |   |-- config/               # Settings dataclass + YAML/env loader
-|   |-- core/                 # Deprecated re-exports (redirect to src/graph, src/rag, etc.)
+|   |-- core/                 # Deprecated re-exports (redirect to src/backend/graph, src/backend/rag, etc.)
 |   |-- errors.py             # Typed RAG exceptions
 |   |-- graph/                # LangGraph builder, state, edges, executor, metrics
 |   |   |-- nodes/            # Node factories (agent, condense, decompose, bounded search, expand, generate, grade, merge, rewrite, web_answer)
@@ -280,55 +280,55 @@ The agent can be given any combination of these tools via per-tool config flags.
 
 | Tool | Module | Config flag | Notes |
 |---|---|---|---|
-| `retrieve_source_documents` | `src/rag/chroma_retriever.py` | always on (full graph) | Chroma vectorstore retrieval |
-| `live_web_search` | `src/tools/web_search.py` | `WEB_SEARCH_ENABLED=true` (default) | Serper/Brave/Tavily/Bing APIs plus Bing/Baidu/DuckDuckGo HTML fallbacks |
-| `get_weather` | `src/tools/weather.py` | `WEATHER_ENABLED=true` | Open-Meteo forecast (city or coordinates), no API key |
-| `get_stock_quote` | `src/tools/stock.py` | `STOCK_ENABLED=true` | yfinance / Yahoo Finance, no API key |
-| `convert_currency` | `src/tools/currency.py` | `CURRENCY_ENABLED=true` | Frankfurter API (201 currencies), no API key |
-| `search_wikipedia` | `src/tools/wikipedia_tool.py` | `WIKIPEDIA_ENABLED=true` | MediaWiki API summary + URL, set `WIKIPEDIA_USER_AGENT` |
-| `get_directions` | `src/tools/directions.py` | `DIRECTIONS_ENABLED=true` | AMap driving/walking/cycling route, distance, time, and GCJ-02 map artifact; requires `AMAP_WEB_SERVICE_KEY` |
-| `find_on_map` | `src/tools/map_tool.py` | `MAP_ENABLED=true` | AMap POI/address/district lookup, GCJ-02 coordinates, and map artifact; requires `AMAP_WEB_SERVICE_KEY` |
-| `solve_math` | `src/tools/math_tool.py` | `MATH_ENABLED=true` | SymPy derivatives/integrals/solve/simplify/limits/series, no API key |
-| `compute_statistics` | `src/tools/statistics_tool.py` | `STATISTICS_ENABLED=true` | Mean/median/mode/variance/stdev/quartiles (stdlib), no API key |
-| `linear_algebra` | `src/tools/linalg_tool.py` | `LINALG_ENABLED=true` | Matrix det/inverse/transpose/multiply/eigenvalues, solve Ax=b (SymPy) |
-| `number_theory` | `src/tools/number_theory_tool.py` | `NUMBER_THEORY_ENABLED=true` | Factorization, primality, GCD/LCM, base conversion (SymPy) |
-| `calculate_datetime` | `src/tools/datetime_tool.py` | `DATETIME_ENABLED=true` | Date math, timezone conversion, weekdays (stdlib), no API key |
-| `summarize_url` | `src/tools/summarize_tool.py` | `SUMMARIZE_URL_ENABLED=true` | Fetch one URL and summarize it (reuses web-search fetcher + LLM) |
-| `read_text_file` | `src/tools/text_file.py` | `FILE_READ_ENABLED=true` | Read .txt/.md/.log/.csv from `FILE_READ_ROOT` |
-| `read_markdown_file` | `src/tools/markdown_file.py` | `FILE_READ_ENABLED=true` | Read a Markdown .md from `FILE_READ_ROOT` (including session uploads) |
-| `read_word_document` | `src/tools/word_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .docx in `FILE_READ_ROOT` |
-| `read_excel_spreadsheet` | `src/tools/excel_file.py` | `FILE_READ_ENABLED=true` | Read .xlsx rows from `FILE_READ_ROOT` (needs `openpyxl`) |
-| `create_excel_spreadsheet` | `src/tools/excel_create.py` | `FILE_READ_ENABLED=true` and `EXCEL_CREATE_ENABLED=true` | Create a styled, formula-capable .xlsx workbook in the current session |
-| `inspect_excel_spreadsheet` | `src/tools/excel_edit.py` | `FILE_READ_ENABLED=true` and `EXCEL_EDIT_ENABLED=true` | List worksheets, cells, values, and formulas of a session-uploaded .xlsx |
-| `edit_excel_spreadsheet` | `src/tools/excel_edit.py` | `FILE_READ_ENABLED=true` and `EXCEL_EDIT_ENABLED=true` | Apply expected-value-checked cell, formula, row/column, worksheet, and format edits to a session-uploaded .xlsx; creates a new file |
-| `read_pdf` | `src/tools/pdf_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .pdf in `FILE_READ_ROOT` (needs `pypdf`) |
-| `create_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Create a formatted .docx in the current session with headings, lists, and tables |
-| `inspect_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | List numbered paragraphs and table cells of a session-uploaded .docx |
-| `edit_word_document` | `src/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Apply structured edits to a session-uploaded .docx; creates a new file |
-| `inspect_powerpoint` | `src/tools/powerpoint_edit.py` | `FILE_READ_ENABLED=true` and `POWERPOINT_EDIT_ENABLED=true` | List slides, shape paths, text, and table cells of a session-uploaded .pptx (needs `python-pptx`) |
-| `edit_powerpoint` | `src/tools/powerpoint_edit.py` | `FILE_READ_ENABLED=true` and `POWERPOINT_EDIT_ENABLED=true` | Apply expected-text-checked text/table edits to a session-uploaded .pptx; creates a new file |
-| `inspect_text_file` | `src/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | List numbered lines and text-format metadata for a session-uploaded .txt |
-| `edit_text_file` | `src/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .txt; creates a new file |
-| `create_text_file` | `src/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | Create a new UTF-8 .txt in the current chat session |
-| `inspect_markdown_file` | `src/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | List numbered lines and text-format metadata for a session-uploaded .md |
-| `edit_markdown_file` | `src/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .md; creates a new file |
-| `create_markdown_file` | `src/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | Create a new UTF-8 Markdown .md in the current chat session |
-| `save_memory` | `src/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Remember a durable fact, preference, or task the user states about themselves; stores with optional category, tags, and scope |
-| `recall_memory` | `src/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Look up what is already remembered about the user by keyword; used before answering questions about the user not covered in the current conversation |
-| `forget_memory` | `src/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Delete stored memories by id or keyword when the user asks to forget something |
+| `retrieve_source_documents` | `src/backend/rag/chroma_retriever.py` | always on (full graph) | Chroma vectorstore retrieval |
+| `live_web_search` | `src/backend/tools/web_search.py` | `WEB_SEARCH_ENABLED=true` (default) | Serper/Brave/Tavily/Bing APIs plus Bing/Baidu/DuckDuckGo HTML fallbacks |
+| `get_weather` | `src/backend/tools/weather.py` | `WEATHER_ENABLED=true` | Open-Meteo forecast (city or coordinates), no API key |
+| `get_stock_quote` | `src/backend/tools/stock.py` | `STOCK_ENABLED=true` | yfinance / Yahoo Finance, no API key |
+| `convert_currency` | `src/backend/tools/currency.py` | `CURRENCY_ENABLED=true` | Frankfurter API (201 currencies), no API key |
+| `search_wikipedia` | `src/backend/tools/wikipedia_tool.py` | `WIKIPEDIA_ENABLED=true` | MediaWiki API summary + URL, set `WIKIPEDIA_USER_AGENT` |
+| `get_directions` | `src/backend/tools/directions.py` | `DIRECTIONS_ENABLED=true` | AMap driving/walking/cycling route, distance, time, and GCJ-02 map artifact; requires `AMAP_WEB_SERVICE_KEY` |
+| `find_on_map` | `src/backend/tools/map_tool.py` | `MAP_ENABLED=true` | AMap POI/address/district lookup, GCJ-02 coordinates, and map artifact; requires `AMAP_WEB_SERVICE_KEY` |
+| `solve_math` | `src/backend/tools/math_tool.py` | `MATH_ENABLED=true` | SymPy derivatives/integrals/solve/simplify/limits/series, no API key |
+| `compute_statistics` | `src/backend/tools/statistics_tool.py` | `STATISTICS_ENABLED=true` | Mean/median/mode/variance/stdev/quartiles (stdlib), no API key |
+| `linear_algebra` | `src/backend/tools/linalg_tool.py` | `LINALG_ENABLED=true` | Matrix det/inverse/transpose/multiply/eigenvalues, solve Ax=b (SymPy) |
+| `number_theory` | `src/backend/tools/number_theory_tool.py` | `NUMBER_THEORY_ENABLED=true` | Factorization, primality, GCD/LCM, base conversion (SymPy) |
+| `calculate_datetime` | `src/backend/tools/datetime_tool.py` | `DATETIME_ENABLED=true` | Date math, timezone conversion, weekdays (stdlib), no API key |
+| `summarize_url` | `src/backend/tools/summarize_tool.py` | `SUMMARIZE_URL_ENABLED=true` | Fetch one URL and summarize it (reuses web-search fetcher + LLM) |
+| `read_text_file` | `src/backend/tools/text_file.py` | `FILE_READ_ENABLED=true` | Read .txt/.md/.log/.csv from `FILE_READ_ROOT` |
+| `read_markdown_file` | `src/backend/tools/markdown_file.py` | `FILE_READ_ENABLED=true` | Read a Markdown .md from `FILE_READ_ROOT` (including session uploads) |
+| `read_word_document` | `src/backend/tools/word_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .docx in `FILE_READ_ROOT` |
+| `read_excel_spreadsheet` | `src/backend/tools/excel_file.py` | `FILE_READ_ENABLED=true` | Read .xlsx rows from `FILE_READ_ROOT` (needs `openpyxl`) |
+| `create_excel_spreadsheet` | `src/backend/tools/excel_create.py` | `FILE_READ_ENABLED=true` and `EXCEL_CREATE_ENABLED=true` | Create a styled, formula-capable .xlsx workbook in the current session |
+| `inspect_excel_spreadsheet` | `src/backend/tools/excel_edit.py` | `FILE_READ_ENABLED=true` and `EXCEL_EDIT_ENABLED=true` | List worksheets, cells, values, and formulas of a session-uploaded .xlsx |
+| `edit_excel_spreadsheet` | `src/backend/tools/excel_edit.py` | `FILE_READ_ENABLED=true` and `EXCEL_EDIT_ENABLED=true` | Apply expected-value-checked cell, formula, row/column, worksheet, and format edits to a session-uploaded .xlsx; creates a new file |
+| `read_pdf` | `src/backend/tools/pdf_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .pdf in `FILE_READ_ROOT` (needs `pypdf`) |
+| `create_word_document` | `src/backend/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Create a formatted .docx in the current session with headings, lists, and tables |
+| `inspect_word_document` | `src/backend/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | List numbered paragraphs and table cells of a session-uploaded .docx |
+| `edit_word_document` | `src/backend/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Apply structured edits to a session-uploaded .docx; creates a new file |
+| `inspect_powerpoint` | `src/backend/tools/powerpoint_edit.py` | `FILE_READ_ENABLED=true` and `POWERPOINT_EDIT_ENABLED=true` | List slides, shape paths, text, and table cells of a session-uploaded .pptx (needs `python-pptx`) |
+| `edit_powerpoint` | `src/backend/tools/powerpoint_edit.py` | `FILE_READ_ENABLED=true` and `POWERPOINT_EDIT_ENABLED=true` | Apply expected-text-checked text/table edits to a session-uploaded .pptx; creates a new file |
+| `inspect_text_file` | `src/backend/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | List numbered lines and text-format metadata for a session-uploaded .txt |
+| `edit_text_file` | `src/backend/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .txt; creates a new file |
+| `create_text_file` | `src/backend/tools/text_edit.py` | `FILE_READ_ENABLED=true` and `TEXT_EDIT_ENABLED=true` | Create a new UTF-8 .txt in the current chat session |
+| `inspect_markdown_file` | `src/backend/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | List numbered lines and text-format metadata for a session-uploaded .md |
+| `edit_markdown_file` | `src/backend/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .md; creates a new file |
+| `create_markdown_file` | `src/backend/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | Create a new UTF-8 Markdown .md in the current chat session |
+| `save_memory` | `src/backend/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Remember a durable fact, preference, or task the user states about themselves; stores with optional category, tags, and scope |
+| `recall_memory` | `src/backend/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Look up what is already remembered about the user by keyword; used before answering questions about the user not covered in the current conversation |
+| `forget_memory` | `src/backend/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Delete stored memories by id or keyword when the user asks to forget something |
 
 When the agent calls a non-web-search tool in the lightweight graph (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, or a file reader), the post-tool edge routes back to the agent so it can synthesize the structured tool output into a final answer — bypassing the `decompose → search_queries → merge → web_answer` chain that's specific to `live_web_search`.
 
 ### LLM Provider Seam
 
-`src/llm/provider.py` implements a provider protocol with two backends:
+`src/backend/llm/provider.py` implements a provider protocol with two backends:
 
 - **DashScopeLLMProvider** — ChatTongyi with DashScope models (default: `qwen-plus`)
 - **DeepSeekLLMProvider** — ChatOpenAI pointed at `api.deepseek.com` (default: `deepseek-v4-pro`)
 
 ### Embedding Providers
 
-`src/rag/embeddings.py` supports:
+`src/backend/rag/embeddings.py` supports:
 
 - **DashScopeEmbeddings** — Tongyi text embeddings (default: `text-embedding-v4`)
 - **HuggingFaceEmbeddingModel** — Local HuggingFace embedding models
@@ -340,7 +340,7 @@ The inbound MCP process is separate from both FastAPI applications and publishes
 For a local MCP client, set `MCP_ENABLED=true` and keep `MCP_TRANSPORT=stdio`, then configure the client to launch:
 
 ```text
-<repo>/.venv/Scripts/python.exe -m src.adapters.mcp_server.main
+<repo>/.venv/Scripts/python.exe -m src.frontend.adapters.mcp_server.main
 ```
 
 On macOS/Linux use `<repo>/.venv/bin/python`. Standard output is reserved for MCP protocol frames; diagnostics and bounded audit metadata go to standard error. The subprocess receives the explicit `local-process` principal.
@@ -354,7 +354,7 @@ HTTP uses the SDK's stateless ASGI application with exact Host/Origin checks and
 Start the chat web/API server:
 
 ```powershell
-python -m src.chat.main serve --host 127.0.0.1 --port 8001
+python -m src.frontend.chat.main serve --host 127.0.0.1 --port 8001
 ```
 
 Then open `http://127.0.0.1:8001`.
@@ -362,8 +362,8 @@ Then open `http://127.0.0.1:8001`.
 Use the terminal REPL:
 
 ```powershell
-python -m src.chat.main chat --urls "https://example.com,https://another.com"
-python -m src.chat.main chat --seed-question "latest model releases 2026"
+python -m src.frontend.chat.main chat --urls "https://example.com,https://another.com"
+python -m src.frontend.chat.main chat --seed-question "latest model releases 2026"
 ```
 
 API endpoints:
@@ -511,7 +511,7 @@ Memories carry a scope (`global` or `session`). Global memories are shared acros
 
 ## Web Search
 
-Live web search supports key-backed APIs and HTML fallbacks in `src/web_search/`:
+Live web search supports key-backed APIs and HTML fallbacks in `src/backend/web_search/`:
 
 - **Serper** (`SerperWebSearch`) - supported Google-results JSON API
 - **Brave** (`BraveWebSearch`) - supported Brave Search JSON API
@@ -528,7 +528,7 @@ Configured API providers are automatically prioritized for predominantly Chinese
 Hard rejections are reserved for URLs that can never be sources (auth and search paths, unresolved search-engine redirects, doorway scripts, unparseable binaries). Everything else is scored, measured, or demoted, so a relevant page is not lost to a guess about its URL shape.
 
 - **Pre-fetch admission and ranking** combines provider title/snippet relevance, identifiers, quoted titles, `site:` constraints, intent evidence, language, source authority, requested years, count evidence, and URL quality. Hard constraint mismatches are rejected. Owner-name lookalike hosts and tag/category/author listing paths are *demoted* rather than removed, because substring and path guesses also hit genuine first-party sources.
-- **Structural page filtering** (`WEB_SEARCH_STRUCTURE_FILTER_ENABLED`, on by default) measures the page that was actually fetched — anchor-text share, anchors per 100 words, and content volume — and removes index/tag listings, login and enable-JavaScript shells, and thin SEO pages. Unmeasurable pages abstain instead of being rejected. This is what replaces URL-pattern guessing; see `src/web_search/page_structure.py`.
+- **Structural page filtering** (`WEB_SEARCH_STRUCTURE_FILTER_ENABLED`, on by default) measures the page that was actually fetched — anchor-text share, anchors per 100 words, and content volume — and removes index/tag listings, login and enable-JavaScript shells, and thin SEO pages. Unmeasurable pages abstain instead of being rejected. This is what replaces URL-pattern guessing; see `src/backend/web_search/page_structure.py`.
 - **Optional semantic relevance** (`WEB_SEARCH_SEMANTIC_FILTER_ENABLED`, off by default) adds cosine similarity from a local sentence-transformers model. It can only add recall: a bounded bonus for strong matches, a rescue at the gate floor for results that lexical scoring filtered out, and a second chance for pages the lexical page gate rejected. It never lowers a lexical score or bypasses the year, quantity, and typed-evidence gates. First use downloads the model.
 - **Adaptive domain reputation** (`WEB_SEARCH_DOMAIN_REPUTATION_ENABLED`, on by default) records per-domain fetch outcomes (grounded, rejected, unreachable) in `CHROMA_DIR/web-search/reputation.sqlite3` and feeds a bounded ranking prior back into merge. It stays neutral until a domain reaches `WEB_SEARCH_DOMAIN_REPUTATION_MIN_SAMPLES`, and never rejects a URL on its own.
 - **Provider-result dedup** by canonical host/path, plus per-domain diversity in merge.
@@ -545,7 +545,7 @@ Sources are cited by URL. The prompts state this explicitly and forbid invented 
 
 Models trained on transcripts from other tool-augmented assistants sometimes reproduce those assistants' internal citation syntax anyway — for example `【199†L91-L126】` (a source index, a dagger, and a line range) or `[oaicite:0]`. Those markers reference nothing in this project, cannot be verified, and signal that the model is improvising attribution.
 
-`src/llm/sanitize.py` removes them from user-facing text in two places:
+`src/backend/llm/sanitize.py` removes them from user-facing text in two places:
 
 - `strip_citation_artifacts` runs on the final answer in `web_answer`, `generate`, `fallback_answer`, and on direct agent replies (tool-call carriers are left untouched).
 - `CitationArtifactFilter` does the same for SSE token streams, holding back any tail that could still become a marker and flushing it when the marker completes or is ruled out.
@@ -560,9 +560,9 @@ The chat app exposes an SSE streaming endpoint:
 
 Token streaming uses LangGraph's combined `stream_mode=["updates", "messages"]`. Only genuine streaming chunks (`AIMessageChunk`) are forwarded; the aggregated final message a node returns is dropped so the answer is not duplicated. Tokens from internal structured-output calls (decompose, expand, grade, condense, rewrite) are filtered out so they never leak into the user-visible answer.
 
-Streamed tokens also pass through `CitationArtifactFilter` (`src/llm/sanitize.py`), which buffers partial text so a fabricated citation marker split across chunks is still removed. See [Answer citations](#answer-citations).
+Streamed tokens also pass through `CitationArtifactFilter` (`src/backend/llm/sanitize.py`), which buffers partial text so a fabricated citation marker split across chunks is still removed. See [Answer citations](#answer-citations).
 
-The browser chat UI consumes the token stream and renders the answer incrementally. The terminal REPL (`python -m src.chat.main chat`) also streams tokens to stdout as they arrive. Both fall back to the final `done` answer when a provider does not emit token chunks.
+The browser chat UI consumes the token stream and renders the answer incrementally. The terminal REPL (`python -m src.frontend.chat.main chat`) also streams tokens to stdout as they arrive. Both fall back to the final `done` answer when a provider does not emit token chunks.
 
 ## Auth, CORS, and Security
 
@@ -603,8 +603,8 @@ git diff --check                            # Whitespace check
 - Existing Chroma stores with incompatible embedding metadata are rebuilt automatically on startup.
 - Key-backed search APIs are preferred for Mandarin when configured. Otherwise search uses the bounded Bing/Baidu/DuckDuckGo HTML fallbacks. CAPTCHA and repeated network failures open temporary provider circuits instead of blocking every expanded query.
 - Noise filtering is measured rather than pattern-matched: structural page assessment and the learned domain prior are on by default, and semantic similarity is available as an opt-in recall layer. The tradeoff is that structural filtering needs a fetch first, so a noisy URL still costs one concurrent request.
-- The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
+- The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/backend/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
 - Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.
-- Location questions route to `find_on_map` before `live_web_search`. Place lookup goes through the shared geocoder in `src/tools/_geocoding.py`: request wording is stripped ("在地图上找出上海的位置" → "上海"), then AMap resolves the place in three fallback stages — POI text search first, address geocoding if that yields no confident match, administrative district lookup last — and the candidates are deduped and ranked by match score. Coordinates come back in GCJ-02, which the map artifact renders directly. Requires `AMAP_WEB_SERVICE_KEY`; with no key configured the geocoder returns no candidates. Since text-similarity geocoding can return a neighbouring or same-named place, results below the confidence threshold are labelled `APPROXIMATE MATCH` and same-name ties are labelled `AMBIGUOUS`; the agent is instructed to verify those with a web search rather than assert them.
+- Location questions route to `find_on_map` before `live_web_search`. Place lookup goes through the shared geocoder in `src/backend/tools/_geocoding.py`: request wording is stripped ("在地图上找出上海的位置" → "上海"), then AMap resolves the place in three fallback stages — POI text search first, address geocoding if that yields no confident match, administrative district lookup last — and the candidates are deduped and ranked by match score. Coordinates come back in GCJ-02, which the map artifact renders directly. Requires `AMAP_WEB_SERVICE_KEY`; with no key configured the geocoder returns no candidates. Since text-similarity geocoding can return a neighbouring or same-named place, results below the confidence threshold are labelled `APPROXIMATE MATCH` and same-name ties are labelled `AMBIGUOUS`; the agent is instructed to verify those with a web search rather than assert them.
 - Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (the five file readers — .txt, .md, .docx, .xlsx, .pdf — share `FILE_READ_ENABLED`). Most need no API key; the exceptions are `get_directions` and `find_on_map`, which require `AMAP_WEB_SERVICE_KEY`. `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.
 - The lightweight graph's conditional expansion fires only on web-search retrieval failure — single-keyword questions that get a readable, relevant page back take the fast path with one search and one LLM call. Compound questions that decompose into multiple sub-Qs still take the fast path; expansion only fires when no fetched page yields usable evidence.

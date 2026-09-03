@@ -12,8 +12,8 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
+from src.backend.mcp.secrets import SecretReference
 from ..errors import ConfigurationError
-from ..mcp.secrets import SecretReference
 from .topology import DeploymentTopology, DeploymentTopologyError, validate_single_instance_deployment
 
 REHEARSAL_SCHEMA_VERSION = 1

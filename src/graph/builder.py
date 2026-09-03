@@ -42,7 +42,6 @@ from .nodes import (
     grade_documents_factory,
     merge_factory,
     planner_node,
-    qa_question_resolver,
     reflection_revise_node,
     rewrite_factory,
     route_after_self_critique,
@@ -54,9 +53,8 @@ from .nodes import (
     subgoal_worker_node,
     web_answer_factory,
 )
-from .state import AgentState, ChatState
+from .state import ChatState
 
-GraphMode = Literal["qa", "chat"]
 NodeCallable = Callable[[dict[str, Any]], dict[str, Any]]
 GradeEdgeCallable = Callable[[dict[str, Any]], Literal["generate", "rewrite"]]
 
@@ -135,7 +133,6 @@ def build_memory_saver() -> Any:
 
 
 def build_graph(
-    mode: GraphMode = "qa",
     *,
     settings: Settings | None = None,
     providers: GraphProviders | None = None,
@@ -144,27 +141,21 @@ def build_graph(
     session_root: Path | None = None,
     thread_id: str = "",
 ) -> Any:
-    """Compile the QA or chat LangGraph workflow.
+    """Compile the chat LangGraph workflow.
 
     Defaults preserve the legacy Settings-based builders. ``providers`` is an
     additive DI surface used by tests and future API wiring to avoid live
     provider construction.
 
     ``session_root`` and ``thread_id`` scope session-bound document editing
-    tools to one chat session's upload directory. They are supplied by the chat
-    layer, which owns the per-thread directory layout; QA mode never passes
-    them, so editors are never registered there.
+    tools to one chat session's upload directory. Omit them for a stateless
+    single-shot graph (no session editors, no checkpointer).
     """
-
-    if mode not in ("qa", "chat"):
-        raise ValueError("mode must be 'qa' or 'chat'")
 
     providers = providers or GraphProviders()
     nodes = providers.nodes
-    # Editors are chat-only: they need a per-session upload directory to
-    # confine writes to, which QA mode has no concept of.
-    edit_root = session_root if mode == "chat" else None
-    edit_thread_id = thread_id if mode == "chat" else ""
+    edit_root = session_root
+    edit_thread_id = thread_id
     snapshot = _resolve_catalog_snapshot(
         settings,
         providers,
@@ -174,18 +165,17 @@ def build_graph(
         thread_id=edit_thread_id,
     )
     tools = snapshot.tools
-    question_resolver = qa_question_resolver if mode == "qa" else chat_question_resolver
-    state_type = AgentState if mode == "qa" else ChatState
+    question_resolver = chat_question_resolver
+    state_type = ChatState
 
     workflow = cast(Any, StateGraph(state_type))
 
     planning_enabled = bool(getattr(settings, "planning_enabled", False))
 
-    if mode == "chat":
-        workflow.add_node(
-            "condense",
-            nodes.condense or condense_question_factory(_require_settings(settings, "condense")),
-        )
+    workflow.add_node(
+        "condense",
+        nodes.condense or condense_question_factory(_require_settings(settings, "condense")),
+    )
 
     if planning_enabled:
         workflow.add_node(
@@ -238,7 +228,7 @@ def build_graph(
         or rewrite_factory(
             _require_settings(settings, "rewrite"),
             question_resolver,
-            update_current_question=(mode == "chat"),
+            update_current_question=True,
         ),
     )
     workflow.add_node(
@@ -247,11 +237,8 @@ def build_graph(
         or generate_factory(_require_settings(settings, "generate"), question_resolver),
     )
 
-    if mode == "chat":
-        workflow.add_edge(START, "condense")
-        workflow.add_edge("condense", "planner" if planning_enabled else "agent")
-    else:
-        workflow.add_edge(START, "planner" if planning_enabled else "agent")
+    workflow.add_edge(START, "condense")
+    workflow.add_edge("condense", "planner" if planning_enabled else "agent")
 
     if planning_enabled:
         workflow.add_edge("planner", "subgoal_dispatcher")
@@ -321,14 +308,13 @@ def build_graph(
         workflow.add_edge("generate", END)
     workflow.add_edge("rewrite", "agent")
 
-    resolved_checkpointer = _resolve_checkpointer(mode, providers, checkpointer)
+    resolved_checkpointer = _resolve_checkpointer(providers, checkpointer)
     return _compile_with_catalog(workflow, resolved_checkpointer, snapshot)
 
 
 def build_lightweight_graph(
     settings: Settings | None = None,
     *,
-    mode: GraphMode = "qa",
     providers: GraphProviders | None = None,
     checkpointer: Any = _DEFAULT_CHECKPOINTER,
     session_root: Path | None = None,
@@ -341,11 +327,9 @@ def build_lightweight_graph(
     output or the existing state source URLs to ``web_answer``.
 
     ``session_root`` and ``thread_id`` scope session-bound document editing
-    tools; they are ignored outside chat mode.
+    tools to one chat session's upload directory. Omit them for a stateless
+    single-shot graph.
     """
-
-    if mode not in ("qa", "chat"):
-        raise ValueError("mode must be 'qa' or 'chat'")
 
     providers = providers or GraphProviders()
     nodes = providers.nodes
@@ -354,12 +338,12 @@ def build_lightweight_graph(
         providers,
         lightweight=True,
         rebuild_vectorstore=False,
-        session_root=session_root if mode == "chat" else None,
-        thread_id=thread_id if mode == "chat" else "",
+        session_root=session_root,
+        thread_id=thread_id,
     )
     tools = snapshot.tools
-    question_resolver = qa_question_resolver if mode == "qa" else chat_question_resolver
-    state_type = AgentState if mode == "qa" else ChatState
+    question_resolver = chat_question_resolver
+    state_type = ChatState
 
     workflow = cast(Any, StateGraph(state_type))
     planning_enabled = bool(getattr(settings, "planning_enabled", False))
@@ -555,7 +539,7 @@ def build_lightweight_graph(
         )
         workflow.add_edge("reflection_revise", "answer_self_critique")
 
-    resolved_checkpointer = _resolve_checkpointer(mode, providers, checkpointer)
+    resolved_checkpointer = _resolve_checkpointer(providers, checkpointer)
     return _compile_with_catalog(workflow, resolved_checkpointer, snapshot)
 
 
@@ -685,7 +669,6 @@ def _compile_with_catalog(
 
 
 def _resolve_checkpointer(
-    mode: GraphMode,
     providers: GraphProviders,
     checkpointer: Any,
 ) -> Any:
@@ -693,8 +676,6 @@ def _resolve_checkpointer(
         return checkpointer
     if providers.checkpointer is not _DEFAULT_CHECKPOINTER:
         return providers.checkpointer
-    if mode == "chat":
-        return build_memory_saver()
     return None
 
 
@@ -708,7 +689,6 @@ def _require_settings(settings: Settings | None, dependency: str) -> Settings:
 
 
 __all__ = [
-    "GraphMode",
     "GraphNodeOverrides",
     "GraphProviders",
     "build_graph",

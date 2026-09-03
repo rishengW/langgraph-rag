@@ -10,15 +10,12 @@ from .chat_models import (
     UploadedFile,
     UploadResponse,
 )
-from .qa_models import QueryRequest, QueryResponse
 
 __all__ = [
     "HistoryResponse",
     "HistoryTurn",
     "MessageRequest",
     "MessageResponse",
-    "QueryRequest",
-    "QueryResponse",
     "StartChatRequest",
     "StartChatResponse",
     "UploadResponse",

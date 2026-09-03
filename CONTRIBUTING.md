@@ -1,9 +1,9 @@
 # Contributor Guide
 
-This project is a local LangGraph RAG application with two FastAPI entry
-points: single-shot QA and multi-turn chat. Contributions should preserve the
-existing CLI commands, HTTP endpoints, and compatibility import paths unless a
-planned migration explicitly says otherwise.
+This project is a local LangGraph RAG application with a single FastAPI entry
+point: multi-turn chat. Contributions should preserve the existing CLI commands,
+HTTP endpoints, and compatibility import paths unless a planned migration
+explicitly says otherwise.
 
 ## Local Setup
 
@@ -21,25 +21,13 @@ logs, and shared issue text.
 
 ## Running The Apps
 
-Run the QA API:
-
-```powershell
-python -m src.qa.main serve
-```
-
 Run the chat API:
 
 ```powershell
 python -m src.chat.main serve
 ```
 
-Run a one-off QA query:
-
-```powershell
-python -m src.qa.main query "Your question here"
-```
-
-Use `--config <path>` with the QA or chat entry points when testing a custom
+Use `--config <path>` with the chat entry point when testing a custom
 YAML config. Environment variables and CLI flags override YAML values.
 
 ## Verification

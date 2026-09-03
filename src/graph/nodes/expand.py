@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from ...config import Settings
 from ...utils.retry import invoke_with_retry
-from .common import new_structured_chat_model, qa_question_resolver
+from .common import chat_question_resolver, new_structured_chat_model
 from .search_queries import WEB_SEARCH_MAX_QUERIES
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class _ExpandResult(BaseModel):
 
 def expand_factory(
     settings: Settings,
-    question_resolver: QuestionResolver = qa_question_resolver,
+    question_resolver: QuestionResolver = chat_question_resolver,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Return a node that produces k paraphrases per sub-question.
 
@@ -177,9 +177,7 @@ def _resolve_sub_questions(
     # REFACTOR: Fall back to the original question when the state is
     # missing the sub_questions field (e.g. when ``expand`` is invoked
     # outside the standard decompose -> expand flow). Guard against
-    # empty-state edge cases -- ``qa_question_resolver`` does
-    # ``message_text(messages[0])`` without a bounds check and will
-    # raise ``IndexError`` on ``{"messages": []}``.
+    # empty-state edge cases where a resolver might raise on ``{"messages": []}``.
     try:
         fallback = question_resolver(state).strip()
     except (IndexError, KeyError, TypeError):

@@ -7,7 +7,7 @@ plan remains in `REFACTORING_PLAN.md`.
 
 ```mermaid
 flowchart TD
-    Client[CLI or Browser] --> API[FastAPI QA / Chat Apps]
+    Client[CLI or Browser] --> API[FastAPI Chat App]
     API --> Config[Settings Loader]
     API --> Graph[LangGraph Workflow]
     Graph --> Nodes[Shared Graph Nodes]
@@ -20,9 +20,8 @@ flowchart TD
     Events --> Metrics[/metrics Snapshot]
 ```
 
-The QA app answers one question per request. The chat app builds one graph per
-thread and uses a SQLite-backed LangGraph memory saver for restart-safe
-multi-turn state.
+The chat app builds one graph per thread and uses a SQLite-backed LangGraph
+memory saver for restart-safe multi-turn state.
 
 ## Main Modules
 
@@ -35,23 +34,11 @@ multi-turn state.
 | `src/web_search/` | Baidu and DuckDuckGo discovery providers behind a common protocol. |
 | `src/llm/` | LLM provider seam and prompt templates. |
 | `src/api/` | FastAPI dependency setup, shared models, typed error handlers, and SSE formatting. |
-| `src/qa/` | Single-shot QA CLI, API factory, static UI, and graph compatibility wrappers. |
 | `src/chat/` | Chat CLI, API factory, session integration, static UI, and compatibility wrappers. |
 | `src/sessions/` | Chat session model, registry, Chroma isolation, SQLite metadata storage, and checkpoint persistence. |
 | `src/core/` | Backward-compatible import facades for older code paths. |
 
 ## Request Flow
-
-QA request flow:
-
-1. The app loads `Settings` from defaults, YAML, `.env`, environment variables,
-   and CLI flags.
-2. The API parses request URLs. If no URLs are supplied and web search is
-   enabled, it discovers source URLs.
-3. The graph builds or loads a Chroma retriever from `settings.chroma_dir`.
-4. `GraphExecutor` runs the compiled LangGraph workflow.
-5. Batch endpoints return the final answer. Stream endpoints emit typed events
-   as Server-Sent Events.
 
 Chat request flow:
 
@@ -85,7 +72,7 @@ source settings, and the persisted checkpoint saver supplies the prior state.
 
 ## Backup And Restore
 
-Stop the QA and chat servers before copying Chroma or session SQLite files.
+Stop the chat server before copying Chroma or session SQLite files.
 Copying a live Chroma directory can capture SQLite files while Chroma still has
 open handles.
 
@@ -133,10 +120,6 @@ managed by Chroma.
 
 | App | Endpoint | Purpose |
 |---|---|---|
-| QA | `GET /health` | Liveness and graph readiness. |
-| QA | `POST /query` | Batch QA request. |
-| QA | `POST /query/stream` | SSE graph event stream. |
-| QA | `GET /metrics` | In-process graph metrics snapshot. |
 | Chat | `GET /health` | Liveness and session count. |
 | Chat | `POST /chat` | Start a thread. |
 | Chat | `POST /chat/{thread_id}/message` | Batch chat turn. |

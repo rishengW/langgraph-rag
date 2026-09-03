@@ -18,32 +18,6 @@ from ..security import QuotaManager
 _UNSET: Any = object()
 
 
-def initialize_qa_app_state(
-    app: FastAPI,
-    *,
-    settings: Any = _UNSET,
-    graph: Any = _UNSET,
-    rebuild_lock: asyncio.Lock | None = None,
-    metrics: MetricsCollector | None = None,
-) -> None:
-    """Initialize or refresh QA state on a FastAPI app instance."""
-
-    if not hasattr(app.state, "accepting_requests"):
-        app.state.accepting_requests = False
-    if settings is not _UNSET or not hasattr(app.state, "settings"):
-        resolved_settings = None if settings is _UNSET else settings
-        app.state.settings = resolved_settings
-        app.state.config = resolved_settings
-    if graph is not _UNSET or not hasattr(app.state, "qa_graph"):
-        resolved_graph = None if graph is _UNSET else graph
-        app.state.qa_graph = resolved_graph
-        app.state.graph = resolved_graph
-    if rebuild_lock is not None or not hasattr(app.state, "rebuild_lock"):
-        app.state.rebuild_lock = rebuild_lock or asyncio.Lock()
-    if metrics is not None or not hasattr(app.state, "metrics"):
-        app.state.metrics = metrics or MetricsCollector()
-
-
 def configure_cors(app: FastAPI, allow_origins: list[str]) -> None:
     """Install CORS middleware when origins are configured."""
 
@@ -56,22 +30,6 @@ def configure_cors(app: FastAPI, allow_origins: list[str]) -> None:
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
-
-
-def update_qa_graph_state(app: FastAPI, *, settings: Settings, graph: Any) -> None:
-    """Promote a rebuilt QA graph and matching settings to app.state."""
-
-    app.state.settings = settings
-    app.state.config = settings
-    app.state.qa_graph = graph
-    app.state.graph = graph
-
-
-def clear_qa_graph(app: FastAPI) -> None:
-    """Temporarily drop the app-level QA graph while preserving settings."""
-
-    app.state.qa_graph = None
-    app.state.graph = None
 
 
 def initialize_chat_app_state(
@@ -112,24 +70,6 @@ def get_settings(request: Request) -> Settings:
     """Backward-compatible alias for callers that use settings terminology."""
 
     return get_config(request)
-
-
-def get_qa_graph(request: Request) -> Any:
-    graph = getattr(request.app.state, "qa_graph", None)
-    if graph is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Graph not initialized. Try again in a moment.",
-        )
-    return graph
-
-
-def get_rebuild_lock(request: Request) -> asyncio.Lock:
-    lock = getattr(request.app.state, "rebuild_lock", None)
-    if lock is None:
-        lock = asyncio.Lock()
-        request.app.state.rebuild_lock = lock
-    return lock
 
 
 def get_session_registry(request: Request) -> ChatSessionRegistry:
@@ -211,17 +151,6 @@ def _llm_api_key_configured(settings: Any) -> bool:
     return bool(getattr(settings, "dashscope_api_key", ""))
 
 
-def _qa_dependency_checks(request: Request) -> dict[str, bool]:
-    settings = getattr(request.app.state, "settings", None)
-    return {
-        "request_acceptance": bool(getattr(request.app.state, "accepting_requests", False)),
-        "settings": settings is not None,
-        "llm_credentials": _llm_api_key_configured(settings),
-        "graph": getattr(request.app.state, "qa_graph", None) is not None,
-        "vector_store_configuration": bool(getattr(settings, "chroma_dir", "")),
-    }
-
-
 def _chat_dependency_checks(request: Request) -> dict[str, bool]:
     settings = getattr(request.app.state, "settings", None)
     return {
@@ -270,18 +199,6 @@ def liveness_response() -> JSONResponse:
     )
 
 
-def qa_readiness_response(request: Request) -> JSONResponse:
-    """Return only bounded public QA readiness."""
-
-    return _public_readiness_response(_qa_dependency_checks(request))
-
-
-def qa_dependency_health_response(request: Request) -> JSONResponse:
-    """Return QA dependency details for an authenticated admin route."""
-
-    return _dependency_health_response(_qa_dependency_checks(request))
-
-
 def chat_readiness_response(request: Request) -> JSONResponse:
     """Return only bounded public chat readiness."""
 
@@ -299,23 +216,16 @@ def chat_dependency_health_response(request: Request) -> JSONResponse:
 
 
 __all__ = [
-    "clear_qa_graph",
     "chat_dependency_health_response",
     "chat_readiness_response",
     "close_lifecycle_resource",
     "configure_cors",
     "get_chat_graph_factory_lock",
     "get_config",
-    "get_qa_graph",
-    "get_rebuild_lock",
     "get_metrics",
     "get_quota_manager",
     "get_session_registry",
     "get_settings",
     "initialize_chat_app_state",
-    "initialize_qa_app_state",
     "liveness_response",
-    "qa_dependency_health_response",
-    "qa_readiness_response",
-    "update_qa_graph_state",
 ]

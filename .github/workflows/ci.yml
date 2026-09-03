@@ -46,7 +46,6 @@ jobs:
           src/graph/events.py
           src/graph/executor.py
           src/graph/metrics.py
-          src/qa/api.py
           tests/test_rag_application_service.py
           tests/test_mcp_server.py
           tests/test_tool_catalog_policy.py

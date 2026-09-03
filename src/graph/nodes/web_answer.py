@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from ...config import Settings
 from ...llm.sanitize import strip_citation_artifacts
 from ...utils.retry import invoke_with_retry
-from .common import message_text, new_chat_model, qa_question_resolver
+from .common import chat_question_resolver, message_text, new_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ _YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 
 def web_answer_factory(
     settings: Settings,
-    question_resolver: QuestionResolver = qa_question_resolver,
+    question_resolver: QuestionResolver = chat_question_resolver,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Return a node that answers directly from fetched web pages.
 

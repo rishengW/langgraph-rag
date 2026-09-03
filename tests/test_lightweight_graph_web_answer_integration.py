@@ -298,6 +298,7 @@ def test_web_answer_extracts_urls_from_web_search_tool_messages(
                     tool_call_id="call_live_web_search",
                 ),
             ],
+            "current_question": "Question?",
         }
     )
 
@@ -691,7 +692,6 @@ def test_build_lightweight_graph_chat_mode_uses_chat_state_and_checkpointer(
 
     graph = build_lightweight_graph(
         settings=isolated_settings(),
-        mode="chat",
         checkpointer=checkpointer,
         providers=GraphProviders(
             tools=[live_web_search],

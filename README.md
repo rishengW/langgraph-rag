@@ -1,6 +1,7 @@
 # Only Subscribers
 
-A local LangGraph retrieval-augmented generation project built around one FastAPI app:
+A local LangGraph retrieval-augmented generation project with a multi-turn chat
+FastAPI app:
 
 - **Chat** (`src/chat`): multi-turn chat with per-thread source sets, persisted session metadata, and SQLite-backed LangGraph checkpoints.
 
@@ -347,23 +348,6 @@ On macOS/Linux use `<repo>/.venv/bin/python`. Standard output is reserved for MC
 For Streamable HTTP, select `MCP_TRANSPORT=http`. Staging and production fail before socket bind unless the environment variable named by `MCP_AUTH_SECRET_ENV` contains a bearer key, `MCP_PUBLIC_BASE_URL` is HTTPS, and `MCP_ALLOWED_HOSTS` contains exact deployment hosts. Anonymous HTTP requires both `MCP_ENVIRONMENT=development` and `MCP_ALLOW_ANONYMOUS_HTTP=true`. The endpoint defaults to `http://127.0.0.1:8002/mcp`; send the shared key as `Authorization: Bearer <key>`.
 
 HTTP uses the SDK's stateless ASGI application with exact Host/Origin checks and request-body bounds. Caller-supplied and discovered source hosts are resolved before application invocation, and every resolved address must be public. The current legacy document loaders may resolve again and follow redirects without connection-address pinning, so this release does **not** claim connection-boundary DNS-rebinding protection for outbound source fetching. Deploy restricted egress and an allowlisting proxy; a future fetcher must pin validated addresses and independently validate each redirect before this limitation can be removed. Downstream synchronous graph/provider calls also cannot always be force-cancelled after the adapter deadline fires, although cancellation propagates through asynchronous seams.
-
-## MCP RAG tools
-
-Single-shot (stateless) question answering is no longer exposed as a standalone web app or CLI. It is exposed outside the chat app as stateless tools published by the inbound MCP server, which shares the same RAG engine the chat graph is built on:
-
-- **`rag_ask`** — answer a question from the configured default sources or from caller-supplied HTTPS sources.
-- **`rag_web_search_answer`** — discover web sources first, then return a grounded answer.
-
-Launch the MCP server (stdio, or authenticated Streamable HTTP):
-
-```powershell
-python -m src.adapters.mcp_server.main
-```
-
-`rag_ask` and `rag_web_search_answer` are documented in [MCP Server](#mcp-server) above. They run in a separate process from the chat FastAPI app and publish only these two stateless tools — never chat sessions, files, editors, memory mutation, administration, or internal graph tools.
-
-For a multi-turn chat experience (the only FastAPI app), see [Running Chat](#running-chat) below.
 
 ## Running Chat
 

@@ -426,6 +426,7 @@ def test_graph_attaches_same_immutable_snapshot_used_by_dispatcher():
     providers = GraphProviders(
         tools=(echo_text,),
         nodes=GraphNodeOverrides(
+            condense=lambda _state: {},
             agent=lambda _state: {},
             retrieve=lambda _state: {},
             grade_documents=lambda _state: "generate",
@@ -889,6 +890,7 @@ def test_graph_applies_policy_pipeline_to_an_injected_raw_catalog_snapshot():
     providers = GraphProviders(
         catalog_snapshot=raw_snapshot,
         nodes=GraphNodeOverrides(
+            condense=lambda _state: {},
             agent=lambda _state: {},
             retrieve=lambda _state: {},
             grade_documents=lambda _state: "generate",

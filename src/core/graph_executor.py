@@ -6,8 +6,8 @@ import pprint
 from typing import Any
 
 from .._compat import warn_deprecated_import
+from ..graph.builder import build_graph
 from .config import Settings
-from .graph import build_graph
 
 warn_deprecated_import("src.core.graph_executor", "src.graph.executor")
 
@@ -51,7 +51,7 @@ def run_rag_query(
         
         # Build graph if not provided
         if graph is None:
-            graph = build_graph(settings, rebuild_vectorstore=rebuild_vectorstore)
+            graph = build_graph(settings=settings, rebuild_vectorstore=rebuild_vectorstore)
         
         # Prepare inputs for the graph
         inputs = {

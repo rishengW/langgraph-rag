@@ -169,10 +169,10 @@ class RagServiceHost:
             ),
             dependencies=RagServiceDependencies(
                 build_graph=lambda graph_settings, rebuild: build_graph(
-                    mode="qa", settings=graph_settings, rebuild_vectorstore=rebuild
+                    settings=graph_settings, rebuild_vectorstore=rebuild
                 ),
                 build_lightweight_graph=lambda graph_settings: build_lightweight_graph(
-                    graph_settings, mode="qa"
+                    graph_settings
                 ),
                 discover_urls=self._discover_safe_urls,
                 settings_for_discovered_urls=settings_for_discovered_urls,
@@ -370,7 +370,7 @@ async def initialize_runtime(
                 rag_settings.source_urls,
                 maximum=settings.max_source_urls,
             )
-            graph = build_graph(mode="qa", settings=rag_settings, rebuild_vectorstore=False)
+            graph = build_graph(settings=rag_settings, rebuild_vectorstore=False)
             service_host = RagServiceHost(
                 settings=rag_settings,
                 graph=graph,

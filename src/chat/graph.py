@@ -33,7 +33,6 @@ def build_chat_graph(
     builds a graph without those tools."""
 
     build_kwargs: dict[str, Any] = {
-        "mode": "chat",
         "settings": settings,
         "rebuild_vectorstore": rebuild_vectorstore,
     }

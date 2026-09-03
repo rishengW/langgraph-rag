@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.application import (
+from src.backend.application import (
     RagApplicationError,
     RagApplicationService,
     RagGraphState,

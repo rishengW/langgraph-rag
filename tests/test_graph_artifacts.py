@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from src.graph.artifacts import (
+from src.backend.graph.artifacts import (
     DOCX_MIME_TYPE,
     MAX_FILE_SIZE_BYTES,
     MAX_MARKERS,

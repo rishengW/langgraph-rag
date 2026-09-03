@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 
-from src.memory.scheduler import ExtractionScheduler
+from src.backend.memory.scheduler import ExtractionScheduler
 
 
 def test_scheduler_bounds_concurrency_deduplicates_and_has_no_queue(caplog):

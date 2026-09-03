@@ -9,18 +9,18 @@ from types import ModuleType
 import pytest
 from langchain_core.documents import Document
 
-from src.rag import chroma_retriever as chroma_module
-from src.rag.chroma_retriever import ChromaRetriever, build_retriever, build_retriever_tool
-from src.rag.dashscope_embeddings import DashScopeEmbeddings
-from src.rag.document_loader import (
+from src.backend.rag import chroma_retriever as chroma_module
+from src.backend.rag.chroma_retriever import ChromaRetriever, build_retriever, build_retriever_tool
+from src.backend.rag.dashscope_embeddings import DashScopeEmbeddings
+from src.backend.rag.document_loader import (
     SourceDocumentCache,
     load_and_split_documents,
     load_source_documents,
 )
-from src.rag.document_quality import DocumentQualityConfig, filter_quality_documents
-from src.rag.embeddings import EmbeddingModel, is_dashscope_embedding_model
-from src.rag.hf_embeddings import HuggingFaceEmbeddingModel
-from src.rag.retriever import Retriever
+from src.backend.rag.document_quality import DocumentQualityConfig, filter_quality_documents
+from src.backend.rag.embeddings import EmbeddingModel, is_dashscope_embedding_model
+from src.backend.rag.hf_embeddings import HuggingFaceEmbeddingModel
+from src.backend.rag.retriever import Retriever
 
 
 def test_dashscope_embedding_model_satisfies_protocol(monkeypatch):

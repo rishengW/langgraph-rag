@@ -16,13 +16,13 @@ from pathlib import Path
 import pytest
 
 from src.config.settings import Settings
-from src.memory.models import SCHEMA_VERSION, MemoryDocument, MemoryRecord
-from src.memory.serialization import (
+from src.backend.memory.models import SCHEMA_VERSION, MemoryDocument, MemoryRecord
+from src.backend.memory.serialization import (
     CorruptDocumentError,
     parse_document,
     serialize_document,
 )
-from src.memory.store import (
+from src.backend.memory.store import (
     MemoryPathError,
     MemoryStore,
     get_memory_store,

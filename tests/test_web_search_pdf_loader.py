@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from src.web_search.content_fetcher import fetch_pages
-from src.web_search.pdf_loader import PdfPageLoader, extract_pdf_text, is_pdf_url
+from src.backend.web_search.content_fetcher import fetch_pages
+from src.backend.web_search.pdf_loader import PdfPageLoader, extract_pdf_text, is_pdf_url
 
 pytest.importorskip("pypdf")
 
@@ -136,7 +136,7 @@ def test_fetch_pages_keeps_pdf_text_without_html_extraction():
 
 
 def test_looks_like_pdf_payload_detects_a_decoded_pdf_body():
-    from src.web_search.pdf_loader import looks_like_pdf_payload
+    from src.backend.web_search.pdf_loader import looks_like_pdf_payload
 
     assert looks_like_pdf_payload("%PDF-1.7\n1 0 obj ...")
     assert looks_like_pdf_payload("\n  %PDF-1.4 garbage")
@@ -167,7 +167,7 @@ def test_fetch_pages_recovers_a_pdf_served_from_an_extensionless_url():
 
         return _Decoded()
 
-    from src.web_search import content_fetcher as content_fetcher_module
+    from src.backend.web_search import content_fetcher as content_fetcher_module
 
     original_loader = content_fetcher_module.PdfPageLoader
 
@@ -195,7 +195,7 @@ def test_fetch_pages_recovers_a_pdf_served_from_an_extensionless_url():
 def test_default_loader_factory_reads_pdf_source_urls():
     """Explicit `.pdf` source URLs used for indexing get extracted, not decoded."""
 
-    from src.rag.document_loader import PdfAwareLoader, default_loader_factory
+    from src.backend.rag.document_loader import PdfAwareLoader, default_loader_factory
 
     loader = default_loader_factory("https://example.com/notice.pdf", 5)
 

@@ -14,13 +14,13 @@ from hypothesis import strategies as st
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 
-from src.adapters.mcp_server.auth import resolve_http_auth
-from src.adapters.mcp_server.config import MCPSettings, load_mcp_settings
-from src.adapters.mcp_server.lifecycle import initialize_runtime
-from src.adapters.mcp_server.tools import CANONICAL_TOOL_NAMES, create_mcp_server
-from src.adapters.mcp_server.transport import build_http_app, transport_security
-from src.adapters.mcp_server.url_policy import UnsafeSourceURLError, URLValidator
-from src.application import RagAnswer, SourceReference
+from src.frontend.adapters.mcp_server.auth import resolve_http_auth
+from src.frontend.adapters.mcp_server.config import MCPSettings, load_mcp_settings
+from src.frontend.adapters.mcp_server.lifecycle import initialize_runtime
+from src.frontend.adapters.mcp_server.tools import CANONICAL_TOOL_NAMES, create_mcp_server
+from src.frontend.adapters.mcp_server.transport import build_http_app, transport_security
+from src.frontend.adapters.mcp_server.url_policy import UnsafeSourceURLError, URLValidator
+from src.backend.application import RagAnswer, SourceReference
 
 _PUBLIC_ADDRESSES = ("93.184.216.34",)
 
@@ -275,7 +275,7 @@ def test_timeout_concurrency_output_bounds_and_redaction(caplog: pytest.LogCaptu
 def test_atomic_tool_initialization_failure_publishes_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from src.adapters.mcp_server import tools as tools_module
+    from src.frontend.adapters.mcp_server import tools as tools_module
 
     original = tools_module.Tool.from_function
     calls = 0
@@ -395,7 +395,7 @@ def test_graceful_shutdown_stops_readiness_and_is_bounded() -> None:
 def test_runtime_startup_failure_closes_initialized_dependencies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from src.adapters.mcp_server import lifecycle as lifecycle_module
+    from src.frontend.adapters.mcp_server import lifecycle as lifecycle_module
 
     async def run() -> None:
         service = FakeRagService()

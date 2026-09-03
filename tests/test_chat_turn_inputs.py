@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from langchain_core.messages import HumanMessage
 
-from src.chat.api import _graph_inputs_for_turn
+from src.frontend.chat.api import _graph_inputs_for_turn
 
 
 def _session(source_urls, source_mode="web_search"):

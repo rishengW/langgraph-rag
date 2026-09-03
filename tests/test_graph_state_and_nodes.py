@@ -6,17 +6,17 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableLambda
 
-from src.chat.state import ChatState
-from src.core.state import AgentState
-from src.graph.nodes import (
+from src.frontend.chat.state import ChatState
+from src.backend.core.state import AgentState
+from src.backend.graph.nodes import (
     chat_question_resolver,
     condense_question_factory,
     format_history,
     grade_documents_factory,
     latest_user_index,
 )
-from src.graph.nodes import common as common_nodes
-from src.graph.state import RAGState
+from src.backend.graph.nodes import common as common_nodes
+from src.backend.graph.state import RAGState
 
 
 def test_state_aliases_preserve_old_import_paths():
@@ -25,7 +25,7 @@ def test_state_aliases_preserve_old_import_paths():
 
 
 def test_core_node_helpers_preserve_old_import_paths():
-    from src.core.nodes import _question_tokens, _split_context_sentences
+    from src.backend.core.nodes import _question_tokens, _split_context_sentences
 
     assert _question_tokens("What about reinforcement learning?") == {
         "reinforcement",
@@ -85,7 +85,7 @@ def test_condense_first_turn_does_not_call_llm(mock_settings):
 
 
 def test_condense_followup_question_passthrough_without_history(mock_settings):
-    from src.graph.nodes.condense import condense_followup_question
+    from src.backend.graph.nodes.condense import condense_followup_question
 
     # No prior turns -> the raw message is returned unchanged and no LLM is hit.
     assert (
@@ -95,7 +95,7 @@ def test_condense_followup_question_passthrough_without_history(mock_settings):
 
 
 def test_condense_followup_question_uses_history(monkeypatch, mock_settings):
-    from src.graph.nodes import condense as condense_module
+    from src.backend.graph.nodes import condense as condense_module
 
     # Stub the chat model with a RunnableLambda so the prompt|model|parser
     # chain composes and yields our standalone question without a network call.
@@ -119,7 +119,7 @@ def test_condense_followup_question_uses_history(monkeypatch, mock_settings):
 
 
 def test_condense_standalone_followup_skips_llm(monkeypatch, mock_settings):
-    from src.graph.nodes import condense as condense_module
+    from src.backend.graph.nodes import condense as condense_module
 
     monkeypatch.setattr(
         condense_module,
@@ -143,7 +143,7 @@ def test_condense_bounds_history_without_mutating_checkpoint_messages(
     monkeypatch,
     isolated_settings,
 ):
-    from src.graph.nodes import condense as condense_module
+    from src.backend.graph.nodes import condense as condense_module
 
     settings = isolated_settings(chat_context_max_turns=2, chat_context_max_chars=240)
     captured_payload = {}
@@ -449,7 +449,7 @@ def test_grade_documents_uses_reranked_context_and_binary_score(
 
 
 def test_grade_prompt_treats_json_shape_as_literal_text():
-    from src.llm.prompts import GRADE_PROMPT
+    from src.backend.llm.prompts import GRADE_PROMPT
 
     rendered = GRADE_PROMPT.format(
         question="What is DeepSeek?",

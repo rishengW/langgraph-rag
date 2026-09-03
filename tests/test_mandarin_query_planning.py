@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from langchain_core.messages import HumanMessage
 
-from src.graph.nodes import decompose as decompose_module
-from src.web_search.query_prep import plan_search_queries, prepare_search_query
+from src.backend.graph.nodes import decompose as decompose_module
+from src.backend.web_search.query_prep import plan_search_queries, prepare_search_query
 
 
 def test_prepare_mandarin_query_removes_wrappers_and_adds_intent_hint():

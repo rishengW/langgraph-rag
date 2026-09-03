@@ -3,8 +3,8 @@ from __future__ import annotations
 from threading import Event
 from time import monotonic
 
-from src.web_search import SearchResult, discover_search_results_from_web
-from src.web_search import discovery as discovery_module
+from src.backend.web_search import SearchResult, discover_search_results_from_web
+from src.backend.web_search import discovery as discovery_module
 
 
 class ResultProvider:

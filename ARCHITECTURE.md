@@ -28,15 +28,15 @@ memory saver for restart-safe multi-turn state.
 | Path | Purpose |
 |---|---|
 | `src/config/` | Pure `Settings` dataclass and `.env`/YAML loading. |
-| `src/graph/` | Shared LangGraph builder, state, edges, typed events, executor, and metrics. |
-| `src/graph/nodes/` | Shared node factories for agent, retrieval grading, rewrite, generate, and chat condense. |
-| `src/rag/` | Chroma retriever lifecycle, document loading, and embedding providers. |
-| `src/web_search/` | Baidu and DuckDuckGo discovery providers behind a common protocol. |
-| `src/llm/` | LLM provider seam and prompt templates. |
-| `src/api/` | FastAPI dependency setup, shared models, typed error handlers, and SSE formatting. |
-| `src/chat/` | Chat CLI, API factory, session integration, static UI, and compatibility wrappers. |
-| `src/sessions/` | Chat session model, registry, Chroma isolation, SQLite metadata storage, and checkpoint persistence. |
-| `src/core/` | Backward-compatible import facades for older code paths. |
+| `src/backend/graph/` | Shared LangGraph builder, state, edges, typed events, executor, and metrics. |
+| `src/backend/graph/nodes/` | Shared node factories for agent, retrieval grading, rewrite, generate, and chat condense. |
+| `src/backend/rag/` | Chroma retriever lifecycle, document loading, and embedding providers. |
+| `src/backend/web_search/` | Baidu and DuckDuckGo discovery providers behind a common protocol. |
+| `src/backend/llm/` | LLM provider seam and prompt templates. |
+| `src/frontend/api/` | FastAPI dependency setup, shared models, typed error handlers, and SSE formatting. |
+| `src/frontend/chat/` | Chat CLI, API factory, session integration, static UI, and compatibility wrappers. |
+| `src/backend/sessions/` | Chat session model, registry, Chroma isolation, SQLite metadata storage, and checkpoint persistence. |
+| `src/backend/core/` | Backward-compatible import facades for older code paths. |
 
 ## Request Flow
 
@@ -60,9 +60,9 @@ or embedding dimension changes.
 
 Session persistence has two SQLite pieces under the chat Chroma area:
 
-- `src/sessions/sqlite.py` stores thread ID, source URLs, source mode, selected
+- `src/backend/sessions/sqlite.py` stores thread ID, source URLs, source mode, selected
   config, timestamps, Chroma path, isolation flag, and schema version.
-- `src/sessions/checkpoint.py` stores LangGraph `MemorySaver` checkpoint maps
+- `src/backend/sessions/checkpoint.py` stores LangGraph `MemorySaver` checkpoint maps
   in SQLite, preserving chat transcript state across process restart without an
   external checkpointer dependency.
 

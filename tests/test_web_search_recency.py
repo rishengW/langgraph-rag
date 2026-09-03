@@ -5,10 +5,10 @@ from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-from src.graph.nodes.web_answer import _rank_pages_by_publication_date
-from src.web_search.date_extractor import extract_publication_date
-from src.web_search.factory import SUPPORTED_PROVIDER_NAMES
-from src.web_search.recency import assess_publication_date
+from src.backend.graph.nodes.web_answer import _rank_pages_by_publication_date
+from src.backend.web_search.date_extractor import extract_publication_date
+from src.backend.web_search.factory import SUPPORTED_PROVIDER_NAMES
+from src.backend.web_search.recency import assess_publication_date
 
 
 def test_publication_date_extraction_prefers_published_over_modified():
@@ -115,7 +115,7 @@ def test_web_answer_date_ranking_is_stable_and_filters_year_conflicts():
 
 
 def test_web_search_skill_provider_table_matches_factory_registry():
-    skill_path = Path(__file__).resolve().parents[1] / "src" / "web_search" / "SKILL.md"
+    skill_path = Path(__file__).resolve().parents[1] / "src" / "backend" / "web_search" / "SKILL.md"
     documented = tuple(
         re.findall(
             r"^\| `([a-z_]+)` \| (?:JSON API|HTML) \|",

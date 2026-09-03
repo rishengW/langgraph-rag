@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from src.memory.recall import MEMORY_NOTE_LABEL, MEMORY_NOTE_MARKER
-from src.memory.transcript import (
+from src.backend.memory.recall import MEMORY_NOTE_LABEL, MEMORY_NOTE_MARKER
+from src.backend.memory.transcript import (
     ASSISTANT_LABEL,
     MAX_SLICE_MESSAGES,
     TRUNCATION_MARKER,

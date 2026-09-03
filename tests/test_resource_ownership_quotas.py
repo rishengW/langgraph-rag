@@ -10,10 +10,10 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from langchain_core.messages import AIMessage
 
-from src.chat import api as chat_api
+from src.frontend.chat import api as chat_api
 from src.config.loader import load_settings
 from src.errors import QuotaExceededError, ResourceNotFoundError
-from src.security import (
+from src.backend.security import (
     Principal,
     QuotaBudget,
     QuotaCharge,
@@ -21,7 +21,7 @@ from src.security import (
     QuotaManager,
     ResourceOwner,
 )
-from src.sessions import ChatSessionRegistry, SQLiteMemorySaver, SQLiteStorage
+from src.backend.sessions import ChatSessionRegistry, SQLiteMemorySaver, SQLiteStorage
 
 
 def _budget(**overrides: int) -> QuotaBudget:

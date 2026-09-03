@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from src.api.amap_proxy import (
+from src.frontend.api.amap_proxy import (
     MAX_AMAP_PROXY_RESPONSE_BYTES,
     AMapProxyError,
     build_amap_client_config,

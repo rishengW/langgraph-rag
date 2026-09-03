@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from src.web_search.common import is_page_text_relevant, text_relevance_delta
-from src.web_search.evidence import (
+from src.backend.web_search.common import is_page_text_relevant, text_relevance_delta
+from src.backend.web_search.evidence import (
     answer_evidence_delta,
     detect_query_intents,
     has_required_answer_evidence,

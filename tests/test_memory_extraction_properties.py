@@ -12,9 +12,9 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.config.settings import Settings
-from src.memory.extraction import MemoryExtractor
-from src.memory.store import MemoryStore, SaveOutcome
-from src.memory.watermark import InMemoryWatermarkStore
+from src.backend.memory.extraction import MemoryExtractor
+from src.backend.memory.store import MemoryStore, SaveOutcome
+from src.backend.memory.watermark import InMemoryWatermarkStore
 
 
 class Checkpointer:
@@ -240,10 +240,10 @@ def test_one_content_free_log_record_per_outcome(tmp_path, caplog, response, lev
         response=response,
     )
 
-    with caplog.at_level(logging.INFO, logger="src.memory.extraction"):
+    with caplog.at_level(logging.INFO, logger="src.backend.memory.extraction"):
         instance.run("round_complete", "thread")
 
-    records = [record for record in caplog.records if record.name == "src.memory.extraction"]
+    records = [record for record in caplog.records if record.name == "src.backend.memory.extraction"]
     assert len(records) == 1
     assert records[0].levelno == level
     assert records[0].getMessage().startswith("memory_extraction")

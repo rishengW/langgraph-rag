@@ -1,6 +1,6 @@
 # Immutable Tool Catalog and Policy Boundary
 
-Phase 3 centralizes agent-visible tools under `src/mcp` without enabling outbound MCP. The inbound MCP server remains a separate adapter and keeps its canonical bounded execution path.
+Phase 3 centralizes agent-visible tools under `src/backend/mcp` without enabling outbound MCP. The inbound MCP server remains a separate adapter and keeps its canonical bounded execution path.
 
 ## Catalog lifecycle
 

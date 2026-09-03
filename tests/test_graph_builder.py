@@ -4,7 +4,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 
-from src.graph.builder import (
+from src.backend.graph.builder import (
     GraphNodeOverrides,
     GraphProviders,
     _resolve_lightweight_tools,
@@ -108,8 +108,8 @@ def test_builder_requires_settings_for_default_nodes():
 
 
 def test_resolve_tools_adds_web_search_when_enabled(monkeypatch, isolated_settings):
-    import src.core.retriever as retriever_module
-    import src.tools as web_search_module
+    import src.backend.core.retriever as retriever_module
+    import src.backend.tools as web_search_module
 
     settings = isolated_settings(web_search_enabled=True)
     calls = []
@@ -145,9 +145,9 @@ def test_resolve_tools_adds_web_search_when_enabled(monkeypatch, isolated_settin
 
 
 def test_resolve_tools_adds_enabled_agent_tools(monkeypatch, isolated_settings):
-    import src.core.retriever as retriever_module
-    import src.tools as tools_module
-    import src.tools as web_search_module
+    import src.backend.core.retriever as retriever_module
+    import src.backend.tools as tools_module
+    import src.backend.tools as web_search_module
 
     settings = isolated_settings(
         web_search_enabled=False,
@@ -220,8 +220,8 @@ def test_resolve_tools_adds_enabled_agent_tools(monkeypatch, isolated_settings):
 
 
 def test_resolve_tools_skips_web_search_when_disabled(monkeypatch, isolated_settings):
-    import src.core.retriever as retriever_module
-    import src.tools as web_search_module
+    import src.backend.core.retriever as retriever_module
+    import src.backend.tools as web_search_module
 
     settings = isolated_settings(web_search_enabled=False)
     retriever_tool = object()
@@ -259,8 +259,8 @@ def test_resolve_tools_registers_text_editor_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.core.retriever as retriever_module
-    import src.tools as tools_module
+    import src.backend.core.retriever as retriever_module
+    import src.backend.tools as tools_module
 
     settings = isolated_settings(
         web_search_enabled=False,
@@ -315,8 +315,8 @@ def test_resolve_tools_registers_word_creator_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.core.retriever as retriever_module
-    import src.tools as tools_module
+    import src.backend.core.retriever as retriever_module
+    import src.backend.tools as tools_module
 
     settings = isolated_settings(
         web_search_enabled=False,
@@ -371,8 +371,8 @@ def test_lightweight_tools_registers_text_editor_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.tools as tools_module
-    import src.tools as web_search_module
+    import src.backend.tools as tools_module
+    import src.backend.tools as web_search_module
 
     settings = isolated_settings(
         file_read_enabled=True,
@@ -421,8 +421,8 @@ def test_lightweight_tools_registers_word_creator_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.tools as tools_module
-    import src.tools as web_search_module
+    import src.backend.tools as tools_module
+    import src.backend.tools as web_search_module
 
     settings = isolated_settings(file_read_enabled=True, word_edit_enabled=True)
     web_tool = object()
@@ -468,8 +468,8 @@ def test_resolve_tools_registers_excel_creator_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.core.retriever as retriever_module
-    import src.tools as tools_module
+    import src.backend.core.retriever as retriever_module
+    import src.backend.tools as tools_module
 
     settings = isolated_settings(
         web_search_enabled=False,
@@ -515,8 +515,8 @@ def test_lightweight_tools_registers_excel_creator_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.tools as tools_module
-    import src.tools as web_search_module
+    import src.backend.tools as tools_module
+    import src.backend.tools as web_search_module
 
     settings = isolated_settings(file_read_enabled=False, excel_create_enabled=True)
     web_tool = object()
@@ -549,9 +549,9 @@ def test_both_graphs_register_powerpoint_editor_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.core.retriever as retriever_module
-    import src.tools as tools_module
-    import src.tools as web_search_module
+    import src.backend.core.retriever as retriever_module
+    import src.backend.tools as tools_module
+    import src.backend.tools as web_search_module
 
     settings = isolated_settings(
         web_search_enabled=False,
@@ -618,9 +618,9 @@ def test_both_graphs_register_excel_editor_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.core.retriever as retriever_module
-    import src.tools as tools_module
-    import src.tools as web_search_module
+    import src.backend.core.retriever as retriever_module
+    import src.backend.tools as tools_module
+    import src.backend.tools as web_search_module
 
     settings = isolated_settings(
         web_search_enabled=False,
@@ -679,7 +679,7 @@ def test_both_graphs_register_excel_editor_with_session_scope(
 
 
 def test_legacy_graph_wrappers_delegate_to_shared_builder(monkeypatch, mock_settings):
-    import src.chat.graph as chat_graph
+    import src.frontend.chat.graph as chat_graph
 
     chat_sentinel = object()
     captured = []

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.tools.excel_create import (
+from src.backend.tools.excel_create import (
     XLSX_MIME_TYPE,
     ColumnFormat,
     SpreadsheetFormula,
@@ -149,7 +149,7 @@ def test_sheet_validation_rejects_unsafe_or_inconsistent_inputs(sheet: dict[str,
 def test_workbook_validation_rejects_duplicate_sheet_names() -> None:
     tool_schema = build_excel_create_tools
     assert callable(tool_schema)
-    from src.tools.excel_create import SpreadsheetCreateInput
+    from src.backend.tools.excel_create import SpreadsheetCreateInput
 
     with pytest.raises(ValidationError):
         SpreadsheetCreateInput(

@@ -9,26 +9,26 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 
-from src.graph.builder import (
+from src.backend.graph.builder import (
     GraphNodeOverrides,
     GraphProviders,
     build_graph,
     build_lightweight_graph,
 )
-from src.graph.edges import (
+from src.backend.graph.edges import (
     route_after_agent_with_critique,
     route_after_lightweight_agent_with_critique,
     route_after_web_answer_with_fallback,
 )
-from src.graph.nodes import planning as planning_module
-from src.graph.nodes.planning import (
+from src.backend.graph.nodes import planning as planning_module
+from src.backend.graph.nodes.planning import (
     normalize_plan,
     planner_node,
     reflection_revise_node,
     route_after_self_critique,
     route_subgoals,
 )
-from src.tools.web_search import build_web_search_tool
+from src.backend.tools.web_search import build_web_search_tool
 
 
 @tool
@@ -410,11 +410,11 @@ def test_planning_remains_default_off_in_both_graphs(isolated_settings):
 
 
 def test_legacy_web_search_tool_import_is_compatible():
-    canonical = importlib.import_module("src.tools.web_search")
-    sys.modules.pop("src.web_search.tool", None)
+    canonical = importlib.import_module("src.backend.tools.web_search")
+    sys.modules.pop("src.backend.web_search.tool", None)
 
-    with pytest.warns(DeprecationWarning, match="src.web_search.tool is deprecated"):
-        legacy = importlib.import_module("src.web_search.tool")
+    with pytest.warns(DeprecationWarning, match="src.backend.web_search.tool is deprecated"):
+        legacy = importlib.import_module("src.backend.web_search.tool")
 
     assert legacy.build_web_search_tool is canonical.build_web_search_tool
     assert legacy.WebSearchInput is canonical.WebSearchInput

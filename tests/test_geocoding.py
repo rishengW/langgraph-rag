@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.tools._geocoding import (
+from src.backend.tools._geocoding import (
     CONFIDENT_MATCH_SCORE,
     geocode_place,
     name_match_score,
 )
-from src.tools.map_tool import find_on_map
+from src.backend.tools.map_tool import find_on_map
 
 _SHANGHAI_POI = {
     "status": "1",
@@ -259,7 +259,7 @@ def test_find_on_map_explains_an_empty_result():
 
 
 def test_clean_place_query_strips_request_wording_in_both_languages():
-    from src.tools._geocoding import clean_place_query
+    from src.backend.tools._geocoding import clean_place_query
 
     assert clean_place_query("在地图上找出上海金蝶软件园的位置") == "上海金蝶软件园"
     assert clean_place_query("where is Shanghai on a map") == "Shanghai"

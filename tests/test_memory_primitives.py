@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from src.memory.models import MAX_QUERY_TERMS, MIN_TERM_CHARS, MemoryRecord
-from src.memory.relevance import (
+from src.backend.memory.models import MAX_QUERY_TERMS, MIN_TERM_CHARS, MemoryRecord
+from src.backend.memory.relevance import (
     derive_query_terms,
     normalize_content,
     rank_records,
     relevance_score,
     searchable_text,
 )
-from src.memory.secrets import SECRET_PATTERNS, find_secret_in_any, find_secret_match
+from src.backend.memory.secrets import SECRET_PATTERNS, find_secret_in_any, find_secret_match
 
 TS = "2026-07-01T00:00:00+00:00"
 

@@ -9,11 +9,11 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import StructuredTool, tool
 
-from src.graph.builder import GraphNodeOverrides, GraphProviders, build_graph
-from src.graph.events import ToolEndEvent, ToolStartEvent
-from src.graph.executor import GraphExecutor
-from src.graph.metrics import MetricsCollector
-from src.mcp import (
+from src.backend.graph.builder import GraphNodeOverrides, GraphProviders, build_graph
+from src.backend.graph.events import ToolEndEvent, ToolStartEvent
+from src.backend.graph.executor import GraphExecutor
+from src.backend.graph.metrics import MetricsCollector
+from src.backend.mcp import (
     CallbackToolAuditSink,
     DisabledOutboundMCPProvider,
     InjectedToolProvider,
@@ -35,7 +35,7 @@ from src.mcp import (
     set_tool_principal,
     validate_descriptor,
 )
-from src.mcp.catalog import (
+from src.backend.mcp.catalog import (
     MAX_SCHEMA_BYTES,
     MAX_SCHEMA_DEPTH,
     MAX_SCHEMA_ENUM_VALUES,
@@ -111,6 +111,31 @@ def test_catalog_validates_schema_bounds_and_unsupported_constructs():
 
     with pytest.raises(ToolCatalogError, match="unsupported constructs"):
         validate_descriptor(descriptor)
+
+
+def test_catalog_accepts_property_names_that_match_schema_keywords():
+    """Property and $defs names are user data, not schema keywords."""
+
+    descriptor = ToolDescriptor(
+        qualified_name="format_named_field",
+        display_name="Format Named Field",
+        source="builtin",
+        server_name=None,
+        description="Schema keywords used as property names.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "format": {"type": "string", "minLength": 1},
+                "properties": {"type": "string"},
+                "required": {"type": "string"},
+            },
+            "required": ["format"],
+            "$defs": {"format": {"type": "string"}},
+        },
+        risk_level="read",
+    )
+
+    validate_descriptor(descriptor)
 
 
 @pytest.mark.parametrize(
@@ -234,7 +259,7 @@ def test_remote_namespace_requires_matching_server_name():
 
 
 async def _catalog_publication_is_atomic_and_generational():
-    from src.mcp.providers import InjectedToolProvider
+    from src.backend.mcp.providers import InjectedToolProvider
 
     catalog = ToolCatalog()
     first = await catalog.publish((InjectedToolProvider((echo_text,)),))
@@ -247,7 +272,7 @@ async def _catalog_publication_is_atomic_and_generational():
 
 
 async def _failed_catalog_publication_retains_prior_generation():
-    from src.mcp.providers import InjectedToolProvider
+    from src.backend.mcp.providers import InjectedToolProvider
 
     catalog = ToolCatalog()
     active = await catalog.publish((InjectedToolProvider((echo_text,)),))
@@ -467,7 +492,7 @@ def test_graph_model_and_dispatcher_receive_same_immutable_catalog_tuple(
     monkeypatch,
     isolated_settings,
 ):
-    import src.graph.builder as builder_module
+    import src.backend.graph.builder as builder_module
 
     captured = {}
 
@@ -574,9 +599,9 @@ def test_full_and_lightweight_catalog_composition_differs_only_at_required_path(
     monkeypatch,
     isolated_settings,
 ):
-    import src.core.retriever as retriever_module
-    import src.tools as tools_module
-    from src.graph.builder import _resolve_lightweight_tools, _resolve_tools
+    import src.backend.core.retriever as retriever_module
+    import src.backend.tools as tools_module
+    from src.backend.graph.builder import _resolve_lightweight_tools, _resolve_tools
 
     settings = isolated_settings(
         web_search_enabled=False,
@@ -911,10 +936,10 @@ def test_stdio_boundary_propagates_and_restores_trusted_tool_principal():
     pytest.importorskip("mcp")
     from mcp.client import Client
 
-    from src.adapters.mcp_server.config import MCPSettings
-    from src.adapters.mcp_server.tools import create_mcp_server
-    from src.application import RagAnswer
-    from src.mcp import current_tool_principal
+    from src.frontend.adapters.mcp_server.config import MCPSettings
+    from src.frontend.adapters.mcp_server.tools import create_mcp_server
+    from src.backend.application import RagAnswer
+    from src.backend.mcp import current_tool_principal
 
     class PrincipalCapturingService:
         def __init__(self):

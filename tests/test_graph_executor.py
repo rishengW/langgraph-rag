@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
-from src.graph.events import (
+from src.backend.graph.events import (
     ArtifactEvent,
     DoneEvent,
     ErrorEvent,
@@ -11,8 +11,8 @@ from src.graph.events import (
     NodeStartEvent,
     RetrieverResultEvent,
 )
-from src.graph.executor import GraphExecutor
-from src.graph.metrics import MetricsCollector
+from src.backend.graph.executor import GraphExecutor
+from src.backend.graph.metrics import MetricsCollector
 
 
 class FakeGraph:
@@ -79,7 +79,7 @@ class TokenStreamGraph:
 
 
 def test_graph_executor_streams_tokens_from_answer_nodes_only():
-    from src.graph.events import TokenEvent
+    from src.backend.graph.events import TokenEvent
 
     executor = GraphExecutor(TokenStreamGraph())
 
@@ -281,7 +281,7 @@ class TokenArtifactGraph:
 
 
 def test_graph_executor_token_stream_emits_and_accumulates_artifacts_once():
-    from src.graph.events import TokenEvent
+    from src.backend.graph.events import TokenEvent
 
     events = list(GraphExecutor(TokenArtifactGraph()).stream({"question": "map"}, stream_tokens=True))
 

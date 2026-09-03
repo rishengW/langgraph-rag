@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from langchain_core.documents import Document
 
-from src.web_search import content_fetcher
-from src.web_search.common import (
+from src.backend.web_search import content_fetcher
+from src.backend.web_search.common import (
     SearchResult,
     host_authority_class,
     host_quality_score,
     registrable_domain,
     result_quality_score,
 )
-from src.web_search.content_fetcher import fetch_pages, is_readable_page
+from src.backend.web_search.content_fetcher import fetch_pages, is_readable_page
 
 
 def test_host_authority_is_conservative_and_suffix_safe():

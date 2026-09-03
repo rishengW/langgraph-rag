@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from src.web_search import SearchResult, discover_search_results_from_web
-from src.web_search import discovery as discovery_module
-from src.web_search.semantic import (
+from src.backend.web_search import SearchResult, discover_search_results_from_web
+from src.backend.web_search import discovery as discovery_module
+from src.backend.web_search.semantic import (
     SEMANTIC_MAX_BONUS,
     build_semantic_scorer,
     cosine_similarity,

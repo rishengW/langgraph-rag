@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from src.web_search.claim_consensus import assess_status_consensus
+from src.backend.web_search.claim_consensus import assess_status_consensus
 
 
 def _page(url: str, text: str):

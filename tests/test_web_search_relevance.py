@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.web_search.common import (
+from src.backend.web_search.common import (
     DEFAULT_MIN_USABLE_URL_SCORE,
     OWNER_LOOKALIKE_PENALTY,
     SearchResult,

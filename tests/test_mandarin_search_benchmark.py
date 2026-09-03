@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.web_search.benchmark import (
+from src.backend.web_search.benchmark import (
     ALLOWED_CATEGORIES,
     DEFAULT_QUERY_SET,
     BenchmarkQuery,

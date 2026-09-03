@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
-from src.api.dependencies import initialize_chat_app_state
-from src.api.models import StartChatRequest
-from src.chat import api as chat_api
+from src.frontend.api.dependencies import initialize_chat_app_state
+from src.frontend.api.models import StartChatRequest
+from src.frontend.chat import api as chat_api
 
 
 def test_models_remain_importable_from_legacy_api_modules():

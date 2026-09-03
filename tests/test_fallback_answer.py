@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.graph.nodes import fallback_answer as fallback_module
+from src.backend.graph.nodes import fallback_answer as fallback_module
 
 
 def test_fallback_uses_preserved_question_and_excludes_generated_refusal(

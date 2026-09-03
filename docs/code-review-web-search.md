@@ -15,12 +15,12 @@ The agent returns "I don't know" when asked questions that require live web look
 
 ## Finding 1 (Critical): Missing LangChain web search tool
 
-**File:** `src/web_search/` (all modules)  
+**File:** `src/backend/web_search/` (all modules)  
 **Severity:** Critical
 
 ### What's there
 
-The `src/web_search/` package has a well-designed provider system:
+The `src/backend/web_search/` package has a well-designed provider system:
 
 | Module | Purpose |
 |---|---|
@@ -33,7 +33,7 @@ The `src/web_search/` package has a well-designed provider system:
 
 ### What's missing
 
-**None of these classes are wrapped as LangChain tools.** The agent in this codebase uses LangChain's `bind_tools()` mechanism (`src/graph/nodes/common.py:234`):
+**None of these classes are wrapped as LangChain tools.** The agent in this codebase uses LangChain's `bind_tools()` mechanism (`src/backend/graph/nodes/common.py:234`):
 
 ```python
 model = new_chat_model(settings).bind_tools(tools)
@@ -49,7 +49,7 @@ The agent has no mechanism to search the live web during a conversation.
 
 ## Finding 2 (Critical): `_resolve_tools()` only builds the retriever
 
-**File:** `src/graph/builder.py`, lines 154–167  
+**File:** `src/backend/graph/builder.py`, lines 154–167  
 **Severity:** Critical
 
 ```python
@@ -99,7 +99,7 @@ These settings are consumed by `discover_urls_from_web()` (a startup-only operat
 
 **Files:**
 - `src/config/settings.py:41`
-- `src/chat/main.py:116-118`
+- `src/frontend/chat/main.py:116-118`
 - `src/qa/main.py:213-217`
 
 ### What it does
@@ -107,7 +107,7 @@ These settings are consumed by `discover_urls_from_web()` (a startup-only operat
 `web_search_enabled` controls whether the CLI/API entry points perform a **one-time web search at graph build time** to discover source URLs:
 
 ```python
-# src/chat/main.py:116-118
+# src/frontend/chat/main.py:116-118
 if urls is None and args.web_search and settings.web_search_enabled and args.seed_question.strip():
     found = discover_urls_from_web(args.seed_question.strip(), settings)
 ```
@@ -130,7 +130,7 @@ Either rename it to `web_search_for_source_urls` to reflect its actual scope, or
 
 ## Finding 4 (Low): Agent edge routing is hardcoded to a single tool node
 
-**File:** `src/graph/edges.py`, lines 8–11
+**File:** `src/backend/graph/edges.py`, lines 8–11
 
 ```python
 AGENT_EDGE_MAP = {
@@ -146,8 +146,8 @@ When the agent emits a tool call, it always routes to the `"retrieve"` node, whi
 ## Finding 5 (Informational): Startup-only web search design
 
 **Files:**
-- `src/web_search/discovery.py`
-- `src/chat/main.py:102-131`
+- `src/backend/web_search/discovery.py`
+- `src/frontend/chat/main.py:102-131`
 - `src/qa/main.py:200-233`
 
 ### Current flow
@@ -171,7 +171,7 @@ This means:
 
 ### Step 1: Create a LangChain web search tool
 
-In `src/web_search/`, create a new module (e.g., `src/web_search/tool.py`) that:
+In `src/backend/web_search/`, create a new module (e.g., `src/backend/web_search/tool.py`) that:
 
 ```python
 from langchain_core.tools import tool
@@ -186,7 +186,7 @@ The tool should call the existing `get_search_provider()` + `discover_urls_from_
 
 ### Step 2: Add the tool in `_resolve_tools()`
 
-In `src/graph/builder.py`, modify `_resolve_tools()`:
+In `src/backend/graph/builder.py`, modify `_resolve_tools()`:
 
 ```python
 def _resolve_tools(settings, providers, rebuild_vectorstore):
@@ -216,11 +216,11 @@ Alternatively, rename the node to something more generic (e.g., `"tools"`) and u
 
 | File | Change needed |
 |---|---|
-| `src/web_search/tool.py` | **New file** — LangChain `@tool` wrapping web search |
-| `src/web_search/__init__.py` | Export the new tool |
-| `src/graph/builder.py:154-167` | Add web search tool when `web_search_enabled` is `True` |
-| `src/graph/edges.py:8-11` | Possibly update routing if a second `ToolNode` is introduced |
-| `src/graph/builder.py:107-112` | Ensure `ToolNode` receives all tools, not just retriever |
+| `src/backend/web_search/tool.py` | **New file** — LangChain `@tool` wrapping web search |
+| `src/backend/web_search/__init__.py` | Export the new tool |
+| `src/backend/graph/builder.py:154-167` | Add web search tool when `web_search_enabled` is `True` |
+| `src/backend/graph/edges.py:8-11` | Possibly update routing if a second `ToolNode` is introduced |
+| `src/backend/graph/builder.py:107-112` | Ensure `ToolNode` receives all tools, not just retriever |
 
 ---
 

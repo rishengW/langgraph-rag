@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from src.graph.nodes.merge import merge_factory
-from src.web_search.reputation import (
+from src.backend.graph.nodes.merge import merge_factory
+from src.backend.web_search.reputation import (
     MAX_REPUTATION_BONUS,
     MAX_REPUTATION_PENALTY,
     OUTCOME_GROUNDED,

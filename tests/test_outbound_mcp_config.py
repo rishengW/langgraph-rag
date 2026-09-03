@@ -11,15 +11,15 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from src.adapters.mcp_client import (
+from src.backend.adapters.mcp_client import (
     OutboundMCPServerSettings,
     OutboundMCPSettings,
     load_outbound_mcp_settings,
     resolve_outbound_credentials,
 )
-from src.adapters.mcp_server.config import load_mcp_settings
+from src.frontend.adapters.mcp_server.config import load_mcp_settings
 from src.errors import ConfigurationError
-from src.mcp import (
+from src.backend.mcp import (
     EnvironmentSecretProvider,
     SecretReference,
     SecretResolver,

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.tools.markdown_edit import (
+from src.backend.tools.markdown_edit import (
     MARKDOWN_MIME_TYPE,
     MarkdownEditOperation,
     build_markdown_edit_tools,

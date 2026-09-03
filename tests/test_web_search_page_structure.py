@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from src.web_search.content_fetcher import extract_text, fetch_pages
-from src.web_search.page_structure import (
+from src.backend.web_search.content_fetcher import extract_text, fetch_pages
+from src.backend.web_search.page_structure import (
     assess_page_structure,
     structure_rejection_reason,
     word_count,

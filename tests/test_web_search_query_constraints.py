@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from src.web_search.query_constraints import (
+from src.backend.web_search.query_constraints import (
     COMPARISON_INTENT,
     PRICE_INTENT,
     extract_query_constraints,
     validate_query_candidate,
 )
-from src.web_search.query_prep import plan_search_queries, prepare_search_query
+from src.backend.web_search.query_prep import plan_search_queries, prepare_search_query
 
 
 def test_extracts_language_entities_identifiers_years_and_intent():

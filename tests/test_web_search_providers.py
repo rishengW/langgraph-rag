@@ -7,8 +7,8 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from src.core.web_search import discover_urls_from_web as core_discover_urls_from_web
-from src.web_search import (
+from src.backend.core.web_search import discover_urls_from_web as core_discover_urls_from_web
+from src.backend.web_search import (
     BaiduWebSearch,
     BingWebSearch,
     DuckDuckGoWebSearch,
@@ -21,11 +21,11 @@ from src.web_search import (
     format_web_search_results,
     get_search_provider,
 )
-from src.web_search import baidu as baidu_module
-from src.web_search import bing as bing_module
-from src.web_search import discovery as discovery_module
-from src.web_search import duckduckgo as duckduckgo_module
-from src.web_search.common import is_noise_url, select_top_urls, url_quality_score
+from src.backend.web_search import baidu as baidu_module
+from src.backend.web_search import bing as bing_module
+from src.backend.web_search import discovery as discovery_module
+from src.backend.web_search import duckduckgo as duckduckgo_module
+from src.backend.web_search.common import is_noise_url, select_top_urls, url_quality_score
 
 
 class StaticSearchProvider:
@@ -185,7 +185,7 @@ def test_url_quality_gate_filters_scores_and_deduplicates_candidates():
 
 
 def test_url_quality_gate_uses_configurable_threshold_and_debug_logs(caplog):
-    caplog.set_level(logging.DEBUG, logger="src.web_search.common")
+    caplog.set_level(logging.DEBUG, logger="src.backend.web_search.common")
     urls = [
         "https://example.com/a",
         "https://example.com/blog/2026/rag",
@@ -820,7 +820,7 @@ def test_core_import_path_keeps_provider_injection(isolated_settings):
 
 
 def test_prepare_search_query_strips_filler_words():
-    from src.web_search.query_prep import prepare_search_query
+    from src.backend.web_search.query_prep import prepare_search_query
 
     result = prepare_search_query("what is the latest model of deepseek")
     assert "what" not in result.lower().split()
@@ -832,14 +832,14 @@ def test_prepare_search_query_strips_filler_words():
 
 
 def test_prepare_search_query_appends_year_for_time_sensitive():
-    from src.web_search.query_prep import prepare_search_query
+    from src.backend.web_search.query_prep import prepare_search_query
 
     result = prepare_search_query("what is the latest model of deepseek")
     assert "2026" in result
 
 
 def test_prepare_search_query_preserves_non_time_sensitive():
-    from src.web_search.query_prep import prepare_search_query
+    from src.backend.web_search.query_prep import prepare_search_query
 
     result = prepare_search_query("what is deepseek")
     # Not time-sensitive: "what" and "is" stripped, but no year appended
@@ -849,14 +849,14 @@ def test_prepare_search_query_preserves_non_time_sensitive():
 
 
 def test_prepare_search_query_does_not_double_year():
-    from src.web_search.query_prep import prepare_search_query
+    from src.backend.web_search.query_prep import prepare_search_query
 
     result = prepare_search_query("deepseek v4 pro 2026 release")
     assert result.count("2026") == 1
 
 
 def test_prepare_search_query_preserves_named_entities():
-    from src.web_search.query_prep import prepare_search_query
+    from src.backend.web_search.query_prep import prepare_search_query
 
     result = prepare_search_query("tell me about DeepSeek V4 Pro")
     assert "DeepSeek" in result
@@ -865,7 +865,7 @@ def test_prepare_search_query_preserves_named_entities():
 
 
 def test_prepare_search_query_clarifies_metro_total_line_count():
-    from src.web_search.query_prep import prepare_search_query
+    from src.backend.web_search.query_prep import prepare_search_query
 
     result = prepare_search_query("南京地铁线路数量 2025 2026 几条线")
 
@@ -876,7 +876,7 @@ def test_prepare_search_query_clarifies_metro_total_line_count():
 
 
 def test_rewrite_search_query_llm_skips_when_no_api_key(isolated_settings):
-    from src.web_search.query_prep import rewrite_search_query_llm
+    from src.backend.web_search.query_prep import rewrite_search_query_llm
 
     settings = isolated_settings(deepseek_api_key="")
     result = rewrite_search_query_llm("what is the latest model of deepseek", settings)
@@ -884,7 +884,7 @@ def test_rewrite_search_query_llm_skips_when_no_api_key(isolated_settings):
 
 
 def test_rewrite_search_query_llm_returns_rewritten_query(isolated_settings):
-    from src.web_search.query_prep import rewrite_search_query_llm
+    from src.backend.web_search.query_prep import rewrite_search_query_llm
 
     settings = isolated_settings(
         deepseek_api_key="sk-test",
@@ -905,7 +905,7 @@ def test_rewrite_search_query_llm_returns_rewritten_query(isolated_settings):
 
 
 def test_build_search_query_skips_llm_by_default(isolated_settings, monkeypatch):
-    from src.web_search import query_prep as qp
+    from src.backend.web_search import query_prep as qp
 
     settings = isolated_settings(
         deepseek_api_key="sk-test",
@@ -922,7 +922,7 @@ def test_build_search_query_skips_llm_by_default(isolated_settings, monkeypatch)
 
 
 def test_build_search_query_uses_llm_when_explicitly_enabled(isolated_settings, monkeypatch):
-    from src.web_search import query_prep as qp
+    from src.backend.web_search import query_prep as qp
 
     settings = isolated_settings(
         deepseek_api_key="sk-test",
@@ -946,7 +946,7 @@ def test_build_search_query_uses_llm_when_explicitly_enabled(isolated_settings, 
 
 
 def test_url_quality_score_relevance_bonus():
-    from src.web_search.common import url_quality_score
+    from src.backend.web_search.common import url_quality_score
 
     base = url_quality_score("https://example.com/blog/deepseek-v4-pro")
     with_query = url_quality_score(
@@ -963,7 +963,7 @@ def test_url_quality_score_relevance_bonus():
 
 
 def test_select_top_urls_passes_query_through(isolated_settings):
-    from src.web_search.common import select_top_urls
+    from src.backend.web_search.common import select_top_urls
 
     urls = [
         "https://deepseek.net/docs/v4",
@@ -1000,7 +1000,7 @@ class SnippetSearchProvider:
 
 
 def test_text_relevance_delta_rewards_matches_and_penalizes_misses():
-    from src.web_search.common import text_relevance_delta
+    from src.backend.web_search.common import text_relevance_delta
 
     full = text_relevance_delta("DeepSeek V4 model release", "deepseek v4 model")
     partial = text_relevance_delta("DeepSeek announcement", "deepseek v4 model")
@@ -1013,7 +1013,7 @@ def test_text_relevance_delta_rewards_matches_and_penalizes_misses():
 
 
 def test_result_quality_score_uses_snippet_text():
-    from src.web_search.common import SearchResult, result_quality_score
+    from src.backend.web_search.common import SearchResult, result_quality_score
 
     on_topic = SearchResult(
         url="https://news.example.com/2026/launch",
@@ -1033,7 +1033,7 @@ def test_result_quality_score_uses_snippet_text():
 
 
 def test_select_top_results_ranks_relevant_snippet_first():
-    from src.web_search.common import SearchResult, select_top_results
+    from src.backend.web_search.common import SearchResult, select_top_results
 
     results = [
         SearchResult(
@@ -1054,7 +1054,7 @@ def test_select_top_results_ranks_relevant_snippet_first():
 
 
 def test_discover_urls_prefers_relevant_snippet(isolated_settings):
-    from src.web_search.common import SearchResult
+    from src.backend.web_search.common import SearchResult
 
     settings = isolated_settings(web_search_max_results=5, web_search_top_k=1)
     provider = SnippetSearchProvider(
@@ -1079,7 +1079,7 @@ def test_discover_urls_prefers_relevant_snippet(isolated_settings):
 
 
 def test_discover_urls_drops_off_topic_snippet_below_gate(isolated_settings):
-    from src.web_search.common import SearchResult
+    from src.backend.web_search.common import SearchResult
 
     settings = isolated_settings(web_search_max_results=5, web_search_top_k=3)
     provider = SnippetSearchProvider(
@@ -1102,7 +1102,7 @@ def test_discover_urls_drops_off_topic_snippet_below_gate(isolated_settings):
 
 def test_text_relevance_delta_ignores_lone_generic_term_match():
     """A page that only shares the generic word 'model' is not on-topic."""
-    from src.web_search.common import text_relevance_delta
+    from src.backend.web_search.common import text_relevance_delta
 
     query = "model context protocol mcp anthropic"
     # Cambridge "model" definition / Tesla "Model S" news share only "model".
@@ -1115,7 +1115,7 @@ def test_text_relevance_delta_ignores_lone_generic_term_match():
 
 def test_result_quality_score_drops_generic_only_off_topic_page():
     """The exact failure from the MCP run: 'model' pages must fall below gate."""
-    from src.web_search.common import (
+    from src.backend.web_search.common import (
         DEFAULT_MIN_USABLE_URL_SCORE,
         SearchResult,
         result_quality_score,
@@ -1148,7 +1148,7 @@ def test_result_quality_score_drops_generic_only_off_topic_page():
 
 def test_term_weight_does_not_boost_ordinary_short_words():
     """Short common words ('cup') must not get the acronym distinctiveness boost."""
-    from src.web_search.common import _acronym_terms, _term_weight
+    from src.backend.web_search.common import _acronym_terms, _term_weight
 
     query = "Jordan Argentina World Cup result"
     acronyms = _acronym_terms(query)
@@ -1162,7 +1162,7 @@ def test_term_weight_does_not_boost_ordinary_short_words():
 
 
 def test_acronym_terms_detects_genuine_uppercase_acronyms():
-    from src.web_search.common import _acronym_terms
+    from src.backend.web_search.common import _acronym_terms
 
     assert "mcp" in _acronym_terms("What is MCP by Anthropic")
     # Lowercase short words are not acronyms.
@@ -1171,7 +1171,7 @@ def test_acronym_terms_detects_genuine_uppercase_acronyms():
 
 def test_text_relevance_delta_requires_both_entities_for_match_query():
     """A page mentioning only one of two named entities is off-topic."""
-    from src.web_search.common import text_relevance_delta
+    from src.backend.web_search.common import text_relevance_delta
 
     query = "Jordan Argentina World Cup result"
     only_jordan = text_relevance_delta("Air Jordan sneakers official store - Nike", query)
@@ -1187,7 +1187,7 @@ def test_text_relevance_delta_requires_both_entities_for_match_query():
 
 def test_result_quality_score_drops_brand_pages_below_gate():
     """The Jordan/Argentina run: brand + country pages must fall below gate."""
-    from src.web_search.common import (
+    from src.backend.web_search.common import (
         DEFAULT_MIN_USABLE_URL_SCORE,
         SearchResult,
         result_quality_score,
@@ -1216,7 +1216,7 @@ def test_result_quality_score_drops_brand_pages_below_gate():
 
 
 def test_discover_urls_drops_generic_only_matches_end_to_end(isolated_settings):
-    from src.web_search.common import SearchResult
+    from src.backend.web_search.common import SearchResult
 
     settings = isolated_settings(web_search_max_results=10, web_search_top_k=3)
     provider = SnippetSearchProvider(
@@ -1247,7 +1247,7 @@ def test_discover_urls_drops_generic_only_matches_end_to_end(isolated_settings):
 
 
 def test_chinese_query_terms_use_cjk_bigrams():
-    from src.web_search.common import _search_query_terms
+    from src.backend.web_search.common import _search_query_terms
 
     terms = _search_query_terms("南京地铁线路数量 2025 2026 几条线")
 
@@ -1256,7 +1256,7 @@ def test_chinese_query_terms_use_cjk_bigrams():
 
 
 def test_chinese_text_relevance_penalizes_topical_miss():
-    from src.web_search.common import text_relevance_delta
+    from src.backend.web_search.common import text_relevance_delta
 
     query = "南京地铁线路数量 2025 2026 几条线"
 
@@ -1265,7 +1265,7 @@ def test_chinese_text_relevance_penalizes_topical_miss():
 
 
 def test_chinese_off_topic_snippet_falls_below_url_gate():
-    from src.web_search.common import (
+    from src.backend.web_search.common import (
         DEFAULT_MIN_USABLE_URL_SCORE,
         SearchResult,
         result_quality_score,
@@ -1288,7 +1288,7 @@ def test_chinese_off_topic_snippet_falls_below_url_gate():
 
 
 def test_page_relevance_keeps_short_chinese_fact_and_rejects_unrelated_page():
-    from src.web_search.common import is_page_text_relevant
+    from src.backend.web_search.common import is_page_text_relevant
 
     query = "南京地铁线路数量 2025 2026 几条线"
 
@@ -1308,7 +1308,7 @@ def test_page_relevance_keeps_short_chinese_fact_and_rejects_unrelated_page():
 def test_prepare_search_query_resolves_relative_year_expressions():
     """A relative expression is as time-sensitive as "latest" and becomes a year."""
 
-    from src.web_search.query_prep import CURRENT_YEAR, prepare_search_query
+    from src.backend.web_search.query_prep import CURRENT_YEAR, prepare_search_query
 
     current = prepare_search_query("Who wins the world cup this year")
 
@@ -1325,7 +1325,7 @@ def test_prepare_search_query_resolves_relative_year_expressions():
 
 
 def test_prepare_search_query_resolves_mandarin_relative_years():
-    from src.web_search.query_prep import CURRENT_YEAR, prepare_search_query
+    from src.backend.web_search.query_prep import CURRENT_YEAR, prepare_search_query
 
     current = prepare_search_query("今年世界杯冠军是谁")
     previous = prepare_search_query("去年世界杯冠军")
@@ -1335,7 +1335,7 @@ def test_prepare_search_query_resolves_mandarin_relative_years():
 
 
 def test_prepare_search_query_keeps_explicit_years_over_relative_wording():
-    from src.web_search.query_prep import prepare_search_query
+    from src.backend.web_search.query_prep import prepare_search_query
 
     assert prepare_search_query("world cup 2022 winner") == "world cup 2022 winner"
     # "fiscal year" is not a relative expression and must survive untouched.
@@ -1345,7 +1345,7 @@ def test_prepare_search_query_keeps_explicit_years_over_relative_wording():
 
 
 def test_relative_time_words_are_not_treated_as_distinctive_query_terms():
-    from src.web_search.common import _acronym_terms, _search_query_terms, _term_weight
+    from src.backend.web_search.common import _acronym_terms, _search_query_terms, _term_weight
 
     question = "Who wins the world cup this year"
     terms = _search_query_terms(question)
@@ -1356,8 +1356,8 @@ def test_relative_time_words_are_not_treated_as_distinctive_query_terms():
 
 
 def test_current_tournament_page_outranks_evergreen_winners_list():
-    from src.web_search.common import SearchResult, result_quality_score
-    from src.web_search.query_prep import CURRENT_YEAR, prepare_search_query
+    from src.backend.web_search.common import SearchResult, result_quality_score
+    from src.backend.web_search.query_prep import CURRENT_YEAR, prepare_search_query
 
     query = prepare_search_query("Who wins the world cup this year")
     current_final = SearchResult(
@@ -1381,8 +1381,8 @@ def test_current_tournament_page_outranks_evergreen_winners_list():
 
 
 def test_page_relevance_admits_the_current_result_for_a_relative_question():
-    from src.web_search.common import is_page_text_relevant
-    from src.web_search.query_prep import CURRENT_YEAR
+    from src.backend.web_search.common import is_page_text_relevant
+    from src.backend.web_search.query_prep import CURRENT_YEAR
 
     question = "Who wins the world cup this year"
     page_text = (

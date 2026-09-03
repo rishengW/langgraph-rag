@@ -19,7 +19,7 @@ from src.config.settings import (
     DEFAULT_WEB_SEARCH_JS_FALLBACK_DOMAINS,
     Settings,
 )
-from src.core.config import Settings as CoreSettings
+from src.backend.core.config import Settings as CoreSettings
 
 
 def test_settings_reexport_preserves_old_import_path():

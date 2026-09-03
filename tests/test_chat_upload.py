@@ -9,13 +9,13 @@ import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
-from src.chat import api as chat_api
-from src.chat.uploads import build_upload_context_note
-from src.graph.artifacts import normalize_file_artifact
-from src.tools import build_text_file_tool, build_word_tool
-from src.tools.excel_edit import XLSX_MIME_TYPE, ExcelEditOperation, edit_excel
-from src.tools.text_edit import TextEditOperation, create_text_file, edit_text_file
-from src.tools.word_edit import WordEditOperation, edit_word_document
+from src.frontend.chat import api as chat_api
+from src.frontend.chat.uploads import build_upload_context_note
+from src.backend.graph.artifacts import normalize_file_artifact
+from src.backend.tools import build_text_file_tool, build_word_tool
+from src.backend.tools.excel_edit import XLSX_MIME_TYPE, ExcelEditOperation, edit_excel
+from src.backend.tools.text_edit import TextEditOperation, create_text_file, edit_text_file
+from src.backend.tools.word_edit import WordEditOperation, edit_word_document
 
 _DOCX_DOCUMENT_XML = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'

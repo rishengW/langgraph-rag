@@ -6,15 +6,15 @@ from types import ModuleType, SimpleNamespace
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 
-from src.graph import nodes as graph_nodes
-from src.graph.builder import (
+from src.backend.graph import nodes as graph_nodes
+from src.backend.graph.builder import (
     GraphNodeOverrides,
     GraphProviders,
     build_lightweight_graph,
     build_memory_saver,
 )
-from src.graph.nodes import web_answer as web_answer_module
-from src.web_search.content_fetcher import is_readable_page, is_readable_text
+from src.backend.graph.nodes import web_answer as web_answer_module
+from src.backend.web_search.content_fetcher import is_readable_page, is_readable_text
 
 
 def _readable_text() -> str:
@@ -22,17 +22,17 @@ def _readable_text() -> str:
 
 
 def _install_lightweight_web_modules(monkeypatch, fetch_pages, build_prompt) -> None:
-    content_fetcher = ModuleType("src.web_search.content_fetcher")
+    content_fetcher = ModuleType("src.backend.web_search.content_fetcher")
     content_fetcher.FetchedPage = SimpleNamespace
     content_fetcher.fetch_pages = fetch_pages
     content_fetcher.is_readable_page = is_readable_page
     content_fetcher.is_readable_text = is_readable_text
 
-    prompt_builder = ModuleType("src.web_search.prompt_builder")
+    prompt_builder = ModuleType("src.backend.web_search.prompt_builder")
     prompt_builder.build_web_search_prompt = build_prompt
 
-    monkeypatch.setitem(sys.modules, "src.web_search.content_fetcher", content_fetcher)
-    monkeypatch.setitem(sys.modules, "src.web_search.prompt_builder", prompt_builder)
+    monkeypatch.setitem(sys.modules, "src.backend.web_search.content_fetcher", content_fetcher)
+    monkeypatch.setitem(sys.modules, "src.backend.web_search.prompt_builder", prompt_builder)
 
 
 def test_web_answer_fetches_state_urls_and_invokes_llm(monkeypatch, isolated_settings):
@@ -818,7 +818,7 @@ def test_route_after_web_answer_routes_to_expand_on_first_failure():
     # the agent. This is the new third outcome in
     # ``route_after_web_answer`` introduced by the 2026-06-17 expansion
     # implementation.
-    from src.graph.edges import route_after_web_answer
+    from src.backend.graph.edges import route_after_web_answer
 
     state = {
         "web_answer_no_readable_content": True,
@@ -831,7 +831,7 @@ def test_route_after_web_answer_routes_to_expand_on_first_failure():
 def test_route_after_web_answer_terminates_after_expansion_without_grounding():
     # A failed expanded search must preserve the grounded refusal instead of
     # invoking a model-knowledge fallback.
-    from src.graph.edges import route_after_web_answer
+    from src.backend.graph.edges import route_after_web_answer
 
     state = {
         "web_answer_no_readable_content": True,
@@ -844,7 +844,7 @@ def test_route_after_web_answer_terminates_after_expansion_without_grounding():
 def test_route_after_web_answer_terminates_above_attempt_ceiling():
     # Stale or externally supplied state beyond the normal two attempts must
     # terminate without starting another fallback.
-    from src.graph.edges import (
+    from src.backend.graph.edges import (
         WEB_ANSWER_FALLBACK_MAX_ATTEMPTS,
         route_after_web_answer,
     )
@@ -861,7 +861,7 @@ def test_route_after_web_answer_terminates_on_success():
     # Unit test: when ``web_answer`` succeeded, the edge must terminate so
     # the agent's synthesized answer is not overridden by a redundant
     # re-prompt through the agent node.
-    from src.graph.edges import route_after_web_answer
+    from src.backend.graph.edges import route_after_web_answer
 
     state = {
         "web_answer_no_readable_content": False,
@@ -876,9 +876,9 @@ def test_build_lightweight_graph_uses_fallback_when_no_readable_content(
     # After one expanded search fails, the graph must run exactly one
     # tool-free fallback and terminate rather than silently keeping the
     # intermediate web-answer refusal.
-    import src.web_search.content_fetcher as content_fetcher_module
-    import src.web_search.prompt_builder as prompt_builder_module
-    from src.web_search.tool import build_web_search_tool
+    import src.backend.web_search.content_fetcher as content_fetcher_module
+    import src.backend.web_search.prompt_builder as prompt_builder_module
+    from src.backend.web_search.tool import build_web_search_tool
 
     settings = isolated_settings()
 
@@ -972,9 +972,9 @@ def test_build_lightweight_graph_grounded_refusal_cannot_start_a_third_search(
 ):
     # End-to-end regression guard: after two failed web-answer attempts, the
     # refusal must terminate without re-entering the agent.
-    import src.web_search.content_fetcher as content_fetcher_module
-    import src.web_search.prompt_builder as prompt_builder_module
-    from src.web_search.tool import build_web_search_tool
+    import src.backend.web_search.content_fetcher as content_fetcher_module
+    import src.backend.web_search.prompt_builder as prompt_builder_module
+    from src.backend.web_search.tool import build_web_search_tool
 
     settings = isolated_settings()
 
@@ -1078,7 +1078,7 @@ def test_build_lightweight_graph_grounded_refusal_cannot_start_a_third_search(
 def test_web_answer_drops_structurally_noisy_pages(monkeypatch, isolated_settings):
     """A link-dense listing page is filtered on measurement, not URL shape."""
 
-    from src.web_search.page_structure import PageStructure
+    from src.backend.web_search.page_structure import PageStructure
 
     settings = isolated_settings(source_urls=[], web_search_structure_filter_enabled=True)
     article = SimpleNamespace(
@@ -1133,7 +1133,7 @@ def test_web_answer_keeps_listing_pages_when_structure_filtering_is_off(
     monkeypatch,
     isolated_settings,
 ):
-    from src.web_search.page_structure import PageStructure
+    from src.backend.web_search.page_structure import PageStructure
 
     settings = isolated_settings(source_urls=[], web_search_structure_filter_enabled=False)
     listing = SimpleNamespace(

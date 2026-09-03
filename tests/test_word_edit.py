@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.tools.word_edit import (
+from src.backend.tools.word_edit import (
     DOCX_MIME_TYPE,
     WordContentBlock,
     WordCreateInput,

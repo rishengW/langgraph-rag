@@ -6,13 +6,13 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from langchain_core.messages import ToolMessage
 
-from src.graph.artifacts import (
+from src.backend.graph.artifacts import (
     ArtifactEvent,
     extract_amap_artifacts_from_messages,
     extract_amap_artifacts_from_node_output,
 )
-from src.graph.events import ArtifactEvent as GraphArtifactEvent
-from src.tools._amap import (
+from src.backend.graph.events import ArtifactEvent as GraphArtifactEvent
+from src.backend.tools._amap import (
     AMapAPIError,
     AMapPosition,
     amap_request_json,

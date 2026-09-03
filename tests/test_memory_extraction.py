@@ -10,9 +10,9 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from src.config.settings import Settings
-from src.memory.extraction import ExtractionCandidate, MemoryExtractor
-from src.memory.store import MemoryStore
-from src.memory.watermark import InMemoryWatermarkStore
+from src.backend.memory.extraction import ExtractionCandidate, MemoryExtractor
+from src.backend.memory.store import MemoryStore
+from src.backend.memory.watermark import InMemoryWatermarkStore
 
 
 class Checkpointer:

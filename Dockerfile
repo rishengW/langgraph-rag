@@ -35,4 +35,4 @@ USER appuser
 
 EXPOSE 8001
 
-CMD ["python", "-m", "src.chat.main", "serve", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["python", "-m", "src.frontend.chat.main", "serve", "--host", "0.0.0.0", "--port", "8001"]

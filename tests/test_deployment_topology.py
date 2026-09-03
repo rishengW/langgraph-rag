@@ -11,9 +11,9 @@ from fastapi.testclient import TestClient
 from hypothesis import given
 from hypothesis import strategies as st
 
-from src.adapters.mcp_server.config import MCPSettings
-from src.adapters.mcp_server.lifecycle import initialize_runtime
-from src.chat import api as chat_api
+from src.frontend.adapters.mcp_server.config import MCPSettings
+from src.frontend.adapters.mcp_server.lifecycle import initialize_runtime
+from src.frontend.chat import api as chat_api
 from src.deployment import (
     REPLICA_COUNT_ENV_NAMES,
     REQUIRED_SHARED_STATE_CAPABILITIES,

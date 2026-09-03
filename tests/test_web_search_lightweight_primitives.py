@@ -5,23 +5,23 @@ from datetime import date
 
 from langchain_core.documents import Document
 
-from src import web_search
-from src.web_search import content_fetcher
-from src.web_search.content_fetcher import (
+from src.backend import web_search
+from src.backend.web_search import content_fetcher
+from src.backend.web_search.content_fetcher import (
     FetchedPage,
     estimate_tokens,
     extract_text,
     fetch_pages,
     is_readable_text,
 )
-from src.web_search.fetch_policy import domain_matches, resolve_fetch_policy
-from src.web_search.prompt_builder import build_web_search_prompt
+from src.backend.web_search.fetch_policy import domain_matches, resolve_fetch_policy
+from src.backend.web_search.prompt_builder import build_web_search_prompt
 
 
 # REFACTOR: Focused coverage for lightweight web-search fetch/prompt primitives.
 def test_fetch_pages_delegates_to_shared_document_loader(monkeypatch, caplog):
     calls: list[dict[str, object]] = []
-    caplog.set_level(logging.INFO, logger="src.web_search.content_fetcher")
+    caplog.set_level(logging.INFO, logger="src.backend.web_search.content_fetcher")
 
     def fake_load_source_documents(urls, **kwargs):
         calls.append({"urls": list(urls), **kwargs})
@@ -148,7 +148,7 @@ def test_fetch_pages_marks_tiny_shell_text_unreadable_and_logs_size(
         "load_source_documents",
         fake_load_source_documents,
     )
-    caplog.set_level(logging.INFO, logger="src.web_search.content_fetcher")
+    caplog.set_level(logging.INFO, logger="src.backend.web_search.content_fetcher")
 
     pages = fetch_pages(
         ["https://example.com/shell", "https://example.com/missing"],

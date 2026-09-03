@@ -11,12 +11,12 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from langchain_core.tools import BaseTool, StructuredTool
 
-from src.adapters.mcp_client import (
+from src.backend.adapters.mcp_client import (
     OutboundMCPServerSettings,
     OutboundMCPSettings,
     outbound_provider_registrations,
 )
-from src.mcp import (
+from src.backend.mcp import (
     ProviderHealth,
     ToolCatalog,
     ToolCatalogError,
@@ -175,7 +175,7 @@ def test_optional_failure_omits_all_dependent_tools_and_degrades_readiness(
         )
         catalog = ToolCatalog()
 
-        caplog.set_level(logging.WARNING, logger="src.mcp.catalog")
+        caplog.set_level(logging.WARNING, logger="src.backend.mcp.catalog")
         published = await catalog.publish(
             (
                 _registration(required, required=True),

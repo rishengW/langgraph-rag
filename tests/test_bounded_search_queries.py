@@ -4,10 +4,10 @@ from threading import Lock
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.graph.builder import GraphNodeOverrides, GraphProviders, build_lightweight_graph
-from src.graph.nodes.search_queries import WEB_SEARCH_MAX_QUERIES, search_queries_factory
-from src.web_search.protocol import RankedSearchResult
-from src.web_search.tool import build_web_search_tool
+from src.backend.graph.builder import GraphNodeOverrides, GraphProviders, build_lightweight_graph
+from src.backend.graph.nodes.search_queries import WEB_SEARCH_MAX_QUERIES, search_queries_factory
+from src.backend.web_search.protocol import RankedSearchResult
+from src.backend.web_search.tool import build_web_search_tool
 
 
 def _search_call(query: str = "original") -> AIMessage:

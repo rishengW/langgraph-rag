@@ -5,9 +5,9 @@ import sqlite3
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
-from src.chat.sessions import ChatSession as CompatChatSession
-from src.chat.sessions import ChatSessionRegistry as CompatChatSessionRegistry
-from src.sessions import (
+from src.frontend.chat.sessions import ChatSession as CompatChatSession
+from src.frontend.chat.sessions import ChatSessionRegistry as CompatChatSessionRegistry
+from src.backend.sessions import (
     ChatSession,
     ChatSessionRegistry,
     InMemoryStorage,

@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "src" / "chat" / "static" / "script.js"
-INDEX = ROOT / "src" / "chat" / "static" / "index.html"
+SCRIPT = ROOT / "src" / "frontend" / "chat" / "static" / "script.js"
+INDEX = ROOT / "src" / "frontend" / "chat" / "static" / "index.html"
 
 
 def _script() -> str:

@@ -6,7 +6,7 @@ import pytest
 from openpyxl import Workbook, load_workbook
 from pydantic import ValidationError
 
-from src.tools.excel_edit import (
+from src.backend.tools.excel_edit import (
     XLSX_MIME_TYPE,
     ExcelEditOperation,
     build_excel_edit_tools,

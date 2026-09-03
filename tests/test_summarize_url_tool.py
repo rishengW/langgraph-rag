@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from src.config import Settings
-from src.tools import build_summarize_url_tool
-from src.tools.summarize_tool import summarize_url
+from src.backend.tools import build_summarize_url_tool
+from src.backend.tools.summarize_tool import summarize_url
 
 
 class _FakePage:
@@ -29,11 +29,11 @@ def test_summarize_url_fetches_and_summarizes(monkeypatch):
         "The quick brown fox jumps over the lazy dog. " * 20,
     )
     monkeypatch.setattr(
-        "src.web_search.content_fetcher.fetch_pages",
+        "src.backend.web_search.content_fetcher.fetch_pages",
         lambda *args, **kwargs: [page],
     )
     monkeypatch.setattr(
-        "src.web_search.content_fetcher.is_readable_text",
+        "src.backend.web_search.content_fetcher.is_readable_text",
         lambda *args, **kwargs: True,
     )
 
@@ -47,7 +47,7 @@ def test_summarize_url_fetches_and_summarizes(monkeypatch):
 
         return _Result()
 
-    monkeypatch.setattr("src.llm.provider.build_chat_model", lambda s: object())
+    monkeypatch.setattr("src.backend.llm.provider.build_chat_model", lambda s: object())
     monkeypatch.setattr("src.utils.retry.invoke_with_retry", fake_invoke)
 
     result = summarize_url(
@@ -64,11 +64,11 @@ def test_summarize_url_fetches_and_summarizes(monkeypatch):
 def test_summarize_url_reports_unreadable(monkeypatch):
     page = _FakePage("https://example.com/empty", "", "", error="empty page")
     monkeypatch.setattr(
-        "src.web_search.content_fetcher.fetch_pages",
+        "src.backend.web_search.content_fetcher.fetch_pages",
         lambda *args, **kwargs: [page],
     )
     monkeypatch.setattr(
-        "src.web_search.content_fetcher.is_readable_text",
+        "src.backend.web_search.content_fetcher.is_readable_text",
         lambda *args, **kwargs: False,
     )
 

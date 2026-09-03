@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.memory.watermark import (
+from src.backend.memory.watermark import (
     MAX_WATERMARK,
     WATERMARK_KEY,
     InMemoryWatermarkStore,

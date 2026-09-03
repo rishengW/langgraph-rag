@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from src.web_search import (
+from src.backend.web_search import (
     BingApiWebSearch,
     BraveWebSearch,
     SerperWebSearch,

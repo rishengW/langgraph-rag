@@ -14,7 +14,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from langchain_core.tools import BaseTool, StructuredTool
 
-from src.adapters.mcp_client import (
+from src.backend.adapters.mcp_client import (
     ApprovedProcessTemplate,
     ExecutableAllowlist,
     ManagedOutboundMCPProvider,
@@ -29,7 +29,7 @@ from src.adapters.mcp_client import (
     load_outbound_mcp_settings,
 )
 from src.errors import ConfigurationError
-from src.mcp import ToolCatalogSnapshot, compose_snapshot, descriptor_from_tool
+from src.backend.mcp import ToolCatalogSnapshot, compose_snapshot, descriptor_from_tool
 
 _PUBLIC_A = "93.184.216.34"
 _PUBLIC_B = "142.250.72.14"

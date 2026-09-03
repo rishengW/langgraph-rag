@@ -10,9 +10,9 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
-from src.chat import api as chat_api
-from src.chat import main as chat_main
-from src.chat.memory_hooks import (
+from src.frontend.chat import api as chat_api
+from src.frontend.chat import main as chat_main
+from src.frontend.chat.memory_hooks import (
     ExtractionRuntime,
     SessionWatermarkStore,
     after_turn,
@@ -20,10 +20,10 @@ from src.chat.memory_hooks import (
     on_session_start,
 )
 from src.config import Settings
-from src.graph.events import DoneEvent
-from src.memory.scheduler import ExtractionScheduler
-from src.memory.watermark import WATERMARK_KEY, InMemoryWatermarkStore
-from src.sessions import ChatSessionRegistry, InMemoryStorage, SessionMetadata
+from src.backend.graph.events import DoneEvent
+from src.backend.memory.scheduler import ExtractionScheduler
+from src.backend.memory.watermark import WATERMARK_KEY, InMemoryWatermarkStore
+from src.backend.sessions import ChatSessionRegistry, InMemoryStorage, SessionMetadata
 
 
 class RecordingScheduler:
@@ -198,7 +198,7 @@ def test_over_age_winner_is_marked_done_without_replacement(tmp_path, monkeypatc
     # while the lower-ranked item is even older.
     value.storage.metadata["fresh"] = metadata("fresh", now - 7201)
     value.storage.metadata["old-winner"] = metadata("old-winner", now - 7202)
-    monkeypatch.setattr("src.chat.memory_hooks.time.time", lambda: now)
+    monkeypatch.setattr("src.frontend.chat.memory_hooks.time.time", lambda: now)
 
     on_session_start(value, new_thread_id="new")
 
@@ -326,8 +326,8 @@ def test_cli_calls_after_turn_and_shuts_down(monkeypatch, tmp_path):
     prompts = iter(["hello", "exit"])
 
     monkeypatch.setattr(chat_main, "load_settings", lambda **_kwargs: settings)
-    monkeypatch.setattr("src.chat.graph._build_memory_saver", lambda: object())
-    monkeypatch.setattr("src.chat.graph.build_chat_graph", lambda *_a, **_k: object())
+    monkeypatch.setattr("src.frontend.chat.graph._build_memory_saver", lambda: object())
+    monkeypatch.setattr("src.frontend.chat.graph.build_chat_graph", lambda *_a, **_k: object())
     monkeypatch.setattr(chat_main, "build_extraction_runtime", lambda *_a, **_k: runtime_value)
     monkeypatch.setattr(
         chat_main,
@@ -458,8 +458,8 @@ def test_cli_interrupt_shuts_down_runtime(monkeypatch, tmp_path):
     runtime_value = SimpleNamespace(scheduler=scheduler)
 
     monkeypatch.setattr(chat_main, "load_settings", lambda **_kwargs: settings)
-    monkeypatch.setattr("src.chat.graph._build_memory_saver", lambda: object())
-    monkeypatch.setattr("src.chat.graph.build_chat_graph", lambda *_a, **_k: object())
+    monkeypatch.setattr("src.frontend.chat.graph._build_memory_saver", lambda: object())
+    monkeypatch.setattr("src.frontend.chat.graph.build_chat_graph", lambda *_a, **_k: object())
     monkeypatch.setattr(
         chat_main,
         "build_extraction_runtime",

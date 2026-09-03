@@ -8,8 +8,8 @@ from pptx.dml.color import RGBColor
 from pptx.util import Pt
 
 from src.config import Settings
-from src.graph.artifacts import normalize_artifact
-from src.tools.powerpoint_edit import (
+from src.backend.graph.artifacts import normalize_artifact
+from src.backend.tools.powerpoint_edit import (
     PPTX_MIME_TYPE,
     PowerPointEditOperation,
     build_powerpoint_edit_tools,

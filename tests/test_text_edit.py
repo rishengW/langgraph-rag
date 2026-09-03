@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.tools.text_edit import (
+from src.backend.tools.text_edit import (
     TEXT_MIME_TYPE,
     TextEditOperation,
     build_text_edit_tools,

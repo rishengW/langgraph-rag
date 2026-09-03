@@ -13,9 +13,9 @@ import pydantic
 import pytest
 
 from src.config.settings import Settings
-from src.memory.recall import MemoryCallBudget
-from src.memory.store import MemoryStore, SaveOutcome
-from src.tools.memory_tool import (
+from src.backend.memory.recall import MemoryCallBudget
+from src.backend.memory.store import MemoryStore, SaveOutcome
+from src.backend.tools.memory_tool import (
     FAILURE_MARKER,
     ForgetMemoryInput,
     RecallMemoryInput,

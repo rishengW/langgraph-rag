@@ -12,7 +12,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from langchain_core.tools import StructuredTool
 
-from src.mcp import (
+from src.backend.mcp import (
     CallbackObservationSink,
     MCPObservability,
     NullObservationSink,
@@ -26,7 +26,7 @@ from src.mcp import (
     reset_tool_principal,
     set_tool_principal,
 )
-from src.mcp.observability import (
+from src.backend.mcp.observability import (
     MAX_OBSERVATION_RECORD_BYTES,
     ObservationEvent,
 )

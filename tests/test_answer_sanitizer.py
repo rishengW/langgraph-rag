@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.llm.sanitize import CitationArtifactFilter, strip_citation_artifacts
+from src.backend.llm.sanitize import CitationArtifactFilter, strip_citation_artifacts
 
 _MARKER = "\u3010199\u2020L91-L126\u3011"
 _SHORT_MARKER = "\u3010199\u2020L31-L32\u3011"
@@ -97,9 +97,9 @@ def test_web_answer_strips_markers_from_the_grounded_answer(monkeypatch, isolate
 
     from langchain_core.messages import AIMessage, HumanMessage
 
-    from src.graph.nodes import web_answer as web_answer_module
-    from src.web_search.content_fetcher import is_readable_page, is_readable_text
-    from src.web_search.page_structure import PageStructure
+    from src.backend.graph.nodes import web_answer as web_answer_module
+    from src.backend.web_search.content_fetcher import is_readable_page, is_readable_text
+    from src.backend.web_search.page_structure import PageStructure
 
     settings = isolated_settings(source_urls=[])
     page = SimpleNamespace(
@@ -109,15 +109,15 @@ def test_web_answer_strips_markers_from_the_grounded_answer(monkeypatch, isolate
         structure=PageStructure(shape="article", content_words=150, measured=True),
     )
 
-    content_fetcher = ModuleType("src.web_search.content_fetcher")
+    content_fetcher = ModuleType("src.backend.web_search.content_fetcher")
     content_fetcher.FetchedPage = SimpleNamespace
     content_fetcher.fetch_pages = lambda _urls, **_kwargs: [page]
     content_fetcher.is_readable_page = is_readable_page
     content_fetcher.is_readable_text = is_readable_text
-    prompt_builder = ModuleType("src.web_search.prompt_builder")
+    prompt_builder = ModuleType("src.backend.web_search.prompt_builder")
     prompt_builder.build_web_search_prompt = lambda *_args, **_kwargs: "prompt"
-    monkeypatch.setitem(sys.modules, "src.web_search.content_fetcher", content_fetcher)
-    monkeypatch.setitem(sys.modules, "src.web_search.prompt_builder", prompt_builder)
+    monkeypatch.setitem(sys.modules, "src.backend.web_search.content_fetcher", content_fetcher)
+    monkeypatch.setitem(sys.modules, "src.backend.web_search.prompt_builder", prompt_builder)
 
     monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "fake-model")
     monkeypatch.setattr(
@@ -140,7 +140,7 @@ def test_web_answer_strips_markers_from_the_grounded_answer(monkeypatch, isolate
 def test_token_stream_drops_a_marker_split_across_token_events():
     from langchain_core.messages import AIMessageChunk
 
-    from src.graph.executor import GraphExecutor
+    from src.backend.graph.executor import GraphExecutor
 
     chunks = ["Spain won", "\u3010199", "\u2020L91-", "L126\u3011", " in New Jersey."]
 
@@ -172,7 +172,7 @@ def test_token_stream_drops_a_marker_split_across_token_events():
 def test_web_search_prompt_forbids_invented_reference_markers():
     from types import SimpleNamespace
 
-    from src.web_search.prompt_builder import build_web_search_prompt
+    from src.backend.web_search.prompt_builder import build_web_search_prompt
 
     page = SimpleNamespace(
         url="https://example.com/final",

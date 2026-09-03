@@ -39,13 +39,13 @@ jobs:
         # paths to avoid a noisy repository-wide rewrite.
         run: >-
           ruff format --check
-          src/application
-          src/adapters/mcp_server
-          src/mcp
-          src/graph/builder.py
-          src/graph/events.py
-          src/graph/executor.py
-          src/graph/metrics.py
+          src/backend/application
+          src/frontend/adapters/mcp_server
+          src/backend/mcp
+          src/backend/graph/builder.py
+          src/backend/graph/events.py
+          src/backend/graph/executor.py
+          src/backend/graph/metrics.py
           tests/test_rag_application_service.py
           tests/test_mcp_server.py
           tests/test_tool_catalog_policy.py

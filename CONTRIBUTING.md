@@ -24,7 +24,7 @@ logs, and shared issue text.
 Run the chat API:
 
 ```powershell
-python -m src.chat.main serve
+python -m src.frontend.chat.main serve
 ```
 
 Use `--config <path>` with the chat entry point when testing a custom

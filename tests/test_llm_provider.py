@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from pydantic import BaseModel
 
-from src.llm.provider import build_structured_chat_model, structured_output_method
+from src.backend.llm.provider import build_structured_chat_model, structured_output_method
 
 
 class _Result(BaseModel):

@@ -16,7 +16,7 @@ from src.deployment.release_gate import (
     main,
     validate_release_evidence,
 )
-from src.mcp import EnvironmentSecretProvider, SecretReference, SecretResolver
+from src.backend.mcp import EnvironmentSecretProvider, SecretReference, SecretResolver
 
 
 def _valid_document(now: datetime) -> dict[str, object]:

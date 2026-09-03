@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.application import (
+from src.backend.application import (
     SessionLifecycleDependencies,
     SessionLifecycleService,
     StartSessionRequest,
@@ -15,8 +15,8 @@ from src.application import (
     TurnExecutionService,
     TurnRequest,
 )
-from src.graph.events import DoneEvent, ErrorEvent, NodeStartEvent
-from src.sessions import ChatSession, ChatSessionRegistry
+from src.backend.graph.events import DoneEvent, ErrorEvent, NodeStartEvent
+from src.backend.sessions import ChatSession, ChatSessionRegistry
 
 
 class RecordingCheckpointer:
@@ -172,7 +172,7 @@ def test_stream_cancellation_closes_generator_waits_and_rolls_back(mock_settings
 
 
 def test_stream_preserves_event_order_and_artifacts(mock_settings) -> None:
-    from src.graph.events import ArtifactEvent
+    from src.backend.graph.events import ArtifactEvent
 
     artifact = {"id": "file-1", "type": "file"}
     expected = [
@@ -205,7 +205,7 @@ def test_stream_preserves_event_order_and_artifacts(mock_settings) -> None:
 def test_http_chat_adapters_preserve_legacy_contracts(monkeypatch, isolated_settings) -> None:
     from fastapi.testclient import TestClient
 
-    from src.chat import api as chat_api
+    from src.frontend.chat import api as chat_api
 
     settings = isolated_settings(
         source_urls=["https://default.test"],
@@ -380,7 +380,7 @@ def test_direct_session_lifecycle_start(mock_settings) -> None:
 def test_history_uses_existing_global_api_key_guard(monkeypatch, isolated_settings) -> None:
     from fastapi.testclient import TestClient
 
-    from src.chat import api as chat_api
+    from src.frontend.chat import api as chat_api
 
     settings = isolated_settings(
         api_key="history-key",

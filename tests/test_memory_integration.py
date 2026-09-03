@@ -10,12 +10,12 @@ import types
 
 import pytest
 
-from src.chat.api import _graph_inputs_for_turn, _serialize_messages
+from src.frontend.chat.api import _graph_inputs_for_turn, _serialize_messages
 from src.config.settings import Settings
-from src.graph.builder import GraphProviders, _resolve_lightweight_tools, _resolve_tools
-from src.llm.prompts import AGENT_SYSTEM_PROMPT
-from src.memory.recall import MEMORY_NOTE_LABEL
-from src.memory.store import MemoryStore, reset_store_cache
+from src.backend.graph.builder import GraphProviders, _resolve_lightweight_tools, _resolve_tools
+from src.backend.llm.prompts import AGENT_SYSTEM_PROMPT
+from src.backend.memory.recall import MEMORY_NOTE_LABEL
+from src.backend.memory.store import MemoryStore, reset_store_cache
 
 MEMORY_TOOL_NAMES = {"save_memory", "recall_memory", "forget_memory"}
 TS = "2026-07-01T00:00:00+00:00"
@@ -79,7 +79,7 @@ def stub_retriever(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "src.core.retriever.build_retriever_tool", fake_build_retriever_tool
+        "src.backend.core.retriever.build_retriever_tool", fake_build_retriever_tool
     )
 
 
@@ -184,7 +184,7 @@ def test_memory_note_precedes_the_upload_note(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
 
     monkeypatch.setattr(
-        "src.chat.api._new_upload_context", lambda session, settings: "Uploaded: a.txt"
+        "src.frontend.chat.api._new_upload_context", lambda session, settings: "Uploaded: a.txt"
     )
 
     inputs = _graph_inputs_for_turn(
@@ -206,7 +206,7 @@ def test_no_memory_note_when_nothing_matches(tmp_path, monkeypatch):
     seeded_store(tmp_path, "Prefers metric units")
     settings = make_settings(tmp_path)
     monkeypatch.setattr(
-        "src.chat.api._new_upload_context", lambda session, settings: None
+        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
     )
 
     inputs = _graph_inputs_for_turn(fake_session(), "bicycles", settings)
@@ -218,7 +218,7 @@ def test_no_memory_note_when_auto_recall_is_off(tmp_path, monkeypatch):
     seeded_store(tmp_path, "Prefers metric units")
     settings = make_settings(tmp_path, memory_auto_recall_enabled=False)
     monkeypatch.setattr(
-        "src.chat.api._new_upload_context", lambda session, settings: None
+        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
     )
 
     inputs = _graph_inputs_for_turn(
@@ -232,7 +232,7 @@ def test_turn_completes_when_the_store_raises(tmp_path, monkeypatch, caplog):
     seeded_store(tmp_path, "Prefers metric units")
     settings = make_settings(tmp_path)
     monkeypatch.setattr(
-        "src.chat.api._new_upload_context", lambda session, settings: None
+        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
     )
 
     def boom(self, thread_id):
@@ -255,7 +255,7 @@ def test_injection_is_read_only(tmp_path, monkeypatch):
     store = seeded_store(tmp_path, "Prefers metric units")
     settings = make_settings(tmp_path)
     monkeypatch.setattr(
-        "src.chat.api._new_upload_context", lambda session, settings: None
+        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
     )
     before = store.path.read_text(encoding="utf-8")
 
@@ -277,7 +277,7 @@ def test_session_scoped_memory_is_only_injected_for_its_thread(tmp_path, monkeyp
     ).ok
     settings = make_settings(tmp_path)
     monkeypatch.setattr(
-        "src.chat.api._new_upload_context", lambda session, settings: None
+        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
     )
 
     mine = _graph_inputs_for_turn(fake_session("thread-42"), "metric", settings)
@@ -300,7 +300,7 @@ def test_history_excludes_the_memory_note(tmp_path, monkeypatch):
     seeded_store(tmp_path, "Prefers metric units")
     settings = make_settings(tmp_path)
     monkeypatch.setattr(
-        "src.chat.api._new_upload_context", lambda session, settings: None
+        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
     )
 
     from langchain_core.messages import AIMessage

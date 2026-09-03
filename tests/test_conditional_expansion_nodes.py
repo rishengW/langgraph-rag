@@ -7,9 +7,9 @@ from dataclasses import replace
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from src.graph.nodes import decompose as decompose_module
-from src.graph.nodes import expand as expand_module
-from src.graph.nodes import merge as merge_module
+from src.backend.graph.nodes import decompose as decompose_module
+from src.backend.graph.nodes import expand as expand_module
+from src.backend.graph.nodes import merge as merge_module
 
 
 def _structured_chat_model(result_factory):

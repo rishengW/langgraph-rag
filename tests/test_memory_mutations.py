@@ -9,8 +9,8 @@ import threading
 
 import pytest
 
-from src.memory.models import MAX_FORGET_DELETES, MAX_TAG_CHARS, MAX_TAGS
-from src.memory.store import MemoryStore
+from src.backend.memory.models import MAX_FORGET_DELETES, MAX_TAG_CHARS, MAX_TAGS
+from src.backend.memory.store import MemoryStore
 
 TS = "2026-07-01T00:00:00+00:00"
 
@@ -514,7 +514,7 @@ def test_recall_read_failure_is_reported_without_a_write(store, monkeypatch):
     before = store.path.read_text(encoding="utf-8")
 
     def boom(*args, **kwargs):
-        from src.memory.store import MemoryStoreError
+        from src.backend.memory.store import MemoryStoreError
 
         raise MemoryStoreError("disk on fire")
 

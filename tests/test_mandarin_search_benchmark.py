@@ -66,6 +66,10 @@ def _judgments() -> tuple[RelevanceJudgment, ...]:
     )
 
 
+@pytest.mark.skipif(
+    not DEFAULT_QUERY_SET.exists(),
+    reason="benchmarks/ is gitignored; the manifest only exists in local data checkouts",
+)
 def test_default_manifest_covers_all_mandarin_intent_categories() -> None:
     queries = load_queries(DEFAULT_QUERY_SET)
 

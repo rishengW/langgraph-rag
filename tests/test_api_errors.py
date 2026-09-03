@@ -14,7 +14,6 @@ from src.errors import (
     RetrieverError,
     WebSearchError,
 )
-from src.qa import api as qa_api
 
 
 @pytest.mark.parametrize(
@@ -30,12 +29,12 @@ from src.qa import api as qa_api
         (ResourceNotFoundError, 404, "RESOURCE_NOT_FOUND"),
     ],
 )
-def test_qa_app_formats_typed_rag_errors(
+def test_app_formats_typed_rag_errors(
     error_cls: type[RAGError],
     expected_status: int,
     expected_code: str,
 ) -> None:
-    app = qa_api.create_app()
+    app = chat_api.create_app()
 
     @app.get("/raise-rag-error")
     async def raise_rag_error() -> None:

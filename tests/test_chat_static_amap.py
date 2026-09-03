@@ -87,10 +87,16 @@ def test_streaming_defers_markdown_katex_and_artifact_rendering_until_final() ->
     token_branch = script.split('eventType === "token"', maxsplit=1)[1].split(
         'eventType === "artifact"', maxsplit=1
     )[0]
+    streamed_renderer = script.split(
+        "const renderStreamedAnswer = () => {", maxsplit=1
+    )[1].split("};", maxsplit=1)[0]
 
-    assert "el.textContent = answer;" in token_branch
+    assert "renderStreamedAnswer();" in token_branch
+    assert "el.textContent = answer;" in streamed_renderer
     assert "renderMarkdownPreview" not in token_branch
+    assert "renderMarkdownPreview" not in streamed_renderer
     assert "renderMath" not in token_branch
+    assert "renderMath" not in streamed_renderer
     assert "renderFinalAssistantBubble(bubble, answer" in script
     assert "renderArtifactStack(turn, artifacts);" in script
 
@@ -146,4 +152,4 @@ def test_index_has_responsive_amap_styles_and_bumped_script_cache_version() -> N
     assert ".amap-card" in index
     assert ".amap-card__map" in index
     assert "@media (max-width: 640px)" in index
-    assert '<script src="/static/script.js?v=11"></script>' in index
+    assert '<script src="/static/script.js?v=14"></script>' in index

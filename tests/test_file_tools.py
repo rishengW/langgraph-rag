@@ -4,15 +4,34 @@ import zipfile
 from pathlib import Path
 
 import openpyxl
+import pytest
 
-from src.config import Settings
 from src.backend.tools import (
     build_excel_tool,
+    build_go_file_tool,
+    build_groovy_file_tool,
+    build_haskell_file_tool,
+    build_json_file_tool,
+    build_julia_file_tool,
+    build_latex_file_tool,
+    build_log_file_tool,
+    build_lua_file_tool,
     build_markdown_file_tool,
+    build_matlab_file_tool,
     build_pdf_tool,
+    build_php_file_tool,
+    build_prolog_file_tool,
+    build_r_file_tool,
+    build_ruby_file_tool,
+    build_rust_file_tool,
+    build_shell_file_tool,
+    build_sql_file_tool,
+    build_swift_file_tool,
     build_text_file_tool,
+    build_typescript_file_tool,
     build_word_tool,
 )
+from src.config import Settings
 
 _DOCX_DOCUMENT_XML = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -90,6 +109,122 @@ def test_markdown_tool_rejects_non_md_suffix(tmp_path):
     result = tool.invoke({"path": "note.txt"})
 
     assert "Could not read Markdown file" in result
+    assert "unsupported file type" in result
+
+
+def test_typescript_tool_reads_ts_and_tsx_files(tmp_path):
+    ts_target = tmp_path / "app.ts"
+    ts_target.write_text("export const answer = 42;\n", encoding="utf-8")
+    tsx_target = tmp_path / "widget.tsx"
+    tsx_target.write_text("export const Widget = () => null;\n", encoding="utf-8")
+
+    tool = build_typescript_file_tool(_settings(tmp_path))
+
+    ts_result = tool.invoke({"path": "app.ts"})
+    assert "Contents of app.ts" in ts_result
+    assert "export const answer = 42;" in ts_result
+
+    tsx_result = tool.invoke({"path": "widget.tsx"})
+    assert "Contents of widget.tsx" in tsx_result
+    assert "export const Widget" in tsx_result
+
+
+def test_typescript_tool_rejects_non_typescript_suffix(tmp_path):
+    target = tmp_path / "note.js"
+    target.write_text("nope", encoding="utf-8")
+
+    tool = build_typescript_file_tool(_settings(tmp_path))
+    result = tool.invoke({"path": "note.js"})
+
+    assert "Could not read TypeScript file" in result
+    assert "unsupported file type" in result
+
+
+def test_json_tool_reads_json_and_jsonl_files(tmp_path):
+    json_target = tmp_path / "data.json"
+    json_target.write_text('{"ok": true}\n', encoding="utf-8")
+    jsonl_target = tmp_path / "events.jsonl"
+    jsonl_target.write_text('{"id": 1}\n{"id": 2}\n', encoding="utf-8")
+
+    tool = build_json_file_tool(_settings(tmp_path))
+
+    assert '{"ok": true}' in tool.invoke({"path": "data.json"})
+    assert '{"id": 2}' in tool.invoke({"path": "events.jsonl"})
+
+
+def test_json_tool_rejects_other_suffixes(tmp_path):
+    target = tmp_path / "data.yaml"
+    target.write_text("nope", encoding="utf-8")
+
+    tool = build_json_file_tool(_settings(tmp_path))
+    result = tool.invoke({"path": "data.yaml"})
+
+    assert "Could not read JSON file" in result
+    assert "unsupported file type" in result
+
+
+@pytest.mark.parametrize(
+    ("builder", "filename", "line"),
+    [
+        (build_r_file_tool, "plot.r", "x <- 1"),
+        (build_rust_file_tool, "main.rs", "fn main() {}"),
+        (build_go_file_tool, "main.go", "package main"),
+        (build_sql_file_tool, "query.sql", "SELECT 1;"),
+        (build_php_file_tool, "index.php", "<?php echo 1;"),
+        (build_ruby_file_tool, "app.rb", "puts 'hi'"),
+        (build_latex_file_tool, "paper.tex", r"\section{Intro}"),
+        (build_prolog_file_tool, "family.pl", "parent(tom, bob)."),
+        (build_haskell_file_tool, "math.hs", "factorial n = product [1 .. n]"),
+        (build_lua_file_tool, "script.lua", "local x = 1"),
+        (build_julia_file_tool, "analyze.jl", "x = [1, 2, 3]"),
+        (build_shell_file_tool, "deploy.sh", "echo hello"),
+        (build_shell_file_tool, "profile.bash", "export PATH"),
+        (build_matlab_file_tool, "analysis.m", "a = 1;"),
+        (build_groovy_file_tool, "script.groovy", "def x = 1"),
+        (build_swift_file_tool, "app.swift", "let x = 1"),
+        (build_log_file_tool, "server.log", "INFO started"),
+    ],
+)
+def test_code_file_tools_read_their_language(tmp_path, builder, filename, line):
+    target = tmp_path / filename
+    target.write_text(f"{line}\n", encoding="utf-8")
+
+    tool = builder(_settings(tmp_path))
+    result = tool.invoke({"path": filename})
+
+    assert f"Contents of {filename}" in result
+    assert line in result
+
+
+@pytest.mark.parametrize(
+    ("builder", "filename"),
+    [
+        (build_r_file_tool, "plot.py"),
+        (build_rust_file_tool, "main.c"),
+        (build_go_file_tool, "main.java"),
+        (build_sql_file_tool, "query.md"),
+        (build_php_file_tool, "index.html"),
+        (build_ruby_file_tool, "app.py"),
+        (build_latex_file_tool, "paper.md"),
+        (build_prolog_file_tool, "family.py"),
+        (build_haskell_file_tool, "math.ml"),
+        (build_lua_file_tool, "script.py"),
+        (build_julia_file_tool, "analyze.js"),
+        (build_shell_file_tool, "deploy.ps1"),
+        (build_matlab_file_tool, "analysis.py"),
+        (build_groovy_file_tool, "script.java"),
+        (build_swift_file_tool, "app.kt"),
+        (build_log_file_tool, "server.txt"),
+    ],
+)
+def test_code_file_tools_reject_other_suffixes(tmp_path, builder, filename):
+    target = tmp_path / filename
+    target.write_text("nope", encoding="utf-8")
+
+    tool = builder(_settings(tmp_path))
+    result = tool.invoke({"path": filename})
+
+    assert "Could not read" in result
     assert "unsupported file type" in result
 
 

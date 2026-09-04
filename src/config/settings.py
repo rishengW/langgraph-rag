@@ -171,6 +171,35 @@ class Settings:
     # needs file_read_enabled. Same session-scoped, never-overwrite model as the
     # .txt editor, layered on top of file_read_enabled.
     csv_edit_enabled: bool = False
+    # TypeScript .ts/.tsx creation and editing. Same session-scoped,
+    # never-overwrite model as the .txt editor, layered on top of
+    # file_read_enabled.
+    typescript_edit_enabled: bool = False
+    # JSON .json creation and structured editing (path-based set/delete with
+    # expected-value guards), layered on top of file_read_enabled.
+    json_edit_enabled: bool = False
+    # JSONL .jsonl creation and editing; every written line must parse as JSON.
+    # Same session-scoped, never-overwrite model as the .txt editor.
+    jsonl_edit_enabled: bool = False
+    # Per-language source creation and editing (R, Rust, Go, SQL, PHP, Ruby,
+    # LaTeX, Prolog, Haskell, Lua, Julia, ...). Same session-scoped,
+    # never-overwrite line editor as the .txt editor.
+    r_edit_enabled: bool = False
+    rust_edit_enabled: bool = False
+    go_edit_enabled: bool = False
+    sql_edit_enabled: bool = False
+    php_edit_enabled: bool = False
+    ruby_edit_enabled: bool = False
+    latex_edit_enabled: bool = False
+    prolog_edit_enabled: bool = False
+    haskell_edit_enabled: bool = False
+    lua_edit_enabled: bool = False
+    julia_edit_enabled: bool = False
+    shell_edit_enabled: bool = False
+    matlab_edit_enabled: bool = False
+    groovy_edit_enabled: bool = False
+    swift_edit_enabled: bool = False
+    log_edit_enabled: bool = False
     # Chat-agent long-term memory. Disabled by default so existing
     # deployments keep their current tool set and touch no memory file.
     memory_enabled: bool = False

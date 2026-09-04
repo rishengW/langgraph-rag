@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from langchain_core.tools import BaseTool
 
 from src.errors import ConfigurationError
+
 from .catalog import compose_snapshot, descriptor_from_tool
 from .models import (
     ProviderHealth,
@@ -186,9 +187,28 @@ class DocumentToolProvider(FactoryToolProvider):
             return (
                 tools.build_text_file_tool(settings),
                 tools.build_markdown_file_tool(settings),
+                tools.build_typescript_file_tool(settings),
+                tools.build_json_file_tool(settings),
+                tools.build_r_file_tool(settings),
+                tools.build_rust_file_tool(settings),
+                tools.build_go_file_tool(settings),
+                tools.build_groovy_file_tool(settings),
+                tools.build_haskell_file_tool(settings),
+                tools.build_lua_file_tool(settings),
+                tools.build_julia_file_tool(settings),
+                tools.build_shell_file_tool(settings),
+                tools.build_matlab_file_tool(settings),
+                tools.build_sql_file_tool(settings),
+                tools.build_swift_file_tool(settings),
+                tools.build_log_file_tool(settings),
+                tools.build_php_file_tool(settings),
+                tools.build_ruby_file_tool(settings),
+                tools.build_latex_file_tool(settings),
+                tools.build_prolog_file_tool(settings),
                 tools.build_word_tool(settings),
                 tools.build_excel_tool(settings),
                 tools.build_pdf_tool(settings),
+                *tools.build_zip_tools(settings),
             )
 
         super().__init__("documents", build, source="local", risk="read")
@@ -212,6 +232,25 @@ class SessionEditingToolProvider(FactoryToolProvider):
                 *tools.build_word_edit_tools(settings, **keyword),
                 *tools.build_text_edit_tools(settings, **keyword),
                 *tools.build_markdown_edit_tools(settings, **keyword),
+                *tools.build_typescript_edit_tools(settings, **keyword),
+                *tools.build_json_edit_tools(settings, **keyword),
+                *tools.build_jsonl_edit_tools(settings, **keyword),
+                *tools.build_r_edit_tools(settings, **keyword),
+                *tools.build_rust_edit_tools(settings, **keyword),
+                *tools.build_go_edit_tools(settings, **keyword),
+                *tools.build_groovy_edit_tools(settings, **keyword),
+                *tools.build_haskell_edit_tools(settings, **keyword),
+                *tools.build_lua_edit_tools(settings, **keyword),
+                *tools.build_julia_edit_tools(settings, **keyword),
+                *tools.build_shell_edit_tools(settings, **keyword),
+                *tools.build_matlab_edit_tools(settings, **keyword),
+                *tools.build_sql_edit_tools(settings, **keyword),
+                *tools.build_swift_edit_tools(settings, **keyword),
+                *tools.build_log_edit_tools(settings, **keyword),
+                *tools.build_php_edit_tools(settings, **keyword),
+                *tools.build_ruby_edit_tools(settings, **keyword),
+                *tools.build_latex_edit_tools(settings, **keyword),
+                *tools.build_prolog_edit_tools(settings, **keyword),
                 *tools.build_csv_edit_tools(settings, **keyword),
                 *tools.build_excel_create_tools(settings, **keyword),
                 *tools.build_excel_edit_tools(settings, **keyword),

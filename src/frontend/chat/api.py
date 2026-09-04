@@ -35,6 +35,33 @@ from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import HumanMessage
 from starlette.background import BackgroundTask
 
+from src.backend.application import (
+    ChatApplicationService,
+    SessionLifecycleDependencies,
+    SessionLifecycleService,
+    StartSessionRequest,
+    TurnExecutionDependencies,
+    TurnExecutionService,
+    TurnRequest,
+    serialize_history,
+)
+from src.backend.core.web_search import discover_urls_from_web
+from src.backend.graph.builder import build_lightweight_graph
+from src.backend.graph.metrics import MetricsCollector, MetricsSnapshot
+from src.backend.graph.nodes.condense import condense_followup_question
+from src.backend.memory.recall import build_turn_messages
+from src.backend.memory.store import get_memory_store
+from src.backend.security import Principal, QuotaBudget, QuotaLimits, QuotaManager
+from src.backend.sessions import (
+    ChatSession,
+    ChatSessionRegistry,
+    SQLiteMemorySaver,
+    SQLiteStorage,
+    _settings_for_session,
+)
+from src.config import Settings, load_cors_allow_origins, load_settings
+from src.errors import ResourceNotFoundError
+
 from ..api.amap_proxy import (
     AMapProxyError,
     build_amap_client_config,
@@ -66,32 +93,6 @@ from ..api.models import (
     UploadResponse,
 )
 from ..api.streaming import format_sse
-from src.backend.application import (
-    ChatApplicationService,
-    SessionLifecycleDependencies,
-    SessionLifecycleService,
-    StartSessionRequest,
-    TurnExecutionDependencies,
-    TurnExecutionService,
-    TurnRequest,
-    serialize_history,
-)
-from src.config import Settings, load_cors_allow_origins, load_settings
-from src.backend.core.web_search import discover_urls_from_web
-from src.errors import ResourceNotFoundError
-from src.backend.graph.builder import build_lightweight_graph
-from src.backend.graph.metrics import MetricsCollector, MetricsSnapshot
-from src.backend.graph.nodes.condense import condense_followup_question
-from src.backend.memory.recall import build_turn_messages
-from src.backend.memory.store import get_memory_store
-from src.backend.security import Principal, QuotaBudget, QuotaLimits, QuotaManager
-from src.backend.sessions import (
-    ChatSession,
-    ChatSessionRegistry,
-    SQLiteMemorySaver,
-    SQLiteStorage,
-    _settings_for_session,
-)
 from .graph import build_chat_graph
 from .memory_hooks import (
     after_turn,
@@ -119,12 +120,33 @@ logger = logging.getLogger(__name__)
 DOWNLOAD_MEDIA_TYPES = {
     ".csv": "text/csv",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".go": "text/x-go",
+    ".groovy": "text/x-groovy",
+    ".hs": "text/x-haskell",
+    ".json": "application/json",
+    ".jsonl": "application/x-ndjson",
+    ".jl": "text/x-julia",
     ".log": "text/plain",
+    ".lua": "text/x-lua",
+    ".m": "text/x-matlab",
     ".md": "text/markdown",
     ".pdf": "application/pdf",
+    ".php": "text/x-php",
+    ".pl": "text/x-prolog",
+    ".r": "text/x-r",
+    ".rb": "text/x-ruby",
+    ".rs": "text/rust",
+    ".sh": "text/x-shellscript",
+    ".bash": "text/x-shellscript",
+    ".sql": "application/sql",
+    ".swift": "text/x-swift",
+    ".tex": "text/x-tex",
     ".txt": "text/plain",
+    ".ts": "text/typescript",
+    ".tsx": "text/typescript",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".zip": "application/zip",
 }
 
 SettingsDep: TypeAlias = Annotated[Settings, Depends(get_config)]
@@ -362,6 +384,25 @@ def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:
         word_edit_enabled=settings.word_edit_enabled,
         text_edit_enabled=settings.text_edit_enabled,
         markdown_edit_enabled=settings.markdown_edit_enabled,
+        typescript_edit_enabled=settings.typescript_edit_enabled,
+        json_edit_enabled=settings.json_edit_enabled,
+        jsonl_edit_enabled=settings.jsonl_edit_enabled,
+        r_edit_enabled=settings.r_edit_enabled,
+        rust_edit_enabled=settings.rust_edit_enabled,
+        go_edit_enabled=settings.go_edit_enabled,
+        sql_edit_enabled=settings.sql_edit_enabled,
+        php_edit_enabled=settings.php_edit_enabled,
+        ruby_edit_enabled=settings.ruby_edit_enabled,
+        latex_edit_enabled=settings.latex_edit_enabled,
+        prolog_edit_enabled=settings.prolog_edit_enabled,
+        haskell_edit_enabled=settings.haskell_edit_enabled,
+        lua_edit_enabled=settings.lua_edit_enabled,
+        julia_edit_enabled=settings.julia_edit_enabled,
+        shell_edit_enabled=settings.shell_edit_enabled,
+        matlab_edit_enabled=settings.matlab_edit_enabled,
+        groovy_edit_enabled=settings.groovy_edit_enabled,
+        swift_edit_enabled=settings.swift_edit_enabled,
+        log_edit_enabled=settings.log_edit_enabled,
         powerpoint_edit_enabled=settings.powerpoint_edit_enabled,
         excel_edit_enabled=settings.excel_edit_enabled,
         csv_edit_enabled=settings.csv_edit_enabled,

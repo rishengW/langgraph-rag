@@ -176,6 +176,25 @@ Key settings:
 | `EXCEL_NODE_MODULES_PATH` | - | Loader-provided `node_modules` directory containing `@oai/artifact-tool` |
 | `TEXT_EDIT_ENABLED` | `false` | Plain-text .txt creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `MARKDOWN_EDIT_ENABLED` | `false` | Markdown .md creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
+| `TYPESCRIPT_EDIT_ENABLED` | `false` | TypeScript .ts/.tsx creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
+| `JSON_EDIT_ENABLED` | `false` | JSON .json creation and structured path-based editing; needs FILE_READ_ENABLED too |
+| `JSONL_EDIT_ENABLED` | `false` | JSONL .jsonl creation/editing (every line must parse as JSON); needs FILE_READ_ENABLED too |
+| `R_EDIT_ENABLED` | `false` | R .r creation/editing; needs FILE_READ_ENABLED too |
+| `RUST_EDIT_ENABLED` | `false` | Rust .rs creation/editing; needs FILE_READ_ENABLED too |
+| `GO_EDIT_ENABLED` | `false` | Go .go creation/editing; needs FILE_READ_ENABLED too |
+| `SQL_EDIT_ENABLED` | `false` | SQL .sql creation/editing (MySQL/PostgreSQL/SQLite scripts); needs FILE_READ_ENABLED too |
+| `PHP_EDIT_ENABLED` | `false` | PHP .php creation/editing; needs FILE_READ_ENABLED too |
+| `RUBY_EDIT_ENABLED` | `false` | Ruby .rb creation/editing; needs FILE_READ_ENABLED too |
+| `LATEX_EDIT_ENABLED` | `false` | LaTeX .tex creation/editing; needs FILE_READ_ENABLED too |
+| `PROLOG_EDIT_ENABLED` | `false` | Prolog .pl creation/editing; needs FILE_READ_ENABLED too |
+| `HASKELL_EDIT_ENABLED` | `false` | Haskell .hs creation/editing; needs FILE_READ_ENABLED too |
+| `LUA_EDIT_ENABLED` | `false` | Lua .lua creation/editing; needs FILE_READ_ENABLED too |
+| `JULIA_EDIT_ENABLED` | `false` | Julia .jl creation/editing; needs FILE_READ_ENABLED too |
+| `SHELL_EDIT_ENABLED` | `false` | Shell script .sh/.bash creation/editing; needs FILE_READ_ENABLED too |
+| `MATLAB_EDIT_ENABLED` | `false` | MATLAB .m creation/editing; needs FILE_READ_ENABLED too |
+| `GROOVY_EDIT_ENABLED` | `false` | Groovy .groovy creation/editing; needs FILE_READ_ENABLED too |
+| `SWIFT_EDIT_ENABLED` | `false` | Swift .swift creation/editing; needs FILE_READ_ENABLED too |
+| `LOG_EDIT_ENABLED` | `false` | Log .log creation/editing; needs FILE_READ_ENABLED too |
 | `CHROMA_DIR` | `.chroma` | Vector store location |
 | `RAG_ENV` | `development` | Runtime environment; `production` activates fail-closed deployment topology checks |
 | `RAG_WORKER_COUNT` | `1` | Declared production worker count; must remain `1` while local state or locks are authoritative |
@@ -296,6 +315,26 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `summarize_url` | `src/backend/tools/summarize_tool.py` | `SUMMARIZE_URL_ENABLED=true` | Fetch one URL and summarize it (reuses web-search fetcher + LLM) |
 | `read_text_file` | `src/backend/tools/text_file.py` | `FILE_READ_ENABLED=true` | Read .txt/.md/.log/.csv from `FILE_READ_ROOT` |
 | `read_markdown_file` | `src/backend/tools/markdown_file.py` | `FILE_READ_ENABLED=true` | Read a Markdown .md from `FILE_READ_ROOT` (including session uploads) |
+| `read_typescript_file` | `src/backend/tools/typescript_file.py` | `FILE_READ_ENABLED=true` | Read a TypeScript .ts/.tsx from `FILE_READ_ROOT` (including session uploads) |
+| `read_json_file` | `src/backend/tools/json_file.py` | `FILE_READ_ENABLED=true` | Read a .json or .jsonl from `FILE_READ_ROOT` (including session uploads) |
+| `read_r_file` | `src/backend/tools/r_file.py` | `FILE_READ_ENABLED=true` | Read an R .r file from `FILE_READ_ROOT` (including session uploads) |
+| `read_rust_file` | `src/backend/tools/rust_file.py` | `FILE_READ_ENABLED=true` | Read a Rust .rs file from `FILE_READ_ROOT` (including session uploads) |
+| `read_go_file` | `src/backend/tools/go_file.py` | `FILE_READ_ENABLED=true` | Read a Go .go file from `FILE_READ_ROOT` (including session uploads) |
+| `read_groovy_file` | `src/backend/tools/groovy_file.py` | `FILE_READ_ENABLED=true` | Read a Groovy .groovy file from `FILE_READ_ROOT` (including session uploads) |
+| `read_sql_file` | `src/backend/tools/sql_file.py` | `FILE_READ_ENABLED=true` | Read a SQL .sql script from `FILE_READ_ROOT` (including session uploads) |
+| `read_swift_file` | `src/backend/tools/swift_file.py` | `FILE_READ_ENABLED=true` | Read a Swift .swift file from `FILE_READ_ROOT` (including session uploads) |
+| `read_log_file` | `src/backend/tools/log_file.py` | `FILE_READ_ENABLED=true` | Read a .log file from `FILE_READ_ROOT` (including session uploads) |
+| `read_php_file` | `src/backend/tools/php_file.py` | `FILE_READ_ENABLED=true` | Read a PHP .php file from `FILE_READ_ROOT` (including session uploads) |
+| `read_ruby_file` | `src/backend/tools/ruby_file.py` | `FILE_READ_ENABLED=true` | Read a Ruby .rb file from `FILE_READ_ROOT` (including session uploads) |
+| `read_latex_file` | `src/backend/tools/latex_file.py` | `FILE_READ_ENABLED=true` | Read a LaTeX .tex file from `FILE_READ_ROOT` (including session uploads) |
+| `read_prolog_file` | `src/backend/tools/prolog_file.py` | `FILE_READ_ENABLED=true` | Read a Prolog .pl file from `FILE_READ_ROOT` (including session uploads) |
+| `read_haskell_file` | `src/backend/tools/haskell_file.py` | `FILE_READ_ENABLED=true` | Read a Haskell .hs file from `FILE_READ_ROOT` (including session uploads) |
+| `read_lua_file` | `src/backend/tools/lua_file.py` | `FILE_READ_ENABLED=true` | Read a Lua .lua file from `FILE_READ_ROOT` (including session uploads) |
+| `read_julia_file` | `src/backend/tools/julia_file.py` | `FILE_READ_ENABLED=true` | Read a Julia .jl file from `FILE_READ_ROOT` (including session uploads) |
+| `read_shell_file` | `src/backend/tools/shell_file.py` | `FILE_READ_ENABLED=true` | Read a shell .sh/.bash script from `FILE_READ_ROOT` (including session uploads) |
+| `read_matlab_file` | `src/backend/tools/matlab_file.py` | `FILE_READ_ENABLED=true` | Read a MATLAB .m file from `FILE_READ_ROOT` (including session uploads) |
+| `inspect_zip_file` | `src/backend/tools/zip_file.py` | `FILE_READ_ENABLED=true` | List entries (with sizes) of a .zip archive from `FILE_READ_ROOT` (including session uploads) |
+| `read_zip_entry` | `src/backend/tools/zip_file.py` | `FILE_READ_ENABLED=true` | Read one text entry from inside a .zip without extracting it; bomb-guarded, binary entries described not shown |
 | `read_word_document` | `src/backend/tools/word_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .docx in `FILE_READ_ROOT` |
 | `read_excel_spreadsheet` | `src/backend/tools/excel_file.py` | `FILE_READ_ENABLED=true` | Read .xlsx rows from `FILE_READ_ROOT` (needs `openpyxl`) |
 | `create_excel_spreadsheet` | `src/backend/tools/excel_create.py` | `FILE_READ_ENABLED=true` and `EXCEL_CREATE_ENABLED=true` | Create a styled, formula-capable .xlsx workbook in the current session |
@@ -313,6 +352,31 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `inspect_markdown_file` | `src/backend/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | List numbered lines and text-format metadata for a session-uploaded .md |
 | `edit_markdown_file` | `src/backend/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .md; creates a new file |
 | `create_markdown_file` | `src/backend/tools/markdown_edit.py` | `FILE_READ_ENABLED=true` and `MARKDOWN_EDIT_ENABLED=true` | Create a new UTF-8 Markdown .md in the current chat session |
+| `inspect_typescript_file` | `src/backend/tools/typescript_edit.py` | `FILE_READ_ENABLED=true` and `TYPESCRIPT_EDIT_ENABLED=true` | List numbered lines and text-format metadata for a session-uploaded .ts/.tsx |
+| `edit_typescript_file` | `src/backend/tools/typescript_edit.py` | `FILE_READ_ENABLED=true` and `TYPESCRIPT_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .ts/.tsx; creates a new file |
+| `create_typescript_file` | `src/backend/tools/typescript_edit.py` | `FILE_READ_ENABLED=true` and `TYPESCRIPT_EDIT_ENABLED=true` | Create a new UTF-8 TypeScript .ts/.tsx in the current chat session |
+| `inspect_json_file` | `src/backend/tools/json_edit.py` | `FILE_READ_ENABLED=true` and `JSON_EDIT_ENABLED=true` | List documented paths and values of a session-uploaded .json |
+| `edit_json_file` | `src/backend/tools/json_edit.py` | `FILE_READ_ENABLED=true` and `JSON_EDIT_ENABLED=true` | Apply expected-checked path-based set/delete/append edits to a session-uploaded .json; creates a new file |
+| `create_json_file` | `src/backend/tools/json_edit.py` | `FILE_READ_ENABLED=true` and `JSON_EDIT_ENABLED=true` | Create a new UTF-8 .json (must parse as valid JSON) in the current chat session |
+| `inspect_jsonl_file` | `src/backend/tools/jsonl_edit.py` | `FILE_READ_ENABLED=true` and `JSONL_EDIT_ENABLED=true` | List numbered lines of a session-uploaded .jsonl; every line is validated JSON |
+| `edit_jsonl_file` | `src/backend/tools/jsonl_edit.py` | `FILE_READ_ENABLED=true` and `JSONL_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .jsonl; written lines must parse as JSON; creates a new file |
+| `create_jsonl_file` | `src/backend/tools/jsonl_edit.py` | `FILE_READ_ENABLED=true` and `JSONL_EDIT_ENABLED=true` | Create a new UTF-8 .jsonl in the current chat session (every line must parse as JSON) |
+| `inspect_r_file` / `edit_r_file` / `create_r_file` | `src/backend/tools/r_edit.py` | `FILE_READ_ENABLED=true` and `R_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .r files; creates a new file |
+| `inspect_rust_file` / `edit_rust_file` / `create_rust_file` | `src/backend/tools/rust_edit.py` | `FILE_READ_ENABLED=true` and `RUST_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .rs files; creates a new file |
+| `inspect_go_file` / `edit_go_file` / `create_go_file` | `src/backend/tools/go_edit.py` | `FILE_READ_ENABLED=true` and `GO_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .go files; creates a new file |
+| `inspect_sql_file` / `edit_sql_file` / `create_sql_file` | `src/backend/tools/sql_edit.py` | `FILE_READ_ENABLED=true` and `SQL_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .sql scripts (MySQL/PostgreSQL/SQLite); creates a new file |
+| `inspect_php_file` / `edit_php_file` / `create_php_file` | `src/backend/tools/php_edit.py` | `FILE_READ_ENABLED=true` and `PHP_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .php files; creates a new file |
+| `inspect_ruby_file` / `edit_ruby_file` / `create_ruby_file` | `src/backend/tools/ruby_edit.py` | `FILE_READ_ENABLED=true` and `RUBY_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .rb files; creates a new file |
+| `inspect_latex_file` / `edit_latex_file` / `create_latex_file` | `src/backend/tools/latex_edit.py` | `FILE_READ_ENABLED=true` and `LATEX_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .tex files; creates a new file |
+| `inspect_prolog_file` / `edit_prolog_file` / `create_prolog_file` | `src/backend/tools/prolog_edit.py` | `FILE_READ_ENABLED=true` and `PROLOG_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .pl files; creates a new file |
+| `inspect_haskell_file` / `edit_haskell_file` / `create_haskell_file` | `src/backend/tools/haskell_edit.py` | `FILE_READ_ENABLED=true` and `HASKELL_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .hs files; creates a new file |
+| `inspect_lua_file` / `edit_lua_file` / `create_lua_file` | `src/backend/tools/lua_edit.py` | `FILE_READ_ENABLED=true` and `LUA_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .lua files; creates a new file |
+| `inspect_julia_file` / `edit_julia_file` / `create_julia_file` | `src/backend/tools/julia_edit.py` | `FILE_READ_ENABLED=true` and `JULIA_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .jl files; creates a new file |
+| `inspect_shell_file` / `edit_shell_file` / `create_shell_file` | `src/backend/tools/shell_edit.py` | `FILE_READ_ENABLED=true` and `SHELL_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .sh/.bash scripts; creates a new file |
+| `inspect_matlab_file` / `edit_matlab_file` / `create_matlab_file` | `src/backend/tools/matlab_edit.py` | `FILE_READ_ENABLED=true` and `MATLAB_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .m files; creates a new file |
+| `inspect_groovy_file` / `edit_groovy_file` / `create_groovy_file` | `src/backend/tools/groovy_edit.py` | `FILE_READ_ENABLED=true` and `GROOVY_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .groovy files; creates a new file |
+| `inspect_swift_file` / `edit_swift_file` / `create_swift_file` | `src/backend/tools/swift_edit.py` | `FILE_READ_ENABLED=true` and `SWIFT_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .swift files; creates a new file |
+| `inspect_log_file` / `edit_log_file` / `create_log_file` | `src/backend/tools/log_edit.py` | `FILE_READ_ENABLED=true` and `LOG_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .log files; creates a new file |
 | `save_memory` | `src/backend/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Remember a durable fact, preference, or task the user states about themselves; stores with optional category, tags, and scope |
 | `recall_memory` | `src/backend/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Look up what is already remembered about the user by keyword; used before answering questions about the user not covered in the current conversation |
 | `forget_memory` | `src/backend/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Delete stored memories by id or keyword when the user asks to forget something |
@@ -415,6 +479,25 @@ EXCEL_NODE_EXECUTABLE=/path/to/loader/node
 EXCEL_NODE_MODULES_PATH=/path/to/loader/node_modules
 TEXT_EDIT_ENABLED=true          # optional session-scoped .txt creation/editing
 MARKDOWN_EDIT_ENABLED=true      # optional session-scoped .md creation/editing
+TYPESCRIPT_EDIT_ENABLED=true    # optional session-scoped .ts/.tsx creation/editing
+JSON_EDIT_ENABLED=true          # optional session-scoped .json creation/editing
+JSONL_EDIT_ENABLED=true         # optional session-scoped .jsonl creation/editing
+R_EDIT_ENABLED=true             # optional session-scoped .r creation/editing
+RUST_EDIT_ENABLED=true          # optional session-scoped .rs creation/editing
+GO_EDIT_ENABLED=true            # optional session-scoped .go creation/editing
+SQL_EDIT_ENABLED=true           # optional session-scoped .sql creation/editing
+PHP_EDIT_ENABLED=true           # optional session-scoped .php creation/editing
+RUBY_EDIT_ENABLED=true          # optional session-scoped .rb creation/editing
+LATEX_EDIT_ENABLED=true         # optional session-scoped .tex creation/editing
+PROLOG_EDIT_ENABLED=true        # optional session-scoped .pl creation/editing
+HASKELL_EDIT_ENABLED=true       # optional session-scoped .hs creation/editing
+LUA_EDIT_ENABLED=true           # optional session-scoped .lua creation/editing
+JULIA_EDIT_ENABLED=true         # optional session-scoped .jl creation/editing
+SHELL_EDIT_ENABLED=true         # optional session-scoped .sh/.bash creation/editing
+MATLAB_EDIT_ENABLED=true        # optional session-scoped .m creation/editing
+GROOVY_EDIT_ENABLED=true        # optional session-scoped .groovy creation/editing
+SWIFT_EDIT_ENABLED=true         # optional session-scoped .swift creation/editing
+LOG_EDIT_ENABLED=true           # optional session-scoped .log creation/editing
 ```
 
 Set `FILE_READ_ROOT` to a dedicated directory rather than the project root so the tools and uploads are sandboxed away from source and config files. The Excel reader requires `openpyxl` (already pinned in `requirements.txt`); the creator uses the configured artifact-tool Node runtime.
@@ -450,7 +533,7 @@ Shape locations are zero-based paths. A top-level shape is addressed as `shape_p
 ### Security model
 
 - Uploads and reads require `FILE_READ_ENABLED=true`; otherwise both are refused.
-- Word creation and edits additionally require `WORD_EDIT_ENABLED=true`; PowerPoint uploads and edits require `POWERPOINT_EDIT_ENABLED=true`; Excel creation requires `EXCEL_CREATE_ENABLED=true`; text creation and edits require `TEXT_EDIT_ENABLED=true`; Markdown creation and edits require `MARKDOWN_EDIT_ENABLED=true`. All writes are confined to the current thread and never overwrite an existing file.
+- Word creation and edits additionally require `WORD_EDIT_ENABLED=true`; PowerPoint uploads and edits require `POWERPOINT_EDIT_ENABLED=true`; Excel creation requires `EXCEL_CREATE_ENABLED=true`; text creation and edits require `TEXT_EDIT_ENABLED=true`; Markdown creation and edits require `MARKDOWN_EDIT_ENABLED=true`; TypeScript creation and edits require `TYPESCRIPT_EDIT_ENABLED=true`; JSON requires `JSON_EDIT_ENABLED=true`, JSONL `JSONL_EDIT_ENABLED=true`, and R/Rust/Go/SQL `R_EDIT_ENABLED=true` / `RUST_EDIT_ENABLED=true` / `GO_EDIT_ENABLED=true` / `SQL_EDIT_ENABLED=true`; PHP `PHP_EDIT_ENABLED=true`; Ruby `RUBY_EDIT_ENABLED=true`; LaTeX `LATEX_EDIT_ENABLED=true`; Prolog `PROLOG_EDIT_ENABLED=true`; Haskell `HASKELL_EDIT_ENABLED=true`; Lua `LUA_EDIT_ENABLED=true`; Julia `JULIA_EDIT_ENABLED=true`; shell scripts `SHELL_EDIT_ENABLED=true`; MATLAB `MATLAB_EDIT_ENABLED=true`; Groovy `GROOVY_EDIT_ENABLED=true`; Swift `SWIFT_EDIT_ENABLED=true`; log files `LOG_EDIT_ENABLED=true`. All writes are confined to the current thread and never overwrite an existing file.
 - Excel creation uses `@oai/artifact-tool` from the loader-provided Node runtime. Set `EXCEL_NODE_EXECUTABLE` and `EXCEL_NODE_MODULES_PATH` to those loader paths; the tool creates a task-local dependency junction, validates the exported workbook, scans formula errors, and renders every worksheet before publication.
 - All paths resolve under `FILE_READ_ROOT`; `../` traversal outside the root is denied.
 - Sensitive files (`.env`, private keys, `credentials`, etc.) are always refused even inside the root.

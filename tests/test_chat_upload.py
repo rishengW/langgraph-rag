@@ -9,13 +9,13 @@ import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
-from src.frontend.chat import api as chat_api
-from src.frontend.chat.uploads import build_upload_context_note
 from src.backend.graph.artifacts import normalize_file_artifact
 from src.backend.tools import build_text_file_tool, build_word_tool
 from src.backend.tools.excel_edit import XLSX_MIME_TYPE, ExcelEditOperation, edit_excel
 from src.backend.tools.text_edit import TextEditOperation, create_text_file, edit_text_file
 from src.backend.tools.word_edit import WordEditOperation, edit_word_document
+from src.frontend.chat import api as chat_api
+from src.frontend.chat.uploads import build_upload_context_note
 
 _DOCX_DOCUMENT_XML = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -105,6 +105,95 @@ def test_upload_context_advertises_text_editing_only_when_enabled():
     assert "edit_text_file" in editable
     assert "explicitly asks" in editable
     assert "expected_text" in editable
+    assert "never overwrite an existing file" in editable
+
+
+def test_upload_context_advertises_typescript_editing_only_when_enabled():
+    path = "chat_uploads/thread-a/app.ts"
+
+    read_only = build_upload_context_note([path])
+    editable = build_upload_context_note([path], typescript_edit_enabled=True)
+
+    assert "inspect_typescript_file" not in read_only
+    assert "edit_typescript_file" not in read_only
+    assert "create_typescript_file" in editable
+    assert "inspect_typescript_file" in editable
+    assert "edit_typescript_file" in editable
+    assert "expected_text" in editable
+    assert "never overwrite an existing file" in editable
+
+
+def test_upload_context_advertises_new_language_editing_only_when_enabled():
+    path = "chat_uploads/thread-a/data.json"
+
+    read_only = build_upload_context_note([path])
+    editable = build_upload_context_note(
+        [path],
+        json_edit_enabled=True,
+        jsonl_edit_enabled=True,
+        r_edit_enabled=True,
+        rust_edit_enabled=True,
+        go_edit_enabled=True,
+        sql_edit_enabled=True,
+        php_edit_enabled=True,
+        ruby_edit_enabled=True,
+        latex_edit_enabled=True,
+        prolog_edit_enabled=True,
+        haskell_edit_enabled=True,
+        lua_edit_enabled=True,
+        julia_edit_enabled=True,
+        shell_edit_enabled=True,
+        matlab_edit_enabled=True,
+        groovy_edit_enabled=True,
+        swift_edit_enabled=True,
+        log_edit_enabled=True,
+    )
+
+    for name in (
+        "create_json_file",
+        "inspect_json_file",
+        "edit_json_file",
+        "create_jsonl_file",
+        "edit_jsonl_file",
+        "create_r_file",
+        "edit_r_file",
+        "create_rust_file",
+        "edit_rust_file",
+        "create_go_file",
+        "edit_go_file",
+        "create_sql_file",
+        "edit_sql_file",
+        "create_php_file",
+        "edit_php_file",
+        "create_ruby_file",
+        "edit_ruby_file",
+        "create_latex_file",
+        "edit_latex_file",
+        "create_prolog_file",
+        "edit_prolog_file",
+        "create_haskell_file",
+        "edit_haskell_file",
+        "create_lua_file",
+        "edit_lua_file",
+        "create_julia_file",
+        "edit_julia_file",
+        "create_shell_file",
+        "edit_shell_file",
+        "create_matlab_file",
+        "edit_matlab_file",
+        "create_groovy_file",
+        "edit_groovy_file",
+        "create_swift_file",
+        "edit_swift_file",
+        "create_log_file",
+        "edit_log_file",
+    ):
+        assert name not in read_only
+        assert name in editable
+
+    assert "expected_value" in editable  # JSON path edits
+    assert "expected_text" in editable  # line edits
+    assert "must parse as JSON" in editable  # JSONL line rule
     assert "never overwrite an existing file" in editable
 
 

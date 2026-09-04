@@ -18,7 +18,12 @@ from typing import BinaryIO
 from src.config import Settings
 
 # Suffixes accepted for upload — the union of what the file tools read.
-ALLOWED_UPLOAD_SUFFIXES = (".txt", ".md", ".log", ".csv", ".docx", ".xlsx", ".pptx", ".pdf")
+ALLOWED_UPLOAD_SUFFIXES = (
+    ".txt", ".md", ".log", ".csv", ".docx", ".xlsx", ".pptx", ".pdf",
+    ".ts", ".tsx", ".json", ".jsonl", ".r", ".rs", ".go", ".sql", ".php",
+    ".rb", ".tex", ".pl", ".hs", ".lua", ".jl", ".sh", ".bash", ".m",
+    ".groovy", ".swift", ".zip",
+)
 
 UPLOAD_SUBDIR = "chat_uploads"
 
@@ -159,6 +164,25 @@ def build_upload_context_note(
     word_edit_enabled: bool = False,
     text_edit_enabled: bool = False,
     markdown_edit_enabled: bool = False,
+    typescript_edit_enabled: bool = False,
+    json_edit_enabled: bool = False,
+    jsonl_edit_enabled: bool = False,
+    r_edit_enabled: bool = False,
+    rust_edit_enabled: bool = False,
+    go_edit_enabled: bool = False,
+    sql_edit_enabled: bool = False,
+    php_edit_enabled: bool = False,
+    ruby_edit_enabled: bool = False,
+    latex_edit_enabled: bool = False,
+    prolog_edit_enabled: bool = False,
+    haskell_edit_enabled: bool = False,
+    lua_edit_enabled: bool = False,
+    julia_edit_enabled: bool = False,
+    shell_edit_enabled: bool = False,
+    matlab_edit_enabled: bool = False,
+    groovy_edit_enabled: bool = False,
+    swift_edit_enabled: bool = False,
+    log_edit_enabled: bool = False,
     powerpoint_edit_enabled: bool = False,
     excel_edit_enabled: bool = False,
     csv_edit_enabled: bool = False,
@@ -206,6 +230,183 @@ def build_upload_context_note(
             "edit when the user explicitly asks; always inspect before editing "
             "and pass the exact current text as expected_text. Writes create a "
             "new file and never overwrite an existing file."
+        )
+    if typescript_edit_enabled:
+        edit_notes.append(
+            "For .ts and .tsx files you may call create_typescript_file to "
+            "create a new TypeScript file, inspect_typescript_file to list "
+            "numbered lines, and edit_typescript_file to apply structured "
+            "line edits. Only create or edit when the user explicitly asks; "
+            "always inspect before editing and pass the exact current text as "
+            "expected_text. Writes create a new file and never overwrite an "
+            "existing file."
+        )
+    if json_edit_enabled:
+        edit_notes.append(
+            "For .json files you may call create_json_file to create a new "
+            "JSON file, inspect_json_file to list its documented paths, and "
+            "edit_json_file to apply path-based set/delete/append edits. Only "
+            "create or edit when the user explicitly asks; always inspect "
+            "before editing and pass the exact current value as expected_value "
+            "(or expected_missing=true to create a path). Writes create a new "
+            "file and never overwrite an existing file."
+        )
+    if jsonl_edit_enabled:
+        edit_notes.append(
+            "For .jsonl files you may call create_jsonl_file to create a new "
+            "newline-delimited JSON file, inspect_jsonl_file to list numbered "
+            "lines, and edit_jsonl_file to apply structured line edits; every "
+            "written line must parse as JSON. Only create or edit when the "
+            "user explicitly asks; always inspect before editing and pass the "
+            "exact current text as expected_text. Writes create a new file "
+            "and never overwrite an existing file."
+        )
+    if r_edit_enabled:
+        edit_notes.append(
+            "For .r files you may call create_r_file to create a new R "
+            "script, inspect_r_file to list numbered lines, and edit_r_file "
+            "to apply structured line edits. Only create or edit when the "
+            "user explicitly asks; always inspect before editing and pass "
+            "the exact current text as expected_text. Writes create a new "
+            "file and never overwrite an existing file."
+        )
+    if rust_edit_enabled:
+        edit_notes.append(
+            "For .rs files you may call create_rust_file to create a new "
+            "Rust source file, inspect_rust_file to list numbered lines, and "
+            "edit_rust_file to apply structured line edits. Only create or "
+            "edit when the user explicitly asks; always inspect before "
+            "editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
+        )
+    if go_edit_enabled:
+        edit_notes.append(
+            "For .go files you may call create_go_file to create a new Go "
+            "source file, inspect_go_file to list numbered lines, and "
+            "edit_go_file to apply structured line edits. Only create or "
+            "edit when the user explicitly asks; always inspect before "
+            "editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
+        )
+    if sql_edit_enabled:
+        edit_notes.append(
+            "For .sql files (MySQL, PostgreSQL, SQLite scripts) you may call "
+            "create_sql_file to create a new SQL script, inspect_sql_file to "
+            "list numbered lines, and edit_sql_file to apply structured line "
+            "edits. Only create or edit when the user explicitly asks; always "
+            "inspect before editing and pass the exact current text as "
+            "expected_text. Writes create a new file and never overwrite an "
+            "existing file."
+        )
+    if php_edit_enabled:
+        edit_notes.append(
+            "For .php files you may call create_php_file to create a new PHP "
+            "source file, inspect_php_file to list numbered lines, and "
+            "edit_php_file to apply structured line edits. Only create or "
+            "edit when the user explicitly asks; always inspect before "
+            "editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
+        )
+    if ruby_edit_enabled:
+        edit_notes.append(
+            "For .rb files you may call create_ruby_file to create a new "
+            "Ruby source file, inspect_ruby_file to list numbered lines, and "
+            "edit_ruby_file to apply structured line edits. Only create or "
+            "edit when the user explicitly asks; always inspect before "
+            "editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
+        )
+    if latex_edit_enabled:
+        edit_notes.append(
+            "For .tex files you may call create_latex_file to create a new "
+            "LaTeX source file, inspect_latex_file to list numbered lines, "
+            "and edit_latex_file to apply structured line edits. Only create "
+            "or edit when the user explicitly asks; always inspect before "
+            "editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
+        )
+    if prolog_edit_enabled:
+        edit_notes.append(
+            "For .pl files you may call create_prolog_file to create a new "
+            "Prolog source file, inspect_prolog_file to list numbered lines, "
+            "and edit_prolog_file to apply structured line edits. Only "
+            "create or edit when the user explicitly asks; always inspect "
+            "before editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
+        )
+    if haskell_edit_enabled:
+        edit_notes.append(
+            "For .hs files you may call create_haskell_file to create a new "
+            "Haskell source file, inspect_haskell_file to list numbered "
+            "lines, and edit_haskell_file to apply structured line edits. "
+            "Only create or edit when the user explicitly asks; always "
+            "inspect before editing and pass the exact current text as "
+            "expected_text. Writes create a new file and never overwrite an "
+            "existing file."
+        )
+    if lua_edit_enabled:
+        edit_notes.append(
+            "For .lua files you may call create_lua_file to create a new Lua "
+            "source file, inspect_lua_file to list numbered lines, and "
+            "edit_lua_file to apply structured line edits. Only create or "
+            "edit when the user explicitly asks; always inspect before "
+            "editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
+        )
+    if julia_edit_enabled:
+        edit_notes.append(
+            "For .jl files you may call create_julia_file to create a new "
+            "Julia source file, inspect_julia_file to list numbered lines, "
+            "and edit_julia_file to apply structured line edits. Only create "
+            "or edit when the user explicitly asks; always inspect before "
+            "editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
+        )
+    if shell_edit_enabled:
+        edit_notes.append(
+            "For .sh and .bash files you may call create_shell_file to "
+            "create a new shell script, inspect_shell_file to list numbered "
+            "lines, and edit_shell_file to apply structured line edits. Only "
+            "create or edit when the user explicitly asks; always inspect "
+            "before editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
+        )
+    if matlab_edit_enabled:
+        edit_notes.append(
+            "For .m files you may call create_matlab_file to create a new "
+            "MATLAB source file, inspect_matlab_file to list numbered lines, "
+            "and edit_matlab_file to apply structured line edits. Only "
+            "create or edit when the user explicitly asks; always inspect "
+            "before editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
+        )
+    if groovy_edit_enabled:
+        edit_notes.append(
+            "For .groovy files you may call create_groovy_file to create a "
+            "new Groovy source file, inspect_groovy_file to list numbered "
+            "lines, and edit_groovy_file to apply structured line edits. "
+            "Only create or edit when the user explicitly asks; always "
+            "inspect before editing and pass the exact current text as "
+            "expected_text. Writes create a new file and never overwrite an "
+            "existing file."
+        )
+    if swift_edit_enabled:
+        edit_notes.append(
+            "For .swift files you may call create_swift_file to create a new "
+            "Swift source file, inspect_swift_file to list numbered lines, "
+            "and edit_swift_file to apply structured line edits. Only create "
+            "or edit when the user explicitly asks; always inspect before "
+            "editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
+        )
+    if log_edit_enabled:
+        edit_notes.append(
+            "For .log files you may call create_log_file to create a new "
+            "log file, inspect_log_file to list numbered lines, and "
+            "edit_log_file to apply structured line edits. Only create or "
+            "edit when the user explicitly asks; always inspect before "
+            "editing and pass the exact current text as expected_text. "
+            "Writes create a new file and never overwrite an existing file."
         )
     if csv_edit_enabled:
         edit_notes.append(

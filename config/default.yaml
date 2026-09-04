@@ -121,6 +121,34 @@ markdown_edit_enabled: false
 # CSV .csv creation and editing. Needs file_read_enabled too; standard-library
 # csv quoting, session-scoped, never-overwrite model as the .txt editor.
 csv_edit_enabled: false
+# TypeScript .ts/.tsx creation and editing. Needs file_read_enabled too; same
+# session-scoped, never-overwrite model as the .txt editor.
+typescript_edit_enabled: false
+# JSON .json creation and structured path-based editing. Needs
+# file_read_enabled too; session-scoped, never overwrites an existing file.
+json_edit_enabled: false
+# JSONL .jsonl creation and editing; every written line must parse as JSON.
+# Needs file_read_enabled too; same session-scoped never-overwrite model.
+jsonl_edit_enabled: false
+# R / Rust / Go / SQL / PHP / Ruby / LaTeX source creation and editing.
+# Needs file_read_enabled too; same session-scoped, never-overwrite model as
+# the .txt editor.
+r_edit_enabled: false
+rust_edit_enabled: false
+go_edit_enabled: false
+sql_edit_enabled: false
+php_edit_enabled: false
+ruby_edit_enabled: false
+latex_edit_enabled: false
+prolog_edit_enabled: false
+haskell_edit_enabled: false
+lua_edit_enabled: false
+julia_edit_enabled: false
+shell_edit_enabled: false
+matlab_edit_enabled: false
+groovy_edit_enabled: false
+swift_edit_enabled: false
+log_edit_enabled: false
 # Chat-agent long-term memory. Off by default; the store file is git-ignored.
 memory_enabled: false
 # Blank means memory/long_term_memory.json relative to the working directory.

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from src.backend.core.config import Settings as CoreSettings
 from src.config.loader import (
     _settings_defaults,
     load_settings,
@@ -19,7 +20,6 @@ from src.config.settings import (
     DEFAULT_WEB_SEARCH_JS_FALLBACK_DOMAINS,
     Settings,
 )
-from src.backend.core.config import Settings as CoreSettings
 
 
 def test_settings_reexport_preserves_old_import_path():
@@ -252,6 +252,63 @@ def test_markdown_edit_defaults_environment_and_documentation(tmp_path, monkeypa
     loaded = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
 
     assert loaded.markdown_edit_enabled is True
+
+
+def test_typescript_edit_defaults_environment_and_documentation(tmp_path, monkeypatch):
+    defaults = load_yaml_config("config/default.yaml")
+    settings = Settings(dashscope_api_key="test-key")
+
+    assert settings.typescript_edit_enabled is False
+    assert defaults["typescript_edit_enabled"] is False
+    assert "TYPESCRIPT_EDIT_ENABLED=false" in Path(".env.example").read_text(
+        encoding="utf-8"
+    )
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("TYPESCRIPT_EDIT_ENABLED", "true")
+    loaded = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert loaded.typescript_edit_enabled is True
+
+
+@pytest.mark.parametrize(
+    ("setting", "env_name"),
+    [
+        ("json_edit_enabled", "JSON_EDIT_ENABLED"),
+        ("jsonl_edit_enabled", "JSONL_EDIT_ENABLED"),
+        ("r_edit_enabled", "R_EDIT_ENABLED"),
+        ("rust_edit_enabled", "RUST_EDIT_ENABLED"),
+        ("go_edit_enabled", "GO_EDIT_ENABLED"),
+        ("sql_edit_enabled", "SQL_EDIT_ENABLED"),
+        ("php_edit_enabled", "PHP_EDIT_ENABLED"),
+        ("ruby_edit_enabled", "RUBY_EDIT_ENABLED"),
+        ("latex_edit_enabled", "LATEX_EDIT_ENABLED"),
+        ("prolog_edit_enabled", "PROLOG_EDIT_ENABLED"),
+        ("haskell_edit_enabled", "HASKELL_EDIT_ENABLED"),
+        ("lua_edit_enabled", "LUA_EDIT_ENABLED"),
+        ("julia_edit_enabled", "JULIA_EDIT_ENABLED"),
+        ("shell_edit_enabled", "SHELL_EDIT_ENABLED"),
+        ("matlab_edit_enabled", "MATLAB_EDIT_ENABLED"),
+        ("groovy_edit_enabled", "GROOVY_EDIT_ENABLED"),
+        ("swift_edit_enabled", "SWIFT_EDIT_ENABLED"),
+        ("log_edit_enabled", "LOG_EDIT_ENABLED"),
+    ],
+)
+def test_source_edit_flags_default_documented_and_load_from_environment(
+    tmp_path, monkeypatch, setting, env_name
+):
+    defaults = load_yaml_config("config/default.yaml")
+    settings = Settings(dashscope_api_key="test-key")
+
+    assert getattr(settings, setting) is False
+    assert defaults[setting] is False
+    assert f"{env_name}=false" in Path(".env.example").read_text(encoding="utf-8")
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv(env_name, "true")
+    loaded = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert getattr(loaded, setting) is True
 
 
 def test_excel_create_defaults_environment_and_documentation(tmp_path, monkeypatch):

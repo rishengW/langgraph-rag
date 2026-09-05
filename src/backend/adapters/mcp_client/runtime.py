@@ -11,6 +11,7 @@ from typing import Any, Protocol, runtime_checkable
 from uuid import uuid4
 
 from src.errors import RAGError
+
 from ...mcp.catalog import validate_snapshot
 from ...mcp.models import ProviderHealth, ProviderStatus, ToolCatalogSnapshot
 from ...mcp.observability import (

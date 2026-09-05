@@ -10,6 +10,11 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
+from src.backend.graph.events import DoneEvent
+from src.backend.memory.scheduler import ExtractionScheduler
+from src.backend.memory.watermark import WATERMARK_KEY, InMemoryWatermarkStore
+from src.backend.sessions import ChatSessionRegistry, InMemoryStorage, SessionMetadata
+from src.config import Settings
 from src.frontend.chat import api as chat_api
 from src.frontend.chat import main as chat_main
 from src.frontend.chat.memory_hooks import (
@@ -19,11 +24,6 @@ from src.frontend.chat.memory_hooks import (
     build_extraction_runtime,
     on_session_start,
 )
-from src.config import Settings
-from src.backend.graph.events import DoneEvent
-from src.backend.memory.scheduler import ExtractionScheduler
-from src.backend.memory.watermark import WATERMARK_KEY, InMemoryWatermarkStore
-from src.backend.sessions import ChatSessionRegistry, InMemoryStorage, SessionMetadata
 
 
 class RecordingScheduler:

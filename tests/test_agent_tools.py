@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from src.config import Settings
 from src.backend.tools import (
     build_currency_tool,
     build_datetime_tool,
@@ -14,6 +13,7 @@ from src.backend.tools import (
     build_weather_tool,
     build_wikipedia_tool,
 )
+from src.config import Settings
 
 
 def test_weather_tool_uses_city_geocoding_and_formats_forecast():

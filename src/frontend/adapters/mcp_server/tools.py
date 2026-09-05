@@ -33,6 +33,7 @@ from src.backend.mcp import (
     set_tool_principal,
 )
 from src.backend.mcp.observability import ObservationOutcome, ObservationTransport
+
 from .audit import AuditEvent, emit_audit
 from .auth import current_principal_id
 from .config import MCPSettings

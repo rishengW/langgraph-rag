@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.config import Settings
+
 from ..security import ResourceOwner
 
 

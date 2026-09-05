@@ -7,7 +7,6 @@ import time
 from dataclasses import dataclass, replace
 from typing import Any
 
-from src.config import Settings
 from src.backend.memory.extraction import MemoryExtractor
 from src.backend.memory.scheduler import ExtractionScheduler
 from src.backend.memory.watermark import (
@@ -18,6 +17,7 @@ from src.backend.memory.watermark import (
 )
 from src.backend.sessions import ChatSessionRegistry, SessionMetadata
 from src.backend.sessions.storage import StorageBackend
+from src.config import Settings
 
 logger = logging.getLogger("src.frontend.chat.memory_hooks")
 

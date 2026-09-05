@@ -6,7 +6,6 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableLambda
 
-from src.frontend.chat.state import ChatState
 from src.backend.core.state import AgentState
 from src.backend.graph.nodes import (
     chat_question_resolver,
@@ -17,6 +16,7 @@ from src.backend.graph.nodes import (
 )
 from src.backend.graph.nodes import common as common_nodes
 from src.backend.graph.state import RAGState
+from src.frontend.chat.state import ChatState
 
 
 def test_state_aliases_preserve_old_import_paths():

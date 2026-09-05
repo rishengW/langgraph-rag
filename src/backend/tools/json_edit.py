@@ -15,7 +15,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field, model_validator
@@ -64,8 +64,9 @@ class JsonEditError(Exception):
     """Raised when a JSON file cannot be inspected or edited safely."""
 
 
-# (kind, key) steps flatten the dotted path grammar into a walk.
-_Step = tuple[Literal["key", "index"], "str | int"]
+# (kind, key) steps flatten the dotted path grammar into a walk. "key" steps
+# always carry a str, "index" steps always carry an int.
+_Step = tuple[Literal["key"], str] | tuple[Literal["index"], int]
 
 
 def _is_root_path(path: str) -> bool:
@@ -139,9 +140,7 @@ class JsonEditOperation(BaseModel):
                     "(path exists) or expected_missing=true (create it)."
                 )
             if _is_root_path(self.path) and self.expected_missing:
-                raise ValueError(
-                    "the document root always exists; pass expected_value."
-                )
+                raise ValueError("the document root always exists; pass expected_value.")
             self._require_parsed("value")
             if self.expected_value is not None:
                 self._require_parsed("expected_value")
@@ -226,8 +225,7 @@ class JsonEditInput(BaseModel):
         ...,
         min_length=1,
         description=(
-            "Path to a .json file uploaded to this chat session. The source "
-            "is never modified."
+            "Path to a .json file uploaded to this chat session. The source is never modified."
         ),
     )
     operations: list[JsonEditOperation] = Field(
@@ -399,8 +397,7 @@ def create_json_file(
     )
     return SourceEditResult(
         content=(
-            f"Created {published.name} in this chat session. "
-            "The file is available to download."
+            f"Created {published.name} in this chat session. The file is available to download."
         ),
         artifact=_build_file_artifact(
             JSON_CONFIG,
@@ -564,7 +561,7 @@ def edit_json_file(
     )
 
 
-def _parse_document_text(document, name: str):
+def _parse_document_text(document: _SourceDocument, name: str) -> Any:
     """Parse the decoded document text, raising JsonEditError on bad JSON."""
 
     text = document.newline_text.join(document.lines)
@@ -574,7 +571,13 @@ def _parse_document_text(document, name: str):
         raise JsonEditError(f"{name!r} is not valid JSON: {exc}") from exc
 
 
-def _document_from_text(text: str, *, encoding, newline, has_final_newline: bool):
+def _document_from_text(
+    text: str,
+    *,
+    encoding: Literal["utf-8", "utf-8-sig"],
+    newline: Literal["LF", "CRLF"],
+    has_final_newline: bool,
+) -> _SourceDocument:
     """Rebuild a line document from serialized JSON text."""
 
     return _SourceDocument(
@@ -587,7 +590,7 @@ def _document_from_text(text: str, *, encoding, newline, has_final_newline: bool
 
 def _publish_edited(
     config: SourceEditConfig,
-    document,
+    document: _SourceDocument,
     *,
     session_root: Path,
     source_path: Path,
@@ -618,7 +621,7 @@ def _parse_path(path: str) -> list[tuple[str, tuple[int, ...]]]:
         text = text[1:]
     text = text.lstrip(".")
     segments: list[tuple[str, tuple[int, ...]]] = []
-    for raw in (text.split(".") if text else []):
+    for raw in text.split(".") if text else []:
         match = re.fullmatch(r"([^\[\]]*)((?:\[\d+\])*)", raw)
         if not match:
             raise JsonEditError(f"invalid path segment {raw!r} in {path!r}.")
@@ -640,8 +643,8 @@ def _steps(path: str) -> list[_Step]:
     return steps
 
 
-def _step(node, kind: str, key, where: str):
-    if kind == "key":
+def _step(node: Any, kind: str, key: str | int, where: str) -> Any:
+    if isinstance(key, str):
         if not isinstance(node, dict) or key not in node:
             raise JsonEditError(f"path {where} does not exist.")
         return node[key]
@@ -650,14 +653,14 @@ def _step(node, kind: str, key, where: str):
     return node[key]
 
 
-def _node_at(document, steps: list[_Step], where: str):
+def _node_at(document: Any, steps: list[_Step], where: str) -> Any:
     node = document
     for kind, key in steps:
         node = _step(node, kind, key, where)
     return node
 
 
-def _check_operation(document, operation: JsonEditOperation) -> str | None:
+def _check_operation(document: Any, operation: JsonEditOperation) -> str | None:
     """Return a problem description, or None when the operation may apply."""
 
     try:
@@ -665,9 +668,11 @@ def _check_operation(document, operation: JsonEditOperation) -> str | None:
         steps = _steps(operation.path)
         if operation.action == "set_value":
             if not steps:
+                assert operation.expected_value is not None
                 expected = json.loads(operation.expected_value)
                 return (
-                    None if document == expected
+                    None
+                    if document == expected
                     else "expected_value does not match the current document."
                 )
             parent = _node_at(document, steps[:-1], where)
@@ -678,29 +683,32 @@ def _check_operation(document, operation: JsonEditOperation) -> str | None:
                 if key in parent:
                     if operation.expected_missing:
                         return f"path {where} already exists but expected_missing was set."
+                    assert operation.expected_value is not None
                     if parent[key] != json.loads(operation.expected_value):
                         return "expected_value does not match the current value."
                 elif not operation.expected_missing:
-                    return (
-                        f"path {where} does not exist; set expected_missing=true "
-                        "to create it."
-                    )
+                    return f"path {where} does not exist; set expected_missing=true to create it."
             else:
                 if not isinstance(parent, list):
                     return f"path {where} is not inside an array."
+                assert isinstance(key, int)
                 if key >= len(parent):
                     return f"array index at {where} is out of range."
+                if operation.expected_value is None:
+                    return "expected_value is required to update an array element."
                 if parent[key] != json.loads(operation.expected_value):
                     return "expected_value does not match the current value."
         elif operation.action == "delete_key":
             parent = _node_at(document, steps[:-1], where)
             kind, key = steps[-1]
+            assert operation.expected_value is not None
             if kind == "key":
                 if not isinstance(parent, dict) or key not in parent:
                     return f"path {where} does not exist."
                 if parent[key] != json.loads(operation.expected_value):
                     return "expected_value does not match the current value."
             else:
+                assert isinstance(key, int)
                 if not isinstance(parent, list) or key >= len(parent):
                     return f"path {where} does not exist (index out of range)."
                 if parent[key] != json.loads(operation.expected_value):
@@ -721,7 +729,7 @@ def _check_operation(document, operation: JsonEditOperation) -> str | None:
     return None
 
 
-def _apply_operation(document, operation: JsonEditOperation):
+def _apply_operation(document: Any, operation: JsonEditOperation) -> Any:
     """Apply one already-validated operation and return the (new) root."""
 
     problem = _check_operation(document, operation)
@@ -748,7 +756,7 @@ def _apply_operation(document, operation: JsonEditOperation):
     return document
 
 
-def _walk_paths(node, path: str, out: list[str]) -> None:
+def _walk_paths(node: Any, path: str, out: list[str]) -> None:
     here = path or "$"
     if isinstance(node, dict):
         out.append(f"{here} = object ({len(node)} keys)")

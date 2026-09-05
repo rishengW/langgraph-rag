@@ -14,13 +14,13 @@ from hypothesis import strategies as st
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 
+from src.backend.application import RagAnswer, SourceReference
 from src.frontend.adapters.mcp_server.auth import resolve_http_auth
 from src.frontend.adapters.mcp_server.config import MCPSettings, load_mcp_settings
 from src.frontend.adapters.mcp_server.lifecycle import initialize_runtime
 from src.frontend.adapters.mcp_server.tools import CANONICAL_TOOL_NAMES, create_mcp_server
 from src.frontend.adapters.mcp_server.transport import build_http_app, transport_security
 from src.frontend.adapters.mcp_server.url_policy import UnsafeSourceURLError, URLValidator
-from src.backend.application import RagAnswer, SourceReference
 
 _PUBLIC_ADDRESSES = ("93.184.216.34",)
 

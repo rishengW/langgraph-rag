@@ -10,10 +10,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from ..chat.sessions import ChatSessionRegistry
-from src.config import Settings
 from src.backend.graph.metrics import MetricsCollector
 from src.backend.security import QuotaManager
+from src.config import Settings
+
+from ..chat.sessions import ChatSessionRegistry
 
 _UNSET: Any = object()
 

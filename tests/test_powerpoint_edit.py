@@ -7,7 +7,6 @@ import pytest
 from pptx.dml.color import RGBColor
 from pptx.util import Pt
 
-from src.config import Settings
 from src.backend.graph.artifacts import normalize_artifact
 from src.backend.tools.powerpoint_edit import (
     PPTX_MIME_TYPE,
@@ -16,6 +15,7 @@ from src.backend.tools.powerpoint_edit import (
     edit_powerpoint,
     inspect_powerpoint,
 )
+from src.config import Settings
 
 pptx = pytest.importorskip("pptx")
 

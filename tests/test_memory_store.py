@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-from src.config.settings import Settings
 from src.backend.memory.models import SCHEMA_VERSION, MemoryDocument, MemoryRecord
 from src.backend.memory.serialization import (
     CorruptDocumentError,
@@ -30,6 +29,7 @@ from src.backend.memory.store import (
     reset_store_cache,
     resolve_store_path,
 )
+from src.config.settings import Settings
 
 TS = "2026-07-01T00:00:00+00:00"
 LATER = "2026-07-02T12:30:45+00:00"

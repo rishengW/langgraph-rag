@@ -68,8 +68,7 @@ def parse_document(
 
     if not isinstance(payload, dict):
         raise CorruptDocumentError(
-            "memory store top-level value is not a JSON object "
-            f"(got {type(payload).__name__})"
+            f"memory store top-level value is not a JSON object (got {type(payload).__name__})"
         )
 
     version = payload.get("version")
@@ -91,9 +90,7 @@ def parse_document(
 
     records: list[MemoryRecord] = []
     for index, item in enumerate(raw_records):
-        record, record_warnings = _parse_record(
-            item, index=index, doc_updated_at=doc_updated_at
-        )
+        record, record_warnings = _parse_record(item, index=index, doc_updated_at=doc_updated_at)
         warnings.extend(record_warnings)
         if record is not None:
             records.append(record)
@@ -117,7 +114,7 @@ def _record_to_json(record: MemoryRecord) -> dict[str, Any]:
 def _is_readable_version(version: Any) -> bool:
     if isinstance(version, bool) or not isinstance(version, int):
         return False
-    return 1 <= version <= SCHEMA_VERSION
+    return 1 <= int(version) <= SCHEMA_VERSION
 
 
 def _parse_record(
@@ -134,16 +131,13 @@ def _parse_record(
         value = item.get(name)
         if not isinstance(value, str) or not value.strip():
             return None, [
-                f"memory record at position {index} has an unusable "
-                f"{name!r} field; skipped"
+                f"memory record at position {index} has an unusable {name!r} field; skipped"
             ]
         values[name] = value
 
     scope = values["scope"]
     if scope not in SCOPES:
-        return None, [
-            f"memory record at position {index} has an unusable 'scope' field; skipped"
-        ]
+        return None, [f"memory record at position {index} has an unusable 'scope' field; skipped"]
 
     warnings: list[str] = []
 
@@ -151,14 +145,12 @@ def _parse_record(
     if scope == "global":
         if scope_id is not None:
             warnings.append(
-                f"memory record at position {index} has a 'scope_id' on a global "
-                "record; discarded"
+                f"memory record at position {index} has a 'scope_id' on a global record; discarded"
             )
         scope_id = None
     elif not isinstance(scope_id, str) or not scope_id.strip():
         warnings.append(
-            f"memory record at position {index} has an unusable 'scope_id' field; "
-            "discarded"
+            f"memory record at position {index} has an unusable 'scope_id' field; discarded"
         )
         scope_id = None
 
@@ -188,8 +180,7 @@ def _parse_record(
         not isinstance(last_recalled_at, str) or not last_recalled_at.strip()
     ):
         warnings.append(
-            f"memory record at position {index} has an unusable "
-            "'last_recalled_at' field; discarded"
+            f"memory record at position {index} has an unusable 'last_recalled_at' field; discarded"
         )
         last_recalled_at = None
 
@@ -220,8 +211,7 @@ def _parse_tags(raw: Any, *, index: int) -> tuple[tuple[str, ...], list[str]]:
     warnings: list[str] = []
     if len(tags) != len(raw):
         warnings.append(
-            f"memory record at position {index} has unusable entries in 'tags'; "
-            "they were discarded"
+            f"memory record at position {index} has unusable entries in 'tags'; they were discarded"
         )
     return tuple(tags), warnings
 

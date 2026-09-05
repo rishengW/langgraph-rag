@@ -15,6 +15,7 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src.utils.networking import ensure_user_agent
+
 from .document_quality import DocumentQualityConfig, filter_quality_documents
 
 ensure_user_agent()

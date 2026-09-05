@@ -9,8 +9,9 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.config import Settings
-from ...llm.sanitize import strip_citation_artifacts
 from src.utils.retry import invoke_with_retry
+
+from ...llm.sanitize import strip_citation_artifacts
 from .common import QuestionResolver, message_text, new_chat_model
 
 logger = logging.getLogger(__name__)

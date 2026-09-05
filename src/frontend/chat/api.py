@@ -1016,7 +1016,7 @@ def create_app(
         lease = quotas.acquire(principal)
         try:
             try:
-                relative = await asyncio.to_thread(
+                await asyncio.to_thread(
                     delete_session_upload,
                     settings=settings,
                     thread_id=thread_id,

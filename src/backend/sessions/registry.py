@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from src.config import Settings
+
 from ..memory.watermark import WATERMARK_KEY, coerce_watermark
 from ..security import Principal, ResourceOwner
 from .models import ChatSession

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from src.config import Settings
 from src.backend.tools import build_summarize_url_tool
 from src.backend.tools.summarize_tool import summarize_url
+from src.config import Settings
 
 
 class _FakePage:

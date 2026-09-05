@@ -28,8 +28,8 @@ from src.backend.adapters.mcp_client import (
     ValidatedEndpoint,
     load_outbound_mcp_settings,
 )
-from src.errors import ConfigurationError
 from src.backend.mcp import ToolCatalogSnapshot, compose_snapshot, descriptor_from_tool
+from src.errors import ConfigurationError
 
 _PUBLIC_A = "93.184.216.34"
 _PUBLIC_B = "142.250.72.14"

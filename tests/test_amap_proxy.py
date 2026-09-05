@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from src.config import Settings
 from src.frontend.api.amap_proxy import (
     MAX_AMAP_PROXY_RESPONSE_BYTES,
     AMapProxyError,
@@ -11,7 +12,6 @@ from src.frontend.api.amap_proxy import (
     fetch_amap_proxy_response,
     validate_amap_proxy_path,
 )
-from src.config import Settings
 
 
 def test_amap_client_config_exposes_only_browser_safe_values():

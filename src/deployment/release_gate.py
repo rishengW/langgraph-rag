@@ -13,8 +13,13 @@ from enum import StrEnum
 from pathlib import Path
 
 from src.backend.mcp.secrets import SecretReference
+
 from ..errors import ConfigurationError
-from .topology import DeploymentTopology, DeploymentTopologyError, validate_single_instance_deployment
+from .topology import (
+    DeploymentTopology,
+    DeploymentTopologyError,
+    validate_single_instance_deployment,
+)
 
 REHEARSAL_SCHEMA_VERSION = 1
 DEFAULT_MAX_REHEARSAL_AGE = timedelta(days=7)

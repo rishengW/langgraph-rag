@@ -12,7 +12,6 @@ import logging
 import pydantic
 import pytest
 
-from src.config.settings import Settings
 from src.backend.memory.recall import MemoryCallBudget
 from src.backend.memory.store import MemoryStore, SaveOutcome
 from src.backend.tools.memory_tool import (
@@ -26,6 +25,7 @@ from src.backend.tools.memory_tool import (
     build_save_memory_tool,
     thread_id_from_config,
 )
+from src.config.settings import Settings
 
 TS = "2026-07-01T00:00:00+00:00"
 CONFIG = {"configurable": {"thread_id": "thread-42"}}

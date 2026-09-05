@@ -20,11 +20,12 @@ from src.backend.application import (
     RagRequest,
     RagServiceDependencies,
 )
-from src.config import Settings, load_settings
 from src.backend.core.graph_executor import run_rag_query
 from src.backend.graph.builder import build_graph, build_lightweight_graph
 from src.backend.mcp.observability import MCPObservability
 from src.backend.web_search import discover_urls_from_web, settings_for_discovered_urls
+from src.config import Settings, load_settings
+
 from .audit import AuditEvent, emit_audit
 from .auth import (
     SharedBearerTokenVerifier,

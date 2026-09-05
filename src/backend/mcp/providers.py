@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from langchain_core.tools import BaseTool
 
@@ -232,39 +232,96 @@ class SessionEditingToolProvider(FactoryToolProvider):
         def build() -> Sequence[BaseTool]:
             from src.backend import tools
 
-            keyword = {"session_root": session_root, "thread_id": thread_id}
             return (
-                *tools.build_c_edit_tools(settings, **keyword),
-                *tools.build_word_edit_tools(settings, **keyword),
-                *tools.build_text_edit_tools(settings, **keyword),
-                *tools.build_markdown_edit_tools(settings, **keyword),
-                *tools.build_typescript_edit_tools(settings, **keyword),
-                *tools.build_json_edit_tools(settings, **keyword),
-                *tools.build_jsonl_edit_tools(settings, **keyword),
-                *tools.build_r_edit_tools(settings, **keyword),
-                *tools.build_rust_edit_tools(settings, **keyword),
-                *tools.build_go_edit_tools(settings, **keyword),
-                *tools.build_groovy_edit_tools(settings, **keyword),
-                *tools.build_haskell_edit_tools(settings, **keyword),
-                *tools.build_html_edit_tools(settings, **keyword),
-                *tools.build_java_edit_tools(settings, **keyword),
-                *tools.build_javascript_edit_tools(settings, **keyword),
-                *tools.build_lua_edit_tools(settings, **keyword),
-                *tools.build_julia_edit_tools(settings, **keyword),
-                *tools.build_shell_edit_tools(settings, **keyword),
-                *tools.build_matlab_edit_tools(settings, **keyword),
-                *tools.build_sql_edit_tools(settings, **keyword),
-                *tools.build_swift_edit_tools(settings, **keyword),
-                *tools.build_log_edit_tools(settings, **keyword),
-                *tools.build_php_edit_tools(settings, **keyword),
-                *tools.build_python_edit_tools(settings, **keyword),
-                *tools.build_ruby_edit_tools(settings, **keyword),
-                *tools.build_latex_edit_tools(settings, **keyword),
-                *tools.build_prolog_edit_tools(settings, **keyword),
-                *tools.build_csv_edit_tools(settings, **keyword),
-                *tools.build_excel_create_tools(settings, **keyword),
-                *tools.build_excel_edit_tools(settings, **keyword),
-                *tools.build_powerpoint_edit_tools(settings, **keyword),
+                *tools.build_c_edit_tools(settings, session_root=session_root, thread_id=thread_id),
+                *tools.build_word_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_text_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_markdown_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_typescript_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_json_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_jsonl_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_r_edit_tools(settings, session_root=session_root, thread_id=thread_id),
+                *tools.build_rust_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_go_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_groovy_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_haskell_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_html_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_java_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_javascript_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_lua_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_julia_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_shell_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_matlab_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_sql_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_swift_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_log_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_php_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_python_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_ruby_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_latex_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_prolog_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_csv_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_excel_create_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_excel_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_powerpoint_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
             )
 
         super().__init__("session-editing", build, source="local", risk="write")
@@ -396,7 +453,7 @@ def _injected_risk(tool: BaseTool) -> RiskLevel:
     metadata = tool.metadata or {}
     candidate = metadata.get("risk_level")
     if candidate in {"read", "write", "execute", "admin"}:
-        return candidate  # type: ignore[return-value]
+        return cast(RiskLevel, candidate)
     return "read"
 
 

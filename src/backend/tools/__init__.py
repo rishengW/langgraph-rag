@@ -90,8 +90,6 @@ from .number_theory_tool import NumberTheoryInput, build_number_theory_tool
 from .pdf_file import PdfFileInput, build_pdf_tool
 from .php_edit import build_php_edit_tools
 from .php_file import build_php_file_tool
-from .python_edit import build_python_edit_tools
-from .python_file import build_python_file_tool
 from .powerpoint_edit import (
     PowerPointEditInput,
     PowerPointEditOperation,
@@ -102,6 +100,8 @@ from .powerpoint_edit import (
 )
 from .prolog_edit import build_prolog_edit_tools
 from .prolog_file import build_prolog_file_tool
+from .python_edit import build_python_edit_tools
+from .python_file import build_python_file_tool
 from .r_edit import build_r_edit_tools
 from .r_file import build_r_file_tool
 from .ruby_edit import build_ruby_edit_tools
@@ -114,9 +114,9 @@ from .sql_edit import build_sql_edit_tools
 from .sql_file import build_sql_file_tool
 from .statistics_tool import StatisticsInput, build_statistics_tool
 from .stock import StockInput, build_stock_tool
+from .summarize_tool import SummarizeUrlInput, build_summarize_url_tool
 from .swift_edit import build_swift_edit_tools
 from .swift_file import build_swift_file_tool
-from .summarize_tool import SummarizeUrlInput, build_summarize_url_tool
 from .text_edit import (
     TextCreateInput,
     TextEditInput,

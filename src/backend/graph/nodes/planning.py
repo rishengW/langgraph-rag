@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from src.config import Settings
 from src.utils.retry import invoke_with_retry
+
 from .common import (
     QuestionResolver,
     chat_question_resolver,

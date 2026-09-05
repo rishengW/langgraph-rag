@@ -17,6 +17,7 @@ from src.backend.mcp.observability import (
     ObservationOutcome,
     default_observability,
 )
+
 from .audit import AuditEvent, emit_audit
 from .config import MCPSettings
 

@@ -17,13 +17,13 @@ from src.backend.adapters.mcp_client import (
     load_outbound_mcp_settings,
     resolve_outbound_credentials,
 )
-from src.frontend.adapters.mcp_server.config import load_mcp_settings
-from src.errors import ConfigurationError
 from src.backend.mcp import (
     EnvironmentSecretProvider,
     SecretReference,
     SecretResolver,
 )
+from src.errors import ConfigurationError
+from src.frontend.adapters.mcp_server.config import load_mcp_settings
 
 
 def _document(*, enabled: bool = True, secret_reference: object | None = None) -> dict[str, object]:

@@ -10,8 +10,9 @@ from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import StrOutputParser
 
 from src.config import Settings
-from ...llm.prompts import CONDENSE_PROMPT
 from src.utils.retry import invoke_with_retry
+
+from ...llm.prompts import CONDENSE_PROMPT
 from .common import _truncate_context_text, bounded_chat_messages, new_chat_model
 
 logger = logging.getLogger(__name__)

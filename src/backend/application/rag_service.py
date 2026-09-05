@@ -12,6 +12,7 @@ from typing import Any
 from src.config import Settings
 from src.errors import RAGError
 from src.utils.urls import parse_url_input
+
 from .errors import RagApplicationError
 from .models import RagAnswer, RagRequest, SourceReference
 

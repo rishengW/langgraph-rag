@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from src.config import Settings
+
 from ...web_search.common import (
     host_quality_score,
     registrable_domain,

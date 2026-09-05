@@ -5,8 +5,6 @@ import sqlite3
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
-from src.frontend.chat.sessions import ChatSession as CompatChatSession
-from src.frontend.chat.sessions import ChatSessionRegistry as CompatChatSessionRegistry
 from src.backend.sessions import (
     ChatSession,
     ChatSessionRegistry,
@@ -17,6 +15,8 @@ from src.backend.sessions import (
     _settings_for_session,
     settings_for_session,
 )
+from src.frontend.chat.sessions import ChatSession as CompatChatSession
+from src.frontend.chat.sessions import ChatSessionRegistry as CompatChatSessionRegistry
 
 
 class CounterState(TypedDict):

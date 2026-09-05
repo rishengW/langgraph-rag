@@ -11,9 +11,6 @@ from fastapi.testclient import TestClient
 from hypothesis import given
 from hypothesis import strategies as st
 
-from src.frontend.adapters.mcp_server.config import MCPSettings
-from src.frontend.adapters.mcp_server.lifecycle import initialize_runtime
-from src.frontend.chat import api as chat_api
 from src.deployment import (
     REPLICA_COUNT_ENV_NAMES,
     REQUIRED_SHARED_STATE_CAPABILITIES,
@@ -24,6 +21,9 @@ from src.deployment import (
     UnsupportedDeploymentTopologyError,
     validate_single_instance_deployment,
 )
+from src.frontend.adapters.mcp_server.config import MCPSettings
+from src.frontend.adapters.mcp_server.lifecycle import initialize_runtime
+from src.frontend.chat import api as chat_api
 
 
 def _set_single_instance_environment(

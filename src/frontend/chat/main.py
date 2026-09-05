@@ -16,7 +16,6 @@ from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import replace
 
-from src.config import load_settings, secret_fingerprint
 from src.backend.core.web_search import (
     discover_urls_from_web,
     settings_for_discovered_urls,
@@ -24,6 +23,8 @@ from src.backend.core.web_search import (
 from src.backend.graph.events import DoneEvent, ErrorEvent, TokenEvent, ToolEndEvent, ToolStartEvent
 from src.backend.graph.executor import GraphExecutor
 from src.backend.memory.recall import build_turn_messages
+from src.config import load_settings, secret_fingerprint
+
 from .memory_hooks import after_turn, build_extraction_runtime
 
 
@@ -106,6 +107,7 @@ def _serve(args: argparse.Namespace) -> None:
 
 def _repl(args: argparse.Namespace) -> None:
     from src.backend.graph.builder import build_lightweight_graph
+
     from .graph import _build_memory_saver, build_chat_graph
 
     urls = [u.strip() for u in args.urls.split(",") if u.strip()] or None

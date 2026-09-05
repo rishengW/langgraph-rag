@@ -11,10 +11,10 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.config.settings import Settings
 from src.backend.memory.extraction import MemoryExtractor
 from src.backend.memory.store import MemoryStore, SaveOutcome
 from src.backend.memory.watermark import InMemoryWatermarkStore
+from src.config.settings import Settings
 
 
 class Checkpointer:

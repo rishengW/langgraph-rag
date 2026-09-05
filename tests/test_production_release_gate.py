@@ -9,6 +9,7 @@ from typing import cast
 
 import pytest
 
+from src.backend.mcp import EnvironmentSecretProvider, SecretReference, SecretResolver
 from src.deployment.release_gate import (
     REQUIRED_REHEARSAL_SCENARIOS,
     ReleaseGateError,
@@ -16,7 +17,6 @@ from src.deployment.release_gate import (
     main,
     validate_release_evidence,
 )
-from src.backend.mcp import EnvironmentSecretProvider, SecretReference, SecretResolver
 
 
 def _valid_document(now: datetime) -> dict[str, object]:

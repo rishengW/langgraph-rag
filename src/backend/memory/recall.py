@@ -22,6 +22,7 @@ from .relevance import derive_query_terms, rank_records
 
 if TYPE_CHECKING:  # pragma: no cover - avoids an import cycle at runtime
     from src.config import Settings
+
     from .store import MemoryStore
 
 logger = logging.getLogger(__name__)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src._compat import warn_deprecated_import
+
 from ..rag.chroma_retriever import (
     EMBEDDING_CONFIG_FILENAME,
     ChromaRetriever,

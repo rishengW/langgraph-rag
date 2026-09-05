@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from src.errors import ConfigurationError
+
 from ...mcp.models import ToolProvider, ToolProviderRegistration
 from ...mcp.secrets import ResolvedSecret, SecretResolver
 from .config import OutboundMCPSettings

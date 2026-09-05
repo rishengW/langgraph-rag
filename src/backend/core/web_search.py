@@ -8,6 +8,7 @@ and older tests.
 from __future__ import annotations
 
 from src._compat import warn_deprecated_import
+
 from ..web_search import (
     BaiduVerificationError,
     BaiduWebSearch,

@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from src._compat import warn_deprecated_import
-from src.config import Settings
 from src.backend.graph.builder import build_graph as _build_graph
 from src.backend.graph.builder import build_memory_saver as _build_memory_saver
+from src.config import Settings
 
 warn_deprecated_import("src.frontend.chat.graph", "src.backend.graph.builder")
 

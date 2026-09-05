@@ -13,10 +13,11 @@ from uuid import uuid4
 
 from src.config import Settings
 from src.errors import RAGError, ResourceNotFoundError
+from src.utils.urls import parse_url_input
+
 from ..graph.artifacts import extract_artifacts_from_messages
 from ..security import Principal, ResourceOwner
 from ..sessions import ChatSession, ChatSessionRegistry
-from src.utils.urls import parse_url_input
 from .errors import SessionLifecycleError
 from .models import (
     HistoryEntry,

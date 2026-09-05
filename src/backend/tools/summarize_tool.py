@@ -97,8 +97,9 @@ def summarize_url(
 
     prompt = _build_prompt(page.title or target, page.url, page.text, focus)
 
-    from ..llm.provider import build_chat_model
     from src.utils.retry import invoke_with_retry
+
+    from ..llm.provider import build_chat_model
 
     try:
         result = invoke_with_retry(

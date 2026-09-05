@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import TypeVar
 
 from src.errors import QuotaExceededError
+
 from .identity import Principal
 
 _HARD_MAX_RATE = 1_000_000_000

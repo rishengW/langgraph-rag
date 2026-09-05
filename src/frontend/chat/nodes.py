@@ -8,7 +8,6 @@ from typing import Any
 from langchain_core.tools import BaseTool
 
 from src._compat import warn_deprecated_import
-from src.config import Settings
 from src.backend.graph.nodes import (
     build_extractive_answer as _build_extractive_answer,
 )
@@ -40,6 +39,7 @@ from src.backend.graph.nodes.common import (
     rewrite_factory as _shared_rewrite_factory,
 )
 from src.backend.llm.prompts import CONDENSE_PROMPT, RAG_PROMPT
+from src.config import Settings
 from src.utils.retry import invoke_with_retry as _invoke_with_retry
 
 warn_deprecated_import("src.frontend.chat.nodes", "src.backend.graph.nodes")

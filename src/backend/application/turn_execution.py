@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 from typing import Any, cast
 
 from src.errors import RAGError, ResourceNotFoundError
+
 from ..graph.artifacts import extract_artifacts_from_messages
 from ..graph.events import DoneEvent, ErrorEvent, GraphEvent
 from ..graph.executor import GraphExecutor

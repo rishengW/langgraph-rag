@@ -741,8 +741,8 @@ def _plan_operations(
         label = f"operation {position} ({operation.action})"
         if operation.action == "append_row":
             continue
+        assert operation.row_index is not None
         index = operation.row_index
-        assert index is not None
         if index >= len(document.rows):
             problems.append(
                 f"{label}: row_index {index} is out of range; the file has "
@@ -785,6 +785,7 @@ def _plan_operations(
         if operation.action == "update_cell"
         and operation.row_index is not None
         and operation.column is not None
+        and operation.new_value is not None
     ]
     return _EditPlan(structural=structural, cell_updates=cell_updates, appends=appends)
 

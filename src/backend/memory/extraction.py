@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.config.settings import Settings
+
 from ..llm.prompts import MEMORY_EXTRACTION_PROMPT
 from ..llm.provider import build_chat_model
 from .models import EXTRACTION_TAG_PREFIX, MAX_TAG_CHARS, MAX_TAGS, SCOPES

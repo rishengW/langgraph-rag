@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 from src.errors import ConfigurationError
+
 from ...mcp.secrets import SecretReference
 from .security import parse_https_endpoint, parse_https_origin
 

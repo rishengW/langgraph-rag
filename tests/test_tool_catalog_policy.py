@@ -936,10 +936,10 @@ def test_stdio_boundary_propagates_and_restores_trusted_tool_principal():
     pytest.importorskip("mcp")
     from mcp.client import Client
 
-    from src.frontend.adapters.mcp_server.config import MCPSettings
-    from src.frontend.adapters.mcp_server.tools import create_mcp_server
     from src.backend.application import RagAnswer
     from src.backend.mcp import current_tool_principal
+    from src.frontend.adapters.mcp_server.config import MCPSettings
+    from src.frontend.adapters.mcp_server.tools import create_mcp_server
 
     class PrincipalCapturingService:
         def __init__(self):

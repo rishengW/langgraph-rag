@@ -6,7 +6,6 @@ import time
 
 import pytest
 
-from src.config.settings import Settings
 from src.backend.memory.models import MAX_TOOL_CALLS_PER_TURN
 from src.backend.memory.recall import (
     MEMORY_NOTE_LABEL,
@@ -18,6 +17,7 @@ from src.backend.memory.recall import (
 )
 from src.backend.memory.store import MemoryStore, reset_store_cache
 from src.backend.memory.transcript import is_memory_note
+from src.config.settings import Settings
 
 TS = "2026-07-01T00:00:00+00:00"
 

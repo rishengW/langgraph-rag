@@ -100,6 +100,9 @@ summarize_url_enabled: false
 file_read_enabled: false
 file_read_root: "."
 file_read_max_bytes: 5000000
+# C .c/.h editing. Needs file_read_enabled too; writes a session-scoped copy
+# and never overwrites the uploaded source.
+c_edit_enabled: false
 # Word .docx editing. Needs file_read_enabled too; writes a new .docx next to
 # the uploaded source and never overwrites it.
 word_edit_enabled: false
@@ -138,10 +141,14 @@ rust_edit_enabled: false
 go_edit_enabled: false
 sql_edit_enabled: false
 php_edit_enabled: false
+python_edit_enabled: false
 ruby_edit_enabled: false
 latex_edit_enabled: false
 prolog_edit_enabled: false
 haskell_edit_enabled: false
+html_edit_enabled: false
+java_edit_enabled: false
+javascript_edit_enabled: false
 lua_edit_enabled: false
 julia_edit_enabled: false
 shell_edit_enabled: false

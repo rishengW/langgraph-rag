@@ -195,6 +195,11 @@ Key settings:
 | `GROOVY_EDIT_ENABLED` | `false` | Groovy .groovy creation/editing; needs FILE_READ_ENABLED too |
 | `SWIFT_EDIT_ENABLED` | `false` | Swift .swift creation/editing; needs FILE_READ_ENABLED too |
 | `LOG_EDIT_ENABLED` | `false` | Log .log creation/editing; needs FILE_READ_ENABLED too |
+| `C_EDIT_ENABLED` | `false` | C .c/.h creation/editing; needs FILE_READ_ENABLED too |
+| `PYTHON_EDIT_ENABLED` | `false` | Python .py creation/editing; needs FILE_READ_ENABLED too |
+| `JAVA_EDIT_ENABLED` | `false` | Java .java creation/editing; needs FILE_READ_ENABLED too |
+| `JAVASCRIPT_EDIT_ENABLED` | `false` | JavaScript .js/.mjs/.cjs creation/editing; needs FILE_READ_ENABLED too |
+| `HTML_EDIT_ENABLED` | `false` | HTML .html/.htm creation/editing; needs FILE_READ_ENABLED too |
 | `CHROMA_DIR` | `.chroma` | Vector store location |
 | `RAG_ENV` | `development` | Runtime environment; `production` activates fail-closed deployment topology checks |
 | `RAG_WORKER_COUNT` | `1` | Declared production worker count; must remain `1` while local state or locks are authoritative |
@@ -317,6 +322,11 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `read_markdown_file` | `src/backend/tools/markdown_file.py` | `FILE_READ_ENABLED=true` | Read a Markdown .md from `FILE_READ_ROOT` (including session uploads) |
 | `read_typescript_file` | `src/backend/tools/typescript_file.py` | `FILE_READ_ENABLED=true` | Read a TypeScript .ts/.tsx from `FILE_READ_ROOT` (including session uploads) |
 | `read_json_file` | `src/backend/tools/json_file.py` | `FILE_READ_ENABLED=true` | Read a .json or .jsonl from `FILE_READ_ROOT` (including session uploads) |
+| `read_c_file` | `src/backend/tools/c_file.py` | `FILE_READ_ENABLED=true` | Read a C .c/.h file from `FILE_READ_ROOT` (including session uploads) |
+| `read_python_file` | `src/backend/tools/python_file.py` | `FILE_READ_ENABLED=true` | Read a Python .py file from `FILE_READ_ROOT` (including session uploads) |
+| `read_java_file` | `src/backend/tools/java_file.py` | `FILE_READ_ENABLED=true` | Read a Java .java file from `FILE_READ_ROOT` (including session uploads) |
+| `read_javascript_file` | `src/backend/tools/javascript_file.py` | `FILE_READ_ENABLED=true` | Read a JavaScript .js/.mjs/.cjs file from `FILE_READ_ROOT` (including session uploads) |
+| `read_html_file` | `src/backend/tools/html_file.py` | `FILE_READ_ENABLED=true` | Read an HTML .html/.htm file from `FILE_READ_ROOT` (including session uploads) |
 | `read_r_file` | `src/backend/tools/r_file.py` | `FILE_READ_ENABLED=true` | Read an R .r file from `FILE_READ_ROOT` (including session uploads) |
 | `read_rust_file` | `src/backend/tools/rust_file.py` | `FILE_READ_ENABLED=true` | Read a Rust .rs file from `FILE_READ_ROOT` (including session uploads) |
 | `read_go_file` | `src/backend/tools/go_file.py` | `FILE_READ_ENABLED=true` | Read a Go .go file from `FILE_READ_ROOT` (including session uploads) |
@@ -377,6 +387,11 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `inspect_groovy_file` / `edit_groovy_file` / `create_groovy_file` | `src/backend/tools/groovy_edit.py` | `FILE_READ_ENABLED=true` and `GROOVY_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .groovy files; creates a new file |
 | `inspect_swift_file` / `edit_swift_file` / `create_swift_file` | `src/backend/tools/swift_edit.py` | `FILE_READ_ENABLED=true` and `SWIFT_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .swift files; creates a new file |
 | `inspect_log_file` / `edit_log_file` / `create_log_file` | `src/backend/tools/log_edit.py` | `FILE_READ_ENABLED=true` and `LOG_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .log files; creates a new file |
+| `inspect_c_file` / `edit_c_file` / `create_c_file` | `src/backend/tools/c_edit.py` | `FILE_READ_ENABLED=true` and `C_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .c/.h files; creates a new file |
+| `inspect_python_file` / `edit_python_file` / `create_python_file` | `src/backend/tools/python_edit.py` | `FILE_READ_ENABLED=true` and `PYTHON_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .py files; creates a new file |
+| `inspect_java_file` / `edit_java_file` / `create_java_file` | `src/backend/tools/java_edit.py` | `FILE_READ_ENABLED=true` and `JAVA_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .java files; creates a new file |
+| `inspect_javascript_file` / `edit_javascript_file` / `create_javascript_file` | `src/backend/tools/javascript_edit.py` | `FILE_READ_ENABLED=true` and `JAVASCRIPT_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .js/.mjs/.cjs files; creates a new file |
+| `inspect_html_file` / `edit_html_file` / `create_html_file` | `src/backend/tools/html_edit.py` | `FILE_READ_ENABLED=true` and `HTML_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .html/.htm files; creates a new file |
 | `save_memory` | `src/backend/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Remember a durable fact, preference, or task the user states about themselves; stores with optional category, tags, and scope |
 | `recall_memory` | `src/backend/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Look up what is already remembered about the user by keyword; used before answering questions about the user not covered in the current conversation |
 | `forget_memory` | `src/backend/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Delete stored memories by id or keyword when the user asks to forget something |

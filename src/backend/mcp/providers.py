@@ -185,6 +185,7 @@ class DocumentToolProvider(FactoryToolProvider):
             if not settings.file_read_enabled:
                 return ()
             return (
+                tools.build_c_file_tool(settings),
                 tools.build_text_file_tool(settings),
                 tools.build_markdown_file_tool(settings),
                 tools.build_typescript_file_tool(settings),
@@ -194,6 +195,9 @@ class DocumentToolProvider(FactoryToolProvider):
                 tools.build_go_file_tool(settings),
                 tools.build_groovy_file_tool(settings),
                 tools.build_haskell_file_tool(settings),
+                tools.build_html_file_tool(settings),
+                tools.build_java_file_tool(settings),
+                tools.build_javascript_file_tool(settings),
                 tools.build_lua_file_tool(settings),
                 tools.build_julia_file_tool(settings),
                 tools.build_shell_file_tool(settings),
@@ -202,6 +206,7 @@ class DocumentToolProvider(FactoryToolProvider):
                 tools.build_swift_file_tool(settings),
                 tools.build_log_file_tool(settings),
                 tools.build_php_file_tool(settings),
+                tools.build_python_file_tool(settings),
                 tools.build_ruby_file_tool(settings),
                 tools.build_latex_file_tool(settings),
                 tools.build_prolog_file_tool(settings),
@@ -229,6 +234,7 @@ class SessionEditingToolProvider(FactoryToolProvider):
 
             keyword = {"session_root": session_root, "thread_id": thread_id}
             return (
+                *tools.build_c_edit_tools(settings, **keyword),
                 *tools.build_word_edit_tools(settings, **keyword),
                 *tools.build_text_edit_tools(settings, **keyword),
                 *tools.build_markdown_edit_tools(settings, **keyword),
@@ -240,6 +246,9 @@ class SessionEditingToolProvider(FactoryToolProvider):
                 *tools.build_go_edit_tools(settings, **keyword),
                 *tools.build_groovy_edit_tools(settings, **keyword),
                 *tools.build_haskell_edit_tools(settings, **keyword),
+                *tools.build_html_edit_tools(settings, **keyword),
+                *tools.build_java_edit_tools(settings, **keyword),
+                *tools.build_javascript_edit_tools(settings, **keyword),
                 *tools.build_lua_edit_tools(settings, **keyword),
                 *tools.build_julia_edit_tools(settings, **keyword),
                 *tools.build_shell_edit_tools(settings, **keyword),
@@ -248,6 +257,7 @@ class SessionEditingToolProvider(FactoryToolProvider):
                 *tools.build_swift_edit_tools(settings, **keyword),
                 *tools.build_log_edit_tools(settings, **keyword),
                 *tools.build_php_edit_tools(settings, **keyword),
+                *tools.build_python_edit_tools(settings, **keyword),
                 *tools.build_ruby_edit_tools(settings, **keyword),
                 *tools.build_latex_edit_tools(settings, **keyword),
                 *tools.build_prolog_edit_tools(settings, **keyword),

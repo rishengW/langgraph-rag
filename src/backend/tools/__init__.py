@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .c_edit import build_c_edit_tools
+from .c_file import build_c_file_tool
 from .csv_edit import (
     CsvCreateInput,
     CsvEditInput,
@@ -37,6 +39,12 @@ from .groovy_edit import build_groovy_edit_tools
 from .groovy_file import build_groovy_file_tool
 from .haskell_edit import build_haskell_edit_tools
 from .haskell_file import build_haskell_file_tool
+from .html_edit import build_html_edit_tools
+from .html_file import build_html_file_tool
+from .java_edit import build_java_edit_tools
+from .java_file import build_java_file_tool
+from .javascript_edit import build_javascript_edit_tools
+from .javascript_file import build_javascript_file_tool
 from .json_edit import (
     JsonCreateInput,
     JsonEditInput,
@@ -82,6 +90,8 @@ from .number_theory_tool import NumberTheoryInput, build_number_theory_tool
 from .pdf_file import PdfFileInput, build_pdf_tool
 from .php_edit import build_php_edit_tools
 from .php_file import build_php_file_tool
+from .python_edit import build_python_edit_tools
+from .python_file import build_python_file_tool
 from .powerpoint_edit import (
     PowerPointEditInput,
     PowerPointEditOperation,
@@ -208,6 +218,8 @@ __all__ = [
     "WordEditOperation",
     "WordFileInput",
     "WordInspectInput",
+    "build_c_edit_tools",
+    "build_c_file_tool",
     "build_currency_tool",
     "build_csv_edit_tools",
     "build_datetime_tool",
@@ -217,10 +229,18 @@ __all__ = [
     "build_groovy_file_tool",
     "build_haskell_edit_tools",
     "build_haskell_file_tool",
+    "build_html_edit_tools",
+    "build_html_file_tool",
+    "build_java_edit_tools",
+    "build_java_file_tool",
+    "build_javascript_edit_tools",
+    "build_javascript_file_tool",
     "build_php_edit_tools",
     "build_php_file_tool",
     "build_prolog_edit_tools",
     "build_prolog_file_tool",
+    "build_python_edit_tools",
+    "build_python_file_tool",
     "build_ruby_edit_tools",
     "build_ruby_file_tool",
     "build_json_edit_tools",

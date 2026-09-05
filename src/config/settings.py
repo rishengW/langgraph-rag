@@ -181,6 +181,7 @@ class Settings:
     # JSONL .jsonl creation and editing; every written line must parse as JSON.
     # Same session-scoped, never-overwrite model as the .txt editor.
     jsonl_edit_enabled: bool = False
+    c_edit_enabled: bool = False
     # Per-language source creation and editing (R, Rust, Go, SQL, PHP, Ruby,
     # LaTeX, Prolog, Haskell, Lua, Julia, ...). Same session-scoped,
     # never-overwrite line editor as the .txt editor.
@@ -189,10 +190,14 @@ class Settings:
     go_edit_enabled: bool = False
     sql_edit_enabled: bool = False
     php_edit_enabled: bool = False
+    python_edit_enabled: bool = False
     ruby_edit_enabled: bool = False
     latex_edit_enabled: bool = False
     prolog_edit_enabled: bool = False
     haskell_edit_enabled: bool = False
+    html_edit_enabled: bool = False
+    java_edit_enabled: bool = False
+    javascript_edit_enabled: bool = False
     lua_edit_enabled: bool = False
     julia_edit_enabled: bool = False
     shell_edit_enabled: bool = False

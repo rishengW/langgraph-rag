@@ -1,0 +1,38 @@
+LOOP STATE — per-language tool pairs for src/backend/tools/.
+
+REQUEST: /loop 10s "Add the tools that enable the agent read, create and edit
+the python, java, javaScript, matlab, c files. Each loop works for one
+programming language only."
+
+Cadence: 10s requested → cron rounds to 1 minute minimum granularity.
+Cron job (to be created): "* * * * *", recurring, auto-expires after 7 days.
+
+Convention (memory per-language-tool-modules): each lang/format family owns
+<lang>_edit.py + <lang>_file.py; private _-prefix engines may be shared.
+
+Reference: matlab_file.py + matlab_edit.py (already shipped) and go_*.py are
+the canonical templates. SourceEditConfig in _source_edit.py is the shared
+engine; new modules are thin per-language adapters.
+
+Per-iteration work:
+  1. Create <lang>_file.py and <lang>_edit.py (thin SourceEditConfig adapters).
+  2. Register in src/backend/tools/__init__.py (imports + __all__).
+  3. Register in src/backend/mcp/providers.py (DocumentToolProvider +
+     SessionEditingToolProvider).
+  4. Add <lang>_edit_enabled: bool = False to src/config/settings.py.
+  5. Add env mapping "<lang>_edit_enabled": "<LANG>_EDIT_ENABLED" + flag list
+     entry in src/config/loader.py.
+  6. Add <lang>_edit_enabled: false to config/default.yaml (alphabetical slot).
+  7. Append a DONE row to this file; re-validate with python -c 'ast.parse(...)'.
+
+Languages (in user-stated order):
+  [x] python    .py   text/x-python
+  [x] java      .java text/x-java
+  [x] javascript .js .mjs .cjs text/javascript
+  [x] matlab    .m   text/x-matlab   VERIFIED — already shipped, all 6 wiring points present
+  [x] c         .c .h text/x-c
+
+Notes:
+- matlab was already shipped before this loop started; do not duplicate.
+- javascript suffixes: .js, .mjs, .cjs are the canonical extension set.
+- c suffixes: .c (and .h for headers).

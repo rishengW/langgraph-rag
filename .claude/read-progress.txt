@@ -1,0 +1,2170 @@
+LOOP STATE — PASS 2: read src/backend/web_search, one file-batch per tick.
+No subfolders inside web_search (only __pycache__), so "one folder per loop"
+= one file batch per tick. Smallest-first so each tick finishes well under 60s.
+
+REQUEST: /loop 10s "Read each file of src/backend/web_search in this project,
+each loop reads one folder and read each file in the folder"
+
+CADENCE: every 1 minute (requested 10s — cron minimum granularity is 1 minute).
+CRON JOB: 1e49aa75 (*/1 * * * *), session-only, auto-expires after 7 days.
+SKIP: __pycache__. 25 .py files total, 6541 lines, ~293 KB.
+DONE = every file in that batch was Read this session.
+
+SESSION (3rd) NOTE — CRON PILING UP: CronList shows 5 live jobs, only 197aed29 is this
+loop's. 73a5feb2 / 68435671 / b2ef1a02 / 543e18b9 are leftover duplicate loops from
+earlier ticks (whole-project sweeps + a src/tests sweep). They all read-and-append the
+SAME progress files. Prior sessions documented that two cron jobs writing one file
+truncated findings mid-block. Left untouched (not this loop's call) — flagged to user.
+SAFEGUARD: append to this file with Edit, never rewrite the whole file with Write.
+
+PASS 2 STARTED 2026-09-05 (fresh session after /clear, same /loop 10s re-issued).
+Verified directory again: 25 .py files, 6541 lines, no subfolders.
+
+PASS 3 STARTED 2026-09-05 (another /clear, same /loop 10s re-issued, cron aec73c6a).
+Directory re-verified: 25 .py files, 6541 lines, subfolders = __pycache__ only.
+Batch 1-4 findings already recorded above by pass 2 in a live session, so pass 3
+resumes at batch 5 rather than re-reading them. Only ONE cron job exists in this
+session (aec73c6a), so the pass-2 concurrent-write race does not apply here.
+
+  batch  files                                                        status
+  1      tool.py, protocol.py, playwright_loader.py, __init__.py,     DONE
+         recency.py                                                   (303 lines)
+  2      fetch_policy.py, prompt_builder.py, semantic.py,
+         claim_consensus.py, factory.py, page_structure.py            DONE (681 lines)
+  3      pdf_loader.py, evidence.py, date_extractor.py,
+         api_providers.py                                             DONE (628 lines)
+  4      reputation.py, duckduckgo.py, baidu.py, bing.py              DONE (900 lines)
+  5      query_constraints.py, query_prep.py                     DONE PASS 3 (763 lines)
+  6      benchmark.py, discovery.py                                   DONE (1113 lines)
+  7      content_fetcher.py, common.py                                SPLIT 1979 lines:
+         7a  content_fetcher.py                                       DONE (822)
+         7b  common.py                                                pending (1157)
+
+# OBSERVED (PASS 2, batch 1)
+- tool.py: unchanged from pass 1 — module-level DeprecationWarning, then re-exports
+  WebSearchDiscovery/WebSearchInput/build_web_search_tool/format_web_search_results
+  from ..tools.web_search. stacklevel=2 points the warning at the importer.
+- protocol.py: WebSearchProvider is @runtime_checkable but that only asserts attribute
+  presence, never signatures or behaviour — `isinstance(x, WebSearchProvider)` would
+  pass an object with two no-op methods. Two methods, no bridge: a provider must
+  implement BOTH search() -> list[str] AND search_results() -> list[SearchResult],
+  and nothing derives one from the other, so a provider shipping only URLs silently
+  gives up title/snippet ranking.
+- playwright_loader.py: browser is launched and closed PER URL (launch+new_page+close
+  inside load()) — no browser reuse across the batch, so a 30-URL JS fallback pays a
+  Chromium cold start per page. timeout_ms = max(1, int(page_timeout)) * 1000: the
+  int() FLOORS, so page_timeout=0.5 becomes 0 -> clamped to 1 -> 1000ms; sub-second
+  timeouts are silently impossible. wait_until="load" then networkidle 3s under
+  suppress(TimeoutError) — so networkidle never fails the page, only stretches it.
+  Returns page.content() = full rendered DOM HTML, not text; the stripping is
+  downstream in content_fetcher. No UA, no custom headers, no viewport set.
+- __init__.py: eager imports of 15 submodules (everything except playwright, which
+  stays lazy inside its own factory) — importing the package pulls in discovery +
+  content_fetcher + query_prep wholesale. The 3 tool symbols are lazy via module-level
+  __getattr__ but are ALSO listed in __all__, which works because CPython's
+  `from pkg import *` resolves each __all__ name through __getattr__; `dir()` and
+  introspection before first access do not see them.
+- recency.py: score table for status/intent queries — <=90d +18, <=365d +12, <=730d
+  +4, older -min(18, 4+years_old*3), future-dated (age_days < -31) -12. Missing date
+  stays 0 (neutral, eligible) — deliberately non-punitive.
+
+  NOTABLE / BUGS
+  * BUG (semantic, verified by reading): a SINGLE 4-digit year in the query becomes a
+    HARD publication-year constraint (-60 on any other year). That makes "since 2019"
+    (自2019年以来) and "about 2019" (2019年) indistinguishable — a query asking for
+    everything since 2019 gets -60 on every 2020-2026 page, i.e. it suppresses exactly
+    the pages it wants. Nothing in _YEAR_RE or its neighbours models a range/onward
+    intent; recency has no >= comparison at all.
+  * 2026-09-05: -60 for a year conflict equals common.py's text-relevance-miss
+    penalty (pass 1 batch 7). Gate is 45 and url_quality alone can supply ~60-100, so
+    a year-mismatched but otherwise excellent page nets roughly 0-40: it can still
+    clear the gate. Year conflict is a *soft* veto in practice, not a hard one —
+    contrary to the docstring's "hard publication-year constraint".
+  * Multi-year queries return applies=True, score=0 (neutral) by design; combined with
+    the above, a comparison page with NO year match and no topical text match is only
+    stopped by common.py's -60 text miss. Two independent gaps covering each other.
+  * _YEAR_RE = (?<!\d)(?:19|20)\d{2}(?!\d) matches ANY 4-digit 19xx/20xx token, so a
+    budget figure, bus model, standard number, or 2024版 edition marker all become a
+    year constraint. Chinese "25年" shorthand never matches (needs 19/20 prefix).
+  * recency_requested is triggered by detect_query_intents() STATUS_INTENT on the raw
+    query — so any "现状/情况" wording turns recency scoring on for the whole query,
+    regardless of whether dates were intended.
+  * today is injectable (date.today() default) — good, the score table is testable
+    with a pinned clock; nothing else in this module calls date.today() directly.
+
+# OBSERVED (PASS 2, batch 2)
+- fetch_policy.py: browser_profile = fallback_match OR force_match OR authoritative_host.
+  So gov/edu/owner hosts get browser headers + JS-retry budget even though they rarely
+  need JS. force_js additionally requires js_fallback_enabled, so js_force_domains is a
+  no-op until the master switch is on. BROWSER_REQUEST_HEADERS Accept-Language is
+  zh-CN-first and is applied to EVERY authoritative host (English gov pages included).
+  domain_matches uses `host == d or host.endswith(f".{d}")` — the correct containment
+  form, so evil-example.com does NOT match example.com. url_host prepends https:// for
+  bare hostnames, strips trailing dots, lowercases. No glob support; allowlisting
+  "example.com" implicitly covers subdomains (undocumented). DEFAULT_JS_FALLBACK_DOMAINS
+  = baike.baidu.com, zhuanlan.zhihu.com, apps.microsoft.com, deepseek.net — the last is
+  the answer model's own site, i.e. it is EXPECTED to be JS-rendered.
+
+- prompt_builder.py: token budget is charged question_block + footer + source sections,
+  and the `instructions` preamble is EXPLICITLY excluded (comment: otherwise a long
+  instruction block would starve sources). Consequence nobody states: max_total_tokens
+  is NOT a ceiling on total prompt size. grounding_note is appended to instructions and
+  is therefore ALSO unbudgeted and caller-controlled length — a long note yields an
+  unbounded prompt.
+
+  NOTABLE / BUGS
+  * BUG (honesty): if NO section fits the budget, `sections` is empty and is replaced
+    with "No readable web source content was available." That is FALSE when the real
+    cause is a size-exhausted budget — sources existed and were dropped. The model is
+    told there was no content when there was. Edge case (very long question + tight
+    budget) but a genuine misrepresentation to the answer model.
+  * Section loop is otherwise correct: content_budget = remaining - prefix - suffix is
+    computed BEFORE the section is appended, so a section can never overshoot; the
+    `if remaining_tokens <= 0: break` fires after appending the current section, which
+    is what allows exactly one final section. No overshoot.
+  * SECURITY TRADEOFF (intentional, unmarked): the preamble tells the model the sources
+    are "MORE UP TO DATE than your own training data" and to "not dismiss information
+    as future, unreleased, or non-existent" — it is being told to TRUST web content over
+    its own judgment. That is a prompt-injection amplification vector: a malicious page
+    saying "ignore previous instructions" reaches a model primed to obey sources. The
+    only counterweight is the optional EVIDENCE CONSTRAINT note.
+  * Citation ban is now a three-model patch list: [1] (generic), 【199†L91-L126】
+    (DeepSeek-R1 native), [oaicite:0] (OpenAI o-series). Confirms this prompt has been
+    iterated against multiple answer models' citation hallucinations.
+
+- semantic.py: EmbeddingSemanticScorer._model() is correct double-checked locking;
+  default_semantic_scorer() re-checks model_name inside _default_scorer_lock, so
+  changing the configured model swaps the global. semantic_bonus: non-negative, capped
+  +25, threshold clamped to [0,1] — recall-only by construction, cannot override hard
+  evidence gates. Model is paraphrase-multilingual-MiniLM-L12-v2 (multilingual, right
+  choice for CJK). build_semantic_scorer is off by default and accepts any settings-like
+  object via getattr.
+
+  NOTABLE / BUGS
+  * BUG (perf, real): if the model cannot be built (broken/missing HF install),
+    `build_huggingface_embeddings` raises inside the try in similarities(), gets caught,
+    and returns all 0.0 — but the FAILURE IS NOT NEGATIVE-CACHED. Every subsequent call
+    retries the full import+model-build before failing again. A permanently-broken
+    embedding install costs a full model-load attempt per query, forever, with one
+    warning per call and no circuit breaker.
+  * `similarities` truncates each CANDIDATE text to 1000 chars but never truncates the
+    QUERY. Long queries pay unbounded embedding cost on that axis.
+  * `span <= 0: return SEMANTIC_MAX_BONUS` is unreachable at sane inputs: reaching it
+    needs similarity > threshold == 1.0, and cosine is <= 1.0 by construction. Defensive
+    for a misbehaving custom SemanticScorer, but dead at defaults.
+  * Confirms pass-1 note: two independent locks (module global vs instance _lock) mean
+    two threads can each construct a scorer and each load a model — wasteful, not wrong.
+
+- claim_consensus.py: only fires when STATUS_INTENT is detected (else not_applicable +
+  categorical_allowed=True). Hierarchy: (1) exactly ONE authoritative state ->
+  supported; (2) >1 authoritative states -> conflicting; (3) fall back to all claims:
+  >1 -> conflicting, 1 state with >=2 domains -> supported, 1 state/1 domain ->
+  insufficient + prompt instruction. Statuses are detected from title + text via
+  unicodedata NFKC + casefold.
+
+  NOTABLE / BUGS
+  * BUG (sharpest in this batch): `host_authority_class(url) != "standard"` is the
+    "official" test, but common.py gives the non-standard class to gov, edu AND "owner"
+    (the user's own configured domain). So the authority branch — which permits
+    categorical assertions from ONE domain — accepts an edu site and, worse, the
+    USER'S OWN SITE. The owner bucket exists to rank your own site highly; here it also
+    confers EPISTEMIC AUTHORITY over public factual claims. One page on your own domain
+    saying "Line X is planned" is enough for a categorical answer.
+  * BUG (concrete false positive): "按计划开通" (opened on schedule) matches
+    _PLANNED_STATUS_RE via 计划 AND _OPEN_STATUS_RE via 开通. That phrase is routine
+    Chinese news copy meaning the line DID open. A single informative page mentioning
+    both history and plans therefore registers BOTH claims for its domain and can by
+    itself force state="conflicting", categorical_allowed=False. The richest pages are
+    the most likely to be stripped of categorical permission.
+  * _OPEN_STATUS_RE includes \breleased\b, \blaunched\b, \bopened\b — product-agnostic,
+    so "prices released" / "results released" count as an open-status claim.
+  * No recency weighting: a 5-year-old "planned" page counts identically to today's
+    "open" page. Old planned-pages (which persist in archives and get retrieved) will
+    keep manufacturing false conflicts indefinitely.
+  * ">=2 independent domains" independence is judged by registrable_domain(), so the
+    com.hk/com.tw collapse from common.py:302-319 (pass 1) means two independent HK or
+    TW commercial sources count as ONE domain and can never satisfy the gate.
+  * categorical_allowed=False is ADVISORY ONLY — it emits prompt_instruction text;
+    nothing downstream enforces it. Same advisory-only pattern as estimated_cost_units.
+
+- factory.py: 4 API providers (serper/brave/tavily/bing_api) + 3 HTML (bing/baidu/
+  duckduckgo). normalize_provider_name aliases google->serper, msn->bing,
+  azure_bing/bing-api/bingapi->bing_api, brave_search->brave, ddg->duckduckgo,
+  serperdev->serper, tavily_search->tavily. HTML providers get
+  web_search_provider_timeout_seconds (8s default); API providers get
+  web_search_api_timeout_seconds (20s) — 2.5x, and the source of the stage-budget
+  inflation noted in discovery.py.
+
+  NOTABLE / BUGS
+  * [RETRACTED in batch 3 — DO NOT RELY ON] "get_search_provider never checks that an API
+    provider's key is non-empty" — WRONG. _ApiSearchProvider.__init__ does
+    key=(api_key or "").strip() and raises ValueError("serper search requires an API key")
+    when empty, so get_search_provider("serper") with no key DOES fail fast at construct.
+    Only residual nit: the message names no ENV VAR (serper_api_key / MCP-style), so it is
+    less actionable than config.py's "MCP_PORT must be an integer" convention.
+    non-empty — SerperWebSearch(api_key=getattr(config,"serper_api_key","")) builds
+    fine with an EMPTY key and only fails later at request time. is_search_provider_
+    configured DOES check the key, and discovery uses configured_api_provider_names, so
+    the gated path is correct — but a direct get_search_provider("serper") call silently
+    constructs a broken provider. Two divergent constructions with different guarantees.
+  * get_search_provider lines 49-51 accept a positional settings object by sniffing
+    `not isinstance(name, str)` — pragmatic overload with no docstring mention.
+  * _API_KEY_FIELDS and the getattr call-sites in get_search_provider are two
+    hand-kept copies of the same field names; adding a provider to one and not the
+    other fails silently (is_search_provider_configured would return True/False
+    incorrectly).
+  * verify_ssl defaults True (good); html providers correctly reported as "configured"
+    with no key required. Error message lists every supported name via repr — good DX.
+
+- page_structure.py: measures the FETCHED page rather than guessing from the URL.
+  shape = article|listing|thin|gateway|unknown. article is the default, demoted by
+  checks in order: gateway (<=25 words AND gateway regex), listing (link_density >= 0.5
+  AND anchors_per_100_words >= 12 — BOTH required, good precision), thin (<60 units).
+  word_count counts each CJK CHAR as one unit and each Latin WORD as one, so a Mandarin
+  page clears the thin gate at ~60 chars where English needs ~60 words.
+  structure_rejection_reason checks `not measured` FIRST -> unmeasurable = abstain,
+  never reject. GOOD: PDF-extracted text and empty fetches are never killed for being
+  "not an article".
+
+  NOTABLE / BUGS
+  * DEAD METRIC: mean_sentence_words is computed, rounded, stored, and used by NO
+    classification branch. Pure telemetry with no consumer in this module.
+  * `unknown` as a measured shape is UNREACHABLE: total_words==0 returns the
+    PageStructure() default (shape=unknown, measured=False) and total_words>0 always
+    starts at "article". So `is_content_page` including "unknown" is dead at
+    measured=True — the real protection is the `not structure.measured` guard, not the
+    "unknown is content" rule. Pass-1's framing ("unknown counts as content") is right in
+    effect, wrong about the mechanism.
+  * MEASUREMENT MISMATCH: `total_words` comes from the caller-supplied `text` (often only
+    the extracted article) but `anchor_words`/`len(anchors)` come from the FULL soup.
+    The clamp min(1.0, anchor_words / max(total_words, anchor_words or 1)) saturates
+    link_density to 1.0 whenever anchors outnumber article words — which is the normal
+    case when text was extracted. So link_density is uncalibrated in the common path and
+    _is_listing reduces to "anchors_per_100_words >= 12 AND anchors >= article words",
+    the latter almost always true. Listing detection is effectively anchor-repetition
+    only.
+  * Decompose list is only script/style/noscript — nav, footer, iframe and header chrome
+    are NOT removed, so their anchors stay in the count and bias link_density up, pushing
+    articles with heavy site chrome toward "listing". Combined with the clamp above this
+    is a real misclassification risk.
+  * max_link_density==0 disables listing detection entirely (documented behaviour via
+    threshold<=0 guard); min_content_words is defensively coerced with max(0,int()).
+
+# OBSERVED (PASS 2, batch 3)
+- pdf_loader.py: is_pdf_url unquotes then checks the PATH only (query strings ignored, so
+  ?file=x.pdf does not match — correct). looks_like_pdf_payload lstrip()s then checks the
+  first 1024 chars for "%PDF-", which survives the HTML loader's byte->char decode because
+  the header is pure ASCII. pypdf is imported lazily with a clear install message.
+
+  NOTABLE / BUGS
+  * BUG (memory): load() calls self._session.get(...) WITHOUT stream=True, so the ENTIRE
+    PDF is buffered into RAM, and only THEN checks len(content) > MAX_PDF_BYTES (20 MB) and
+    raises. The size cap is a POST-download check, not a streaming cap. A multi-GB PDF is
+    fetched fully before being rejected — a memory-exhaustion vector with no Range request.
+  * BUG (metadata lie): extract_pdf_text reads `limit = min(max_pages, total_pages)` pages
+    but returns total_pages as the count. So a 120-page PDF yields text from 30 pages while
+    metadata says pdf_pages=120. Anything reasoning about coverage from pdf_pages is misled.
+    Consequence compounds in the error path: "PDF has 120 page(s) but no extractable text
+    layer" is reported when only the first 30 were scanned — pages 31-120 may well have
+    text. Misleading diagnostic.
+  * BUG (coverage gap): pypdf.PdfReader / extract_text() exceptions are NOT caught, so
+    encrypted PDFs (pypdf raises FileNotDecryptedError) and corrupt/truncated PDFs fail the
+    whole fetch unhandled. Official government whitepapers are frequently password-protected
+    — a realistic input for this stack, not a corner case.
+  * SECOND instance of the int() flooring pattern: timeout = max(1, int(page_timeout)) —
+    0.5 -> 0 -> 1. Same sub-second impossibility as playwright_loader.py:18.
+  * Two different hardcoded Chrome UAs: PDF_USER_AGENT is Chrome/124 while
+    fetch_policy.BROWSER_REQUEST_HEADERS is Chrome/120. Cosmetic but they will drift.
+  * self._session = session or requests — the MODULE, not a Session, so no connection
+    pooling per loader. Contrast api_providers which uses requests.Session() correctly.
+    Caller-supplied headers are spread AFTER the default UA, so they can override it.
+  * GOOD: is_pdf_url decodes percent-escapes first, so %70df -> pdf is detected.
+
+- evidence.py: 5 intent patterns; ONLY DATE and PRICE are _HARD_REQUIRED_INTENTS, so
+  missing date/price evidence scores +/-18/+10 while policy/comparison/status are +/-5/+6
+  soft nudges. _has_scoped_match requires the evidence to fall within a +/-360-char window
+  of the constraint context — evidence anywhere on the page does not count. That windowing
+  is the real precision mechanism.
+
+  NOTABLE / BUGS
+  * BUG (verified, structural): _window_matches_constraints looks for years with
+    `re.findall(r"(?<!\d)20\d{2}(?!\d)", window)` — 20xx ONLY. But query_constraints can
+    produce 19xx years (its _YEAR_RE is (19|20)\d{2}). So a query whose constraint year is
+    pre-2000 (1998, 1995...) can NEVER pass the year check: the window never contains a
+    20xx match, the intersection is empty, and the evidence match is rejected. Date
+    evidence for any pre-2000 subject is structurally impossible. Real regression risk for
+    heritage/historical/transit-opening queries (early metro lines opened 1969-1999).
+  * BUG (grounding loophole, confirmed): if constraints.quoted_phrases is non-empty the
+    ENTITY-in-window check is SKIPPED entirely (the final return requires
+    `not constraints.quoted_phrases` to fire). Combined with quoted phrases being checked
+    at FULL-TEXT level (line 136-139) rather than window level, a query that quotes a
+    phrase needs that phrase somewhere on the page plus a date/price pattern ANYWHERE —
+    with zero topical anchoring. Quoting a phrase in your query actively WEAKENS
+    grounding. Counterintuitive and undocumented.
+  * BUG (false positives): _COMPARISON_EVIDENCE_RE includes the single Chinese character
+    而 (meaning "but/and"), which appears constantly in Chinese prose. So comparison intent
+    is satisfied on almost every Mandarin page — the detector is effectively always-on for
+    CJK. Also 分别 ("respectively"). \bbetter\b/\bworse\b have the same problem in English.
+  * _DATE_EVIDENCE_RE accepts Feb 31 and Apr 31 (no calendar validation) — cosmetic, it is
+  *   evidence detection not parsing, but it will match malformed dates in sloppy pages.
+  * English month form requires "Month D, YYYY"; day-first "5 January 2024" is not matched.
+  * _PRICE_EVIDENCE_RE has good CJK coverage (元/万元/亿元/人民币/美元/港元/欧元/英镑 plus
+    ¥￥$€£ and rmb/cny/usd/hkd/eur/gbp) and correctly does not match bare numbers.
+  * has_required_answer_evidence vacuously returns True when the query has no hard intents
+    (e.g. only policy) — by design, not a bug.
+  * GOOD: _normalize is NFKC + casefold, matching claim_consensus's normalisation.
+
+- date_extractor.py: declared publication date ALWAYS beats modified date, including a
+  publication date found in markup (comment at 60-61) — correct, since modification dates
+  systematically overstate freshness. Priority: metadata keys -> HTML (meta, JSON-LD,
+  <time>) -> modified metadata -> modified HTML -> None. parse_publication_date tries
+  datetime/date objects, ISO, RFC2822, then a bare YYYY-MM-DD search. JSON-LD recurses
+  into @graph / mainEntity / articleBody. BeautifulSoup import is guarded and degrades to
+  None rather than failing.
+
+  NOTABLE / BUGS
+  * BUG (cross-module, concrete): _datetime_to_date converts timezone-AWARE datetimes to
+    UTC before taking .date(), but leaves NAIVE datetimes untouched. A Chinese page
+    published 2024-01-01 00:30 +08:00 becomes 2023-12-31 16:30 UTC -> date 2023-12-31.
+    The declared year flips to the PREVIOUS year. Then recency.py sees a year mismatch
+    against a 2024 query and applies its -60 year-conflict penalty — penalising exactly the
+    page the user asked for, at the year boundary. Since non-UTC offsets are precisely the
+    Chinese sources this stack targets, this is a live bug, not a corner case. Naive
+    "2024-01-01T00:30:00" is NOT shifted, so the same wall-clock instant yields different
+    years depending on whether the offset is present.
+  * _looks_like_html is just "<" in text and ">" in text — very lax. A PDF byte string
+    decoded as text contains < > from PDF object syntax, so it is treated as HTML, parsed
+    with BeautifulSoup to nothing, and its date is lost.
+  * META_DATE_SELECTORS includes the generic {"name": "date"}, which many sites populate
+    with crawl/import dates. It is ordered AFTER the specific selectors (so specific wins)
+    but BEFORE JSON-LD dateCreated and <time>, so a generic `date` meta can override a
+    correct <time datetime>. Mild precedence risk.
+  * _json_ld_date_values recurses into articleBody, whose value is TEXT not an object —
+    harmless but pointless. Recursion has no depth limit; a deeply nested JSON-LD is a
+    (small) CPU cost. Only json.JSONDecodeError is caught, so RecursionError on pathological
+    input propagates.
+  * GOOD: _parse_iso_datetime replaces "Z" with "+00:00" for pre-3.11 fromisoformat
+    compatibility; tag.string or tag.get_text() or "{}" handles script elements with no
+    direct text.
+
+- api_providers.py: 4 keyed providers. _ApiSearchProvider.search() projects URLs from
+  search_results(), which CLOSES the protocol.py gap I flagged — API providers implement
+  only search_results(). _result_limit clamps to [1,50]. timeout is a FLOAT clamped at
+  max(1.0, ...), so sub-second is allowed here (unlike the two loaders). Session is a real
+  requests.Session(), so pooling works.
+
+  NOTABLE / BUGS
+  * REACTION: this module RETRACTS my batch-2 factory finding. Empty keys DO raise
+    ValueError at construction. The protocol gap is also closed by the base class.
+  * BUG: _result_limit does `int(max_results or 20)`, so an explicit 0 becomes 20. You
+    cannot request zero results — a caller using 0 as a defensive/disabled signal silently
+    gets 20 searches.
+  * BUG (locale coverage): _contains_cjk is `"㐀" <= char <= "鿿"` — Chinese
+    unified ideographs only. NO Hangul, NO Kana, NO CJK punctuation. So a Japanese query
+    (東京メトロ) or Korean query does NOT trigger the zh-CN market switch and silently gets
+    English-market results from all three switching providers.
+  * BUG (inconsistency): the CJK switch is implemented in serper (gl=cn,hl=zh-cn), brave
+    (country=cn,search_lang=zh-hans) and bing_api (mkt=zh-CN,setLang=zh-hans) — but NOT in
+    Tavily, which has no locale parameter at all. A CJK query on Tavily gets Tavily's
+    default region. 3 of 4 providers switch; Tavily does not.
+  * SECURITY HYGIENE: Tavily sends api_key in the JSON BODY (line 102) while serper/brave/
+    bing_api send it in a HEADER. Body-borne credentials land in access logs, proxy logs and
+    WAF logs more readily. Unnecessary exposure for no functional benefit.
+  * _search_results defends well: rejects str/bytes/Mapping payloads (so iterating a string
+    is impossible), requires each item to be a Mapping with a non-empty url, breaks early at
+    limit. _json_mapping raises on a non-object payload.
+  * Minor (api_providers.py): non-string url values are coerced with str(), so a dict url
+    becomes a dict repr rather than being skipped.
+  * REAL BUG (reputation.py, semantic): attempts = grounded + rejected + unreachable, and
+    success_ratio = grounded / attempts. So OUTCOME_UNREACHABLE counts AGAINST the domain
+    even though it measures the CLIENT's connectivity, not the domain's quality. During one
+    network outage a good domain accumulates unreachable records; at DEFAULT_MIN_SAMPLES=5,
+    five consecutive unreachable in a single outage are enough to start applying
+    reputation_delta, which drives it to the full -10 penalty as ratio -> 0. Reputation is
+    supposed to be a domain-quality prior; this conflates "domain is bad" with "our network
+    was down", and it persists in SQLite across restarts. Unreachable belongs outside the
+    denominator (or should decay faster).
+  * BUG (reputation.py, degradation defeated): build_reputation_store wraps the constructor
+    in `try: ... except sqlite3.Error`. But DomainReputationStore.__init__ ->
+    _ensure_database() -> self._path.parent.mkdir(parents=True, exist_ok=True), and mkdir
+    raises OSError/PermissionError, NOT sqlite3.Error. So a read-only or uncreatable
+    chroma_dir turns the intended soft degradation (return None, feature off) into a HARD
+    CRASH of web search startup. The try/except is too narrow for the code it guards.
+  * THIRD instance of the decorative-version anti-pattern: SCHEMA_VERSION = 1 is defined but
+    is NEVER written to the DB (no PRAGMA user_version) and never read back. Same as
+    SQLiteStorage.SCHEMA_VERSION in sessions (unit 8). A future schema change silently
+    misreads old rows. Three modules, same dead constant.
+  * record_many() does not batch — it loops self.record(), and each record() opens a NEW
+    sqlite connection, commits, and closes. Recording 20 outcomes = 20 connections + 20
+    commits. Same write-amplification shape as sessions._persist_state (contrast:
+    sessions/sqlite.py is per-row). The name promises a batch there is none.
+  * GOOD (reputation.py): the f-string SQL at line 80 is genuinely safe — `column` comes
+    from a fixed literal map whose keys were validated against a closed set before lookup,
+    and the `# noqa: S608` documents exactly that. No injection path. Also _connect commits
+    only on success and closes in finally, so a failed write rolls back; the threading.Lock
+    is held across connect+commit+close.
+  * GOOD (reputation.py): delta is bounded +/-10, linear, and 0 until min_samples, so a
+    cold domain is never penalized. Matches the docstring's "ranking prior only, never
+    rejects".
+
+  DUCKDUCKGO.PY
+  * BUG (asymmetry, real): NO CAPTCHA/VERIFICATION DETECTION AT ALL. baidu raises
+    BaiduVerificationError, bing raises BingVerificationError, but duckduckgo has no
+    detector — a DDG anti-bot page parses to zero results and is reported as an ordinary
+    empty result. discovery.py's circuit breaker keys on *VerificationError to apply a
+    300s cooldown and force provider fallback; DDG instead falls back to the generic 60s
+    path with no "another provider is required" signal. So the weakest-detected provider
+    gets the shortest cooldown, exactly backwards.
+  * BUG (host matching, real): unwrap_duckduckgo_redirect tests
+    `parsed.netloc.endswith("duckduckgo.com")` — so "evil-duckduckgo.com" MATCHES, and the
+    uddg target is then unquoted and returned. Redirect-target spoofing from a lookalike
+    host. baidu.py's is_baidu_url does the CORRECT form (`hostname == "baidu.com" or
+    hostname.endswith(".baidu.com")`), and bing.py uses an explicit set
+    {"bing.com","www.bing.com","cn.bing.com"}. duckduckgo.py is the outlier with the buggy
+    suffix test — three providers, two correct, one wrong.
+  * load_ddgs() does a double import fallback (ddgs -> duckduckgo_search) aggregating the
+    import errors into one message, and the DDGS constructor is tried THREE ways
+    (verify+timeout -> timeout -> bare) to survive signature changes. Every ddgs release can
+    break this; it is a maintenance treadmill, not a design.
+  * RESULT: the ddgs PACKAGE IS DEMOTED BY DESIGN — search_results() deliberately uses
+    DuckDuckGo's own bounded HTML endpoint because the package "may fan one query out to many
+    search engines and continue working after the chat deadline". The package survives only
+    as an explicit search_ddgs* helper. Well-reasoned and documented; this is the right call.
+  * network_budget = max(0.1, min(timeout*0.4, timeout-1.0)) — verified to be < timeout for
+    all inputs (timeout<1.666 -> timeout-1.0 wins; >= -> 0.4x wins), and the max(0.1,...)
+    floor saves the negative case. Convoluted but correct; no overshoot.
+  * DEAD STRUCTURE: `for base_url in ("https://html.duckduckgo.com/html/",)` is a loop over
+    ONE element with a `remaining` check and `break` — the multi-endpoint fallback scaffolding
+    was removed or planned but never populated. If html is empty because remaining<=0, the
+    error message reads "failed: None".
+  * BeautifulSoup(html, "html.parser") is called TWICE when the container selectors fail but
+    bare anchors exist — the same HTML is parsed again. Minor waste.
+  * GOOD: _dedupe_results requires an http(s) scheme (drops junk), and field-name tolerance
+    across ddgs versions ((href|link|url), (title|body|snippet)).
+
+  BAIDU.PY
+  * GOOD: bilingual captcha detection — URL-based (wappass.baidu.com, passport.baidu.com,
+    "captcha"/"verify" in path) AND content-based including 百度安全验证. is_baidu_url uses
+    the CORRECT host form (== or endswith(".baidu.com")), unlike duckduckgo.
+  * GOOD: respects response.headers.get_content_charset() with a utf-8 fallback — correct
+    for Baidu's GBK/UTF-8 mix. duckduckgo hardcodes utf-8 (fine in practice).
+  * GOOD: budget split is explicit — provider_budget = max(0.1, timeout - 0.5) reserves 0.5s
+    for the search call and spends the remainder on redirect resolution. Candidates are
+    sliced to max_results BEFORE resolving, so redirect work is bounded. ThreadPoolExecutor
+    with max_workers=min(4,n), wait(timeout=remaining), cancel not_done, and
+    shutdown(wait=False, cancel_futures=True) in finally — clean teardown.
+  * BUG (false positive): the content markers include the bare substring "captcha", so ANY
+    page merely MENTIONING captcha (e.g. a security article, or a Chinese 验证码 explainer)
+    is misdetected as a Baidu verification page and triggers provider fallback. Substring
+    match with no scoping.
+  * INCONSISTENCY: baidu checks verification BEFORE parsing (strict — always raises on a
+    verification page), while bing checks only `if not raw_results` (lenient — a
+    parseable-looking captcha page raises nothing). Same concept, two strictness levels.
+  * Minor: resolve_redirect catches (HTTPError, URLError, TimeoutError, OSError) — the first
+    two are OSError subclasses, so the tuple is redundant. Harmless.
+
+  BING.PY
+  * CONFIRMED: BING_TIMELIMIT_FILTERS maps d/day->ez1, w/week->ez2, m/month->ez3 and has NO
+    YEAR FILTER. This is the architectural reason recency.py must enforce year constraints
+    in-rank: Bing HTML cannot be told to filter by year at all.
+  * GOOD: bing's redirect unwrapping is PURE STRING DECODING (query keys url/r/q, then the
+    base64 `u` param via decode_bing_target) — NO network call. That is why bing needs no
+    budget split while baidu does. decode_bing_target handles unquote, the "a1" prefix,
+    base64 padding, urlsafe decode, and requires an http(s) prefix; it rejects garbage.
+  * GOOD: unwrap_bing_redirect uses an EXPLICIT hostname set — correct, unlike
+    duckduckgo's endswith bug.
+  * normalize_bing_market: empty/wt-wt -> "zh-CN" (Chinese default, consistent with the
+    Mandarin specialization); two-part lowercase ("en-us") swaps to "us-EN"; already-
+    canonical "zh-CN" passes through unchanged; a single-part region like "zh" is returned
+    AS-IS, which is probably an invalid mkt.
+  * is_bing_verification_page treats a bare host ROOT with a `q` query param as a
+    verification shell — plausible (Bing serves results at /search, not /) but fragile: if
+    Bing ever serves results at / it false-positives. Also carries the bare "captcha"
+    substring marker, same false-positive exposure as baidu.
+  * MINOR: decode_bing_target catches (binascii.Error, ValueError, OSError) — binascii.Error
+    IS a ValueError subclass, so redundant. Harmless.
+  * GOOD: count=max(1,max_results), setlang derived from market, results bounded at
+    max_results, dedupe by final URL. Container + bare-anchor fallback mirrors baidu/ddg.
+
+# OBSERVED (PASS 2, batch 5)
+
+  SYSTEMIC FINDING — the codebase is SPLIT on year-regex width, and it is the root cause
+  of two bugs found in earlier batches.
+    (19|20)\d{2}  -> query_constraints._YEAR_RE, recency._YEAR_RE
+    20\d{2} only  -> evidence._window_matches_constraints, query_prep._contains_year,
+                     query_prep TIME_SENSITIVE_PATTERNS[2], query_prep._MANDARIN_YEAR_RE
+  Two modules accept 19xx, four reject it. Nothing comments on the choice.
+
+- query_constraints.py: 6 intents (date/price/policy/comparison/status/count), fully
+  mechanical, no LLM. Language = mixed|zh|en from character classes. Frozen dataclass with
+  tuples/frozensets. anchor_terms = quoted + identifiers + entities. normalize_constraint_
+  text is NFKC + casefold + whitespace collapse, so fullwidth "２０２６" folds to 2026.
+  _CJK_IDENTIFIER_RE handles 第?[一二三四五六七八九十百千万\d]+(.d+)?号(线|线路|文件|公告) —
+  good metro/official-document specialization, including decimals like 1.5号线.
+
+  NOTABLE / BUGS
+  * BUG (cross-module, consequence of the split above): _contains_year() in query_prep is
+    20xx-only, so a query about 1998 is treated as YEAR-LESS. If it also has recency
+    wording ("1998年地铁票价最新是多少"), _is_time_sensitive fires and CURRENT_YEAR (2026)
+    is APPENDED. The rewritten query now contains two conflicting years, 1998 and 2026, and
+    recency.py's hard single-year rule then applies -60 to the 1998 pages the user asked
+    for. The prep step manufactures the exact conflict the ranker punishes.
+  * BUG (entity merge): _extract_entities does _CJK_ENTITY_STOP_RE.split(run, maxsplit=1)[0]
+    on MAXIMAL CJK runs. maxsplit=1 strips only ONE trailing question phrase, so a
+    conjunction in the middle merges entities: "南京地铁和北京地铁的区别" yields the single
+    entity "南京地铁和北京地铁" rather than two. Since evidence.py requires ALL entities
+    to appear in a 360-char window, a merged entity will almost never match verbatim —
+    multi-city and comparison queries lose their topical anchoring entirely. 和/与/及 are
+    not stop words and there is no conjunctive split anywhere.
+  * BUG (silent drop): cleaned CJK entities are kept only if 2 <= len(cleaned) <= 20. A run
+    longer than 20 chars is DROPPED, not truncated. Long official names
+    ("上海市轨道交通十八号线一期北延伸段" is 15 and survives, but longer planning names do
+    not) yield NO entity at all — the constraint simply vanishes.
+  * validate_query_candidate does NOT check intent preservation. An LLM rewrite that drops
+    价格 or 区别 passes as long as entities/years/identifiers survive. Since evidence.py
+    scores +/-10/+/-18 on intent evidence, a silently dropped intent changes ranking with no
+    guard. Confirmed the asymmetric language guard is still present: rejects zh/mixed -> en
+    but NOT en -> zh (line 174). Undocumented either way.
+  * validate_query_candidate DOES correctly reject year INVENTION (proposed.years - source.years
+    -> False), which is the "Never invent a year" line enforced. Good.
+  * detect_query_intents() re-runs the FULL extraction on every call, and recency.py +
+    claim_consensus.py both call it — minor repeated work, not a bug.
+
+- query_prep.py: CURRENT_YEAR = str(date.today().year) frozen at IMPORT. Mechanical rewrite
+  is the default; LLM rewrite is opt-in. For Mandarin: strip leading fillers (iteratively),
+  fullwidth punctuation, trailing particles (吗/呢/吧/呀/啊/可以吗/行吗/好吗), then append
+  intent hints 总数/发布时间/价格/对比 only if absent, then optionally 运营线路总数 for metro
+  count queries. plan_search_queries returns [original] UNCHANGED for non-Mandarin, so the
+  English graph path is untouched — deliberate.
+
+  NOTABLE / BUGS
+  * CONFIRMED (pass 1, still unfixed): _REWRITE_PROMPT interpolates {CURRENT_YEAR}
+    dynamically but the worked example is hardcoded "Query: DeepSeek latest model 2026".
+    From 2027 the prompt says "include the year 2027" and then shows a 2026 example — it
+    contradicts itself. Make the example year f-string'd too.
+  * INCONSISTENT CLOCK: CURRENT_YEAR is frozen at import while _relative_year() calls
+    date.today() at call time. Across the Jan 1 boundary of a long-running process, "今年"
+    resolves to the new year while the CURRENT_YEAR fallback still says the old one.
+  * model="deepseek-v4-flash" is HARDCODED, not from settings — the rewrite model cannot be
+    changed without a code edit. Note the answer model is also DeepSeek and prompt_builder
+    specifically bans DeepSeek's native 【199†L91-L126】 citation format — the rewrite LLM is
+    the same family as the model whose citation hallucination is being fought.
+  * The LLM call is bounded by request_timeout=10 + max_retries=1 = 20s worst case, with NO
+    integration to the chat/graph deadline. It can overshoot the enclosing turn.
+  * plan_search_queries: `if len(years) == 2` gets ONE official-evidence query per year —
+    the correct fix for multi-year — but 3+ years falls back to the normal exact+official
+    split, which does NOT solve the multi-year problem. And [:MANDARIN_SEARCH_MAX_VARIANTS]
+    truncates to 2, so with 3+ years only the FIRST TWO are ever searched; the third
+    year's evidence is silently never retrieved. Special-casing exactly-2 is unmarked.
+  * _mandarin_official_terms uses an elif chain, so only ONE intent hint is ever added
+    (policy wins over count over date over price). A price+date query gets only 公告.
+  * _has_mandarin_count_intent excludes price ("多少钱" is not a count question) — good
+    disambiguation.
+  * GOOD: _prepare_mandarin_query loops filler-stripping until no change and FALLS BACK to
+    the original if the result is empty — so a query that is nothing but politeness does not
+    become an empty search.
+  * GOOD: TIME_SENSITIVE_PATTERNS' comment documents the failure case it exists for ("who
+    wins the world cup this year" -> evergreen all-time list pages), and relative wording is
+    resolved to a concrete year BEFORE term extraction so "year" does not survive as an
+    orphan entity. _strip_relative_time is the counterpart.
+  * GOOD: _mandarin_official_query rebuilds policy queries with EXACT-QUOTED titles
+    ('"..."'), years, an intent term, and site:gov.cn — a genuine precision strategy for
+    official-document retrieval. site: works as a literal term on Bing/Google.
+  * Minor: `str(response.content)` would stringify a list-valued content field on newer
+    langchain_openai versions; `.strip("\"'")` handles quoted output. Also "many"/"much"
+    are absent from QUESTION_FILLER_WORDS so they survive into English queries.
+  * GOOD: rewrite_search_query_llm is gated on settings.deepseek_api_key, returns None on
+    every failure path (no key, no langchain_openai, invoke error, no-op rewrite,
+    constraint violation), and accepts an injected _llm for tests. Clean degradation.
+
+# OBSERVED (PASS 2, batch 6)
+
+  BENCHMARK.PY — offline Mandarin search-quality harness, CLI, JSONL in / table or JSON out.
+  * BUG (VERIFIED BY RUNNING IT, pass-1 finding confirmed):
+    DEFAULT_QUERY_SET = Path(__file__).resolve().parents[2] / "benchmarks" / ...
+    parents[2] of src/backend/web_search/benchmark.py is `src/`, so it points at
+    E:\langgraph-rag\src\benchmarks\mandarin_search\queries.json -> DOES NOT EXIST.
+    The real file is at repo root: E:\langgraph-rag\benchmarks\mandarin_search\queries.json
+    (parents[3] -> EXISTS). So the CLI's --queries DEFAULT IS BROKEN OUT OF THE BOX; you must
+    pass --queries explicitly or it raises on the very first line of main(). Off by one level.
+  * STRICT INPUT VALIDATION — the best-behaved validator in the repo. _number rejects bool
+    (bool is an int subclass in Python) and non-finite/negative; _boolean requires a real
+    bool; _string requires a non-empty string; load_runs rejects bool ranks, duplicate ranks
+    and duplicate (query_id, provider, strategy); load_judgments enforces the semantic
+    invariant `answerable=true requires relevant=true` and dedupes per normalized URL.
+    Failures raise with path + line + field, e.g. "{path}:{line_number}.{field} must be ...".
+  * BUG (confirmed, denominator mismatch): precision_at_k divides by run_count*k (so a run
+    returning <k results is punished for the shortfall) while official_source_rate_at_k
+    divides by returned_at_k (what was actually returned). A strategy returning 1 result can
+    never reach 1.0 precision but CAN reach 1.0 official rate. The two headline metrics
+    answer different questions and are presented side by side in the table.
+  * answerable_at_k divides by run_count; irrelevant_url_rate divides by judged+unjudged and
+    COUNTS UNJUDGED AS IRRELEVANT — which is exactly what --allow-unjudged promises in its
+    help text, so the inflation is disclosed rather than hidden. Good.
+  * _normalized_url keeps the QUERY but drops the FRAGMENT, lowercases scheme+host, drops
+    default ports, and floors an empty path at "/". So now THREE notions of URL identity
+    exist across the codebase: the raw string (normalize_urls/normalize_results),
+    canonical_url_key (strips www, folds /index.html — used for ranking dedupe), and this
+    benchmark form (query kept, fragment dropped). They do not agree, so a URL can be "the
+    same" for ranking but "different" for labelling.
+  * evaluate() FAILS LOUD: unknown query IDs in runs or judgments raise; and every result
+    URL must have a judgment unless allow_unjudged, reporting the count plus the first 3
+    examples. A benchmark cannot silently under-score.
+  * _nearest_rank_percentile is a correct nearest-rank implementation
+    (max(0, ceil(p*n)-1)); min/median/mean all present; main() returns int and the module
+    raises SystemExit(main()). Clean CLI hygiene.
+  * Minor: the width computation `max(len(h[i]), *(...))` would raise on an empty values
+    list, but rows always contains the aggregate so it cannot happen.
+
+  DISCOVERY.PY — staged provider fanout with a circuit breaker.
+  * BUG (CONFIRMED, latency): the SINGLE-PROVIDER branch at lines 280-302 does NOT enforce
+    its own deadline. It calls _discover_results_with_provider directly, then only LOGS
+    `elapsed > timeout` after the fact. The multi-provider branch enforces via
+    wait(timeout=timeout). So the single branch's only real bound is the provider's own
+    socket timeout. This fires whenever fanout=1, when a stage has one provider left
+    (common: the last stage of an odd-length list, or all-but-one on cooldown) — so the
+    "deadline never overshoots" guarantee holds only for the multi-provider path. A 20s API
+    provider can blow a 3s remaining budget.
+  * BUG (budget inflation, confirmed): provider_budget = max(_provider_timeout_seconds(p)
+    for p in providers) — the MAX across in-stage providers. A 20s API provider (serper/
+    brave/tavily/bing_api) inflates the whole stage's budget for an 8s HTML provider sitting
+    next to it. Should be per-provider, then min'd against remaining.
+  * GOOD: the staged loop is CUMULATIVE — collected.extend() then merge(collected), so an
+    earlier thin stage is NEVER discarded and a later stage adds recall on top. Combined with
+    _stage_result_threshold (top_k<=0 -> 2 usable; top_k=1 -> 1; top_k>=2 -> 2), a single
+    weak hit cannot suppress the fallback providers. Documented inline.
+  * GOOD: circuit breaker is correct half-open. 2 consecutive failures -> 60s cooldown, and
+    _cool_down_provider POPS the failure count so the 3rd failure restarts the counter at 1.
+    _record_provider_success also pops it. Verification/captcha bypasses the counter and goes
+    straight to a 300s cooldown — the right separation, since a captcha is not a failure of
+    the provider's code. This is also exactly why duckduckgo.py's MISSING captcha detector
+    (batch 4) costs it the longer cooldown it deserves.
+  * Provider ordering is language-aware and API-first for Chinese: _is_predominantly_chinese
+    requires chinese_count > 0 AND chinese_count >= latin_count (majority rule, not presence),
+    and Chinese questions get [*explicit, *api_names, *fallback_names] — API providers ahead
+    of HTML scrapers, which the comment ties to CAPTCHA avoidance. English gets
+    [*explicit, *fallback[:1], *api_names, *fallback[1:]] — the configured provider first,
+    then APIs, then the rest. DuckDuckGo is always pushed to last-resort, with a comment
+    naming the reason (its client fans out to many engines and can take minutes).
+  * GOOD: _merge_ranked_results dedupes on canonical_url_key and ranks by
+    (-quality, -relevance, provider priority index, provider_rank, url) — deterministic with
+    the URL as a final tiebreak, so results are reproducible run to run.
+  * GOOD: the semantic rescue is correctly bounded. `if bonus > 0 and quality_score <
+    min_score: quality_score = min_score` — a clearly on-topic result enters AT THE GATE
+    FLOOR, never above it, so it can never outrank a lexically strong result. Comment names
+    exactly what it is buying (recall without override).
+  * GOOD: _semantic_scores checks `len(similarities) != len(results)` and zeroes out on
+    mismatch — defensive against a scorer returning the wrong arity. And _provider_
+    search_results prefers search_results() then falls back to search(), so a URL-only
+    provider still works, just with empty relevance_text. This REFINES the batch-1 protocol
+    finding: the "must implement both methods" gap is not fatal — it degrades gracefully and
+    the code documents the intent. Title/snippet ranking is lost, not the provider.
+  * _available_providers is defensively constructed: skips cooldowns (info log with
+    remaining seconds), skips unconfigured (info), and catches ValueError from construction
+    (warn) — so a bad API key removes one provider rather than failing the search.
+  * BUG (state under chroma, confirmed): settings_for_discovered_urls fingerprints the URL
+    set with sha256[:12] and puts a per-query vector store at chroma_dir/web-search/<12 hex>
+    plus a suffixed collection name. Combined with reputation.sqlite3 (batch 4), ALL web-
+    search state lives under the Chroma root, with no TTL or eviction — unbounded disk
+    growth on unique queries. The 12-hex truncation is 48 bits, so collisions are not the
+    problem; retention is.
+  * BUG (wasteful fingerprint): the fingerprint hashes "\n".join(urls) — ORDER-DEPENDENT and
+    not deduped. Two discovery runs returning the same URL set in different order produce two
+    different fingerprints, hence two separate Chroma dirs and two vector stores over the
+    same sources. Sorting before hashing would collapse them.
+  * Process-global mutable dicts (_provider_cooldowns, _provider_failure_counts) guarded by
+    an RLock — no persistence, reset on restart, shared across all graph threads. A restart
+    during a captcha episode immediately re-hammers the provider.
+  * GOOD: every config read goes through _positive_seconds/_positive_int, which fall back to
+    the default on None, on a non-numeric value, AND on a non-positive value — so a
+    misconfigured 0 or negative timeout cannot disable or invert a bound.
+
+# OBSERVED (PASS 2, batch 7a — content_fetcher.py)
+Pipeline: resolve per-URL policy -> split http vs force_js -> load HTTP batch concurrently ->
+load JS docs SEQUENTIALLY -> group by source -> build FetchedPage in ORIGINAL URL order (total,
+error entries included) -> PDF retry -> JS fallback retry. 17 keyword params with defaults.
+
+  CONFIRMED / BUGS
+  * BUG (telemetry, CONFIRMED AND WORSE THAN I SAID): elapsed_ms is computed ONCE at line 144
+    for the whole batch and stamped identically onto every HTTP page's fetch_time_ms (150-151).
+    Worse, started_at is at 128 and elapsed_ms is taken AFTER _load_js_documents (138-142),
+    so the stamp on an HTTP page INCLUDES BROWSER RENDER TIME for a different page set.
+    Per-page timing exists ONLY on the JS path (_load_js_documents measures per URL at 392 and
+    _normalize_js_documents stamps it at 422). fetch_time_ms is a lie for every HTTP page and
+    will mislead any latency profile built on it. The per-page log at 196-197 also recomputes
+    estimate_tokens(page.text) purely for logging, duplicating extracted_tokens from line 700.
+  * BUG (CONFIRMED): estimate_tokens = max(1, (len+3)//4) — a Latin assumption. Mandarin text
+    is ~1 token per 1-2 chars, so CJK is undercounted 2-4x. Every token budget built on it
+    (max_tokens_per_page=8000, prompt_builder max_total_tokens, per-source content_budget)
+    OVER-serves CJK pages. Given the whole stack is Mandarin-metro-specialized this is a real
+    prompt-size/cost bug, not a theoretical one.
+  * BUG (CONFIRMED): is_readable_text uses `any(checks)`, so min_chars=200 and min_tokens=50
+    are OR'd, not AND'd. Since 50 tokens ~= 200 chars by the SAME chars/4 heuristic, the two
+    knobs are effectively one gate twice — meaningless as separate parameters. For CJK the
+    chars gate is the binding one.
+  * BUG (CONFIRMED): _policy_http_loader_factory returns loader_factory UNCHANGED unless
+    `loader_factory is not default_loader_factory` — an IDENTITY check. So a caller that injects
+    an equivalent custom factory SILENTLY loses per-domain browser headers, PDF routing, and
+    everything else the wrapper adds. No warning, no log.
+  * BUG (NEW): FOURTH instance of the int() flooring pattern. _load_documents passes
+    page_load_timeout=max(1, int(timeout)), so timeout=0.5 -> 0 -> 1. Sub-second HTTP timeouts
+    are impossible, same as playwright_loader.py:18 and pdf_loader.py:63. Four modules now.
+  * BUG (NEW, diagnostic loss): _retry_pages_as_pdf REPLACES the detected-PDF page with the
+    PDF loader's own result, so the original error "Response body is a PDF; retrying with the
+    PDF loader." is DISCARDED. If the PDF retry then fails with "PDF has 0 page(s) but no
+    extractable text layer", you never learn the URL was detected as a PDF in the first place.
+    The JS retry path does this CORRECTLY (_combined_errors concatenates "primary JS fallback
+    failed: fallback"), so the two retry paths report failures inconsistently.
+  * BUG (NEW, latency): _load_js_documents is a SERIAL for-loop with max_concurrent_loads=1,
+    and playwright_loader launches+closes Chromium per URL. A 3-URL force_js batch is THREE
+    SERIAL COLD STARTS. Combined, this is the single worst latency path in the stack. JS loads
+    also use cache_ttl_seconds=0 and document_cache=None, so JS content is never cached and is
+    re-rendered on every fetch.
+
+  GOOD
+  * extract_text pulls JSON-LD candidates BEFORE decomposing <script> tags — correct ordering,
+    since application/ld+json lives inside a script tag that the very next line would destroy.
+  * extract_text decomposes script, style, noscript, nav, header, footer, aside AND form.
+    ROOT CAUSE FOUND for the batch-2 page_structure finding: page_structure.py decomposes ONLY
+    script/style/noscript, so nav/footer/header anchors stay in its link_density while
+    extract_text strips them. The two modules measure DIFFERENT text for the same page — that is
+    exactly why page_structure's link_density saturates and over-classifies as "listing".
+    The decompose lists should be shared.
+  * .TRS_Editor is in the selector list — a Tencent/Chinese-CMS editor class. Confirms the
+    stack is tuned for Chinese web markup, not just Chinese query text.
+  * _document_text REFUSES to run PDF text through the HTML parser, with the exact reason in
+    the docstring: "PDF text is already plain, and running it through the HTML parser would
+    silently drop content that looks like markup (e.g. <2026)". Textbook defensive comment.
+  * _page_from_documents MEASURES page_structure even when the page later fails a gate, with a
+    comment: "the shape is what tells the JS retry and the answer node WHY the page is unusable".
+    This is the design that makes _should_retry_with_js able to key on shape=="gateway" — the
+    measurement is deliberately retained past the failure point.
+  * _should_retry_with_js keys on MEASUREMENT (no readable text, or shape=="gateway"), NOT a
+    domain allowlist; configured JS domains only get budget PRIORITY via the sort key
+    (not retry_js_on_low_text, index). Exactly the right separation.
+  * The JS fallback path PRESERVES the original page when the render yields nothing
+    (replace(page, error=_combined_errors(...), fetch_method="http+js_failed")) rather than
+    clobbering it. Contrast the PDF path above.
+  * _looks_like_loader_error turns a loader's "Error: ..." STRING into a real error instead of
+    feeding it to the model as page content, capped at 180 chars by _short_error_text.
+  * _page_from_documents remaps fetch_method to "pdf" when ALL documents report pdf:
+    "Report how the content was really obtained, not which stage requested it."
+  * is_readable_page's short-official exception (>=40 chars, non-standard host, relevance in
+    the 600-char lead >=15) accepts concise official notices below the normal threshold — good,
+    official notices really are short. Note it reuses host_authority_class != "standard", so the
+    USER'S OWN "owner" domain also gets the official-page leniency — same authority-conflation
+    as claim_consensus's "official" branch.
+  * _load_documents catches ALL exceptions and returns ([], str(exc)), so one bad URL cannot kill
+    a batch; the whole pipeline is total and order-preserving (returns in the ORIGINAL URL order
+    with error entries for missing documents). _normalize_js_documents always sets source+url so
+    JS documents are never dropped by _group_documents_by_source.
+  * _group_documents_by_source silently drops documents with neither source nor url — minor, and
+    _normalize_js_documents closes it for JS. _document_title falls back to parsing <title>
+    when metadata has none. _document_publication_date walks all documents and returns the first
+    non-None, so an early document's date wins (no preference ordering, just document order).
+
+  DEAD CODE
+  * WebPageFetchError is declared, exported in __all__, and NEVER RAISED anywhere in the module.
+    Dead public API. Also PDF_DETECTED_FETCH_METHOD is declared at line 458, mid-file, after
+    the function that conceptually owns the constant — placement is cosmetic but odd.
+
+# OBSERVED (PASS 3, batch 5) — DELTA ONLY, read concurrently with the block above
+(Race: two sessions read batch 5 in parallel; the block above is complete on its own.
+This section records only what it missed. Do not merge them into one narrative.)
+
+* BUG (intent universe gap, new): COUNT_INTENT is declared in query_constraints and
+  drives query_prep's 总数/数据 hint terms, but evidence.py (batch 3) has only 5 intent
+  patterns — NO count. A "how many subway lines" question therefore cannot fail
+  has_required_answer_evidence and cannot be nudged toward count evidence. The 6-intent
+  set upstream and the 5-intent set downstream silently disagree.
+
+* BUG (prompt/gate conflict, new, sharpest in this batch): _REWRITE_PROMPT says "If the
+  question implies recency (latest, newest, current, recent, new) ... include the year
+  {CURRENT_YEAR}". rewrite_search_query_llm then validates with
+  validate_query_candidate(question, rewritten) in NON-pARTIAL mode, where years must be
+  EXACTLY EQUAL. For a recency question with no explicit year — the exact case the prompt
+  targets — the LLM adds the year, proposed.years - source.years is non-empty, and the
+  rewrite is REJECTED. The LLM path is dead for its headline use case; the mechanical
+  fallback (prepare_search_query 199-203) appends the year itself, so answers usually
+  survive but the LLM contributes nothing. The same prompt also says "Never invent a
+  year" — the two instructions genuinely conflict for this one class.
+  (Distinct from the "hardcoded 2026 example" nit above: that is staleness, this is a
+  direct contradiction between prompt and validator.)
+
+* validate_query_candidate year logic has a DEAD CONDITION: `if proposed.years -
+  source.years: return False` is UNCONDITIONAL, so proposed ⊆ source always holds. The
+  later `if not allow_partial and not source.years.issubset(proposed.years)` is then
+  implied — redundant. Net semantics: years EXACTLY EQUAL (non-partial) or a non-empty
+  proper SUBSET (partial). Correct, but the second check misleads readers into thinking
+  partial is the only mode with flexibility.
+
+* _extract_identifiers mixed-case clause `raw[1:] != raw[1:].lower()` excludes words whose
+  tail is all lowercase, so "Apple"/"Google"/"Nvidia" are NOT identifiers — they land in
+  ENTITIES instead (_extract_entities, raw[:1].isupper() and len>=2). Same words, different
+  bucket, which means validate_query_candidate's identifier escape hatch
+  (`not matches and not identifiers & identifiers`) does not protect them. Categorisation
+  is driven by character shape rather than entity-ness.
+
+* ENTITY vs IDENTIFIER asymmetry in validation: identifiers and quoted_phrases go through
+  _constraints_preserved (exact set), but entities are checked by SUBSTRING containment
+  (`entity in proposed_text`) and never through _constraints_preserved. Any surviving
+  identifier makes entity loss entirely tolerable. Loose where it should be strict.
+
+* Relative-year pass, three unmarked limits (the block above covers the fixpoint/strip
+  rationale, not these):
+  - FIRST MATCH WINS: "今年和明年的区别" resolves 今年 to 0 only; 明年 survives unstripped.
+  - `relative_year = None if _contains_year(original) else _relative_year(original)`: a
+    query with ANY 20xx year gets no relative resolution, so "今年和2024年的对比" leaves
+    今年 in the query.
+  - TIME_SENSITIVE_PATTERNS matches "this month"/"this week" but _RELATIVE_YEAR_PATTERNS
+    covers only year/season, so "latest results this month" gets CURRENT_YEAR appended
+    while "this month" stays.
+
+* Term accumulation with no dedupe: prepare_search_query order is Mandarin path -> year
+  append -> _add_mandarin_intent_hints -> metro append. A metro count-intent query can
+  accumulate THREE terms ("总数", CURRENT_YEAR, "运营线路总数"); the "运营线路总数"
+  guard runs only against the post-总数 result, so 总数 is never deduped. Also
+  _add_mandarin_intent_hints handles count/date/price/comparison but NOT status — a status
+  query gets no hint term, mirroring the count-evidence gap above.
+
+* _append_missing_terms dedupes by SUBSTRING, so "数据科学" in the query suppresses the
+  数据 hint and 总数 inside 运营线路总数 suppresses 总数. Coarse but predictable.
+
+* Hand-kept duplicate list: QUESTION_FILLER_WORDS (~57 words) overlaps _GENERIC_LATIN_TOKENS
+  in query_constraints for the same concept (generic tokens). Third instance of the
+  hand-kept-copies anti-pattern already logged for _API_KEY_FIELDS (factory.py, batch 2)
+  and the two policy/count-intent regex pairs in this same batch.
+
+* GOOD (contrast worth recording): query_prep's COMPARISON_INTENT regex is
+  区别|差异|对比|比较|相比|优缺点|哪个好 — clean and specific. evidence.py's
+  _COMPARISON_EVIDENCE_RE includes the single character 而 ("but"), which is almost
+  always-on for Mandarin prose. Same concept, two implementations, one good and one broken.
+
+* GOOD: QueryConstraints is a frozen dataclass with tuple/frozenset fields — genuinely
+  immutable, the correct opposite of sessions.py SessionMetadata (pass 1 unit 8), which is
+  frozen but holds a mutable list/dict. Also contains_cjk / normalize_constraint_text are
+  EXPORTED so query_prep and evidence share one NFKC+casefold normaliser instead of each
+  rolling its own. All 6 intent patterns are compiled at import.
+
+# STATE
+- batch 5 of 7 DONE (two sessions read it concurrently; both sets of findings recorded).
+- Remaining: batch 6 (benchmark.py 490 + discovery.py 623 = 1113 lines),
+  batch 7 (content_fetcher.py 822 + common.py 1157 = 1979 lines).
+- 16 of 25 files read in-session across batches 1-5.
+- CAUTION for the next tick: at least one concurrent session is also editing this file.
+  Prefer APPEND and re-Read immediately before writing; never rewrite the whole file.
+
+# OBSERVED (PASS 3b, batch 5) — EXECUTED, not inferred. Delta only.
+This pass stubbed bs4 + langchain_core and registered src.backend.web_search WITHOUT
+running its real __init__.py, then actually called the functions. Everything below is
+observed output, quoted verbatim, not read-inference. bs4/langchain-community ARE declared
+hard deps (requirements.txt:35 beautifulsoup4==4.15.0, :12 langchain-community==0.3.31),
+so the eager __init__ chain is legitimate — date_extractor.py's guarded bs4 import is the
+odd one out (dead defensive code; the project cannot run without bs4 anyway). Practical
+cost: testing pure-stdlib query_constraints/query_prep still needs the full dep set.
+
+* BUG (entity LOSS from a LEADING stop word) — the pass above documents the TRAILING
+  stopword split as intended and flags the conjunction-merge variant, but misses this one.
+  `_CJK_ENTITY_STOP_RE.split(run, maxsplit=1)[0]` takes the FIRST segment, and re.split
+  with a pattern matching at position 0 returns ['', '<entity>']. [0] is '' -> the entity
+  is dropped. Executed:
+      extract_query_constraints("请问北京地铁1号线什么时候开通")
+        entities    = ('号线',)
+        identifiers = ('1号线',)
+        anchor_terms= ('1号线', '号线')
+  北京地铁 is GONE. What replaces it is 号线 — the generic fragment left by the second CJK
+  run "号线什么时候开通", where [0] before 什么时候 is 号线, len 2, so it passes the
+  2<=len<=20 gate and is not in _GENERIC_CJK_ENTITIES. So the query's real subject is
+  deleted and a meaningless fragment is installed as the anchor term. This is the
+  commonest real Chinese query shape ("请问/告诉我/查询 + entity"). Note the entity only
+  SURVIVES when a latin word breaks the run first: "请帮我 explain ... 北京地铁" gives
+  entities=('北京地铁',) because 请帮我 sits in its own run. Leading stop word = loss.
+
+* BUG (mixed-language stopword -> hard identifier, executed): has_cjk=True makes
+  _extract_identifiers promote EVERY latin token. Executed:
+      "请帮我 explain the latest model of 北京地铁"
+        identifiers = ('explain', 'model', 'of')
+        anchor_terms= ('explain', 'model', 'of', '北京地铁')
+  3 of 4 anchor terms are English stopwords, diluting whatever text-relevance scoring
+  consumes anchor_terms. And validate_query_candidate is then unsatisfiable by a sensible
+  rewrite — executed: dropping only "of" returns False, so the LLM rewrite is discarded
+  and the mechanical fallback runs. Combined with the leading-stopword loss above, a mixed
+  query has both anchors degraded.
+
+* allow_partial=True is LIVE in the graph, not theoretical: grep finds
+  src/backend/graph/nodes/search_queries.py:164 and decompose.py:194, both passing
+  allow_partial=True to validate_query_candidate (plus tests/test_web_search_query_
+  constraints.py). In partial mode a sub-query may drop every year and all but one entity
+  as long as something intersects — so the entity-looseness found above is reachable in the
+  LLM-decomposition path, not just in tests.
+
+* BUG (2-year split loses site:gov.cn, executed):
+      plan_search_queries("北京地铁2019年和2020年票价对比")
+        -> ['北京地铁 和 票价对比 价格 2019 官方', '北京地铁 和 票价对比 价格 2020 官方']
+  The len(years)==2 branch builds from _mandarin_official_terms, which omits site:gov.cn;
+  only _mandarin_official_query (single-year path) adds it. So the multi-year branch — the
+  one with the HARDER retrieval problem — is LESS constrained than the single-year one.
+  Also "和" survives into both variants; harmless for search.
+
+* 1998 zone, now END-TO-END executed rather than inferred:
+      _is_time_sensitive("1998年开通的地铁线路") -> False   (2019年... -> True)
+      prepare_search_query("1998年开通的地铁线路 latest")
+        -> '1998年开通的地铁线路 latest 2026'
+  Confirms the pass above exactly: recency wording on a pre-2000 query injects CURRENT_YEAR
+  alongside 1998, making it multi-year, which recency.py scores neutral — the staleness
+  guard MASKS the pre-2000 constraint instead of enforcing it. And evidence.py's 20xx-only
+  window check can never satisfy it.
+
+* _relative_year first-match, English case (the pass above has the Mandarin one):
+      _relative_year("last year and this year") -> 2026
+  "this year" (offset 0) is checked before "last year" (offset -1), and
+  _strip_relative_time removes BOTH, so a two-year comparison is searched as one year with
+  the other silently dropped.
+
+* RETRACTION (my own pre-read hypothesis, executed false): I predicted
+  r'"([^"\r\n]{2,100})"' merges adjacent straight-quoted phrases, i.e.
+  compare "foo" and "bar" -> ('foo" and "bar',). Executed: quoted = ('foo', 'bar').
+  `[^"]` excludes the closing quote, so each match stops at its own delimiter. Not a bug.
+
+* Confirmed good, executed: validate_query_candidate("《北京市轨道交通条例》2019版",
+  "北京市轨道交通条例 2019") -> False (stripped quotes are rejected); and dropping 2 of 3
+  entities -> True in BOTH strict and partial mode, so entities remain the loosest class
+  even though they are the most likely to be the only topical signal left.
+
+# OBSERVED (PASS 3, batch 6) — DELTA ONLY, benchmark.py + discovery.py
+(Read concurrently with the other session; table row 6 is already DONE there.
+Append-only, no rewrites — this file is under concurrent write.)
+
+BENCHMARK.PY  — offline eval harness, pure stdlib, no network.
+
+* BUG (VERIFIED ON DISK, would break the CLI default): DEFAULT_QUERY_SET is
+    Path(__file__).resolve().parents[2] / "benchmarks" / "mandarin_search" / "queries.json"
+  For src/backend/web_search/benchmark.py, parents[2] == <repo>/src, so the default
+  resolves to <repo>/src/benchmarks/mandarin_search/queries.json. `ls` on
+  <repo>/src/benchmarks -> "No such file or directory". The manifest ACTUALLY lives at
+  <repo>/benchmarks/mandarin_search/queries.json (parents[3]). So
+  `python benchmark.py --runs x --judgments y` with the DEFAULT --queries raises
+  FileNotFoundError. Off-by-one in parents[]; it should be parents[3]. Only discoverable
+  by running it, because parse_args never validates the path exists.
+
+* DEAD FIELD: BenchmarkQuery.as_of_date is loaded and validated (as a non-empty STRING,
+  never parsed as a date) but is NEVER READ anywhere — evaluate() and _summarize() never
+  reference it. So the benchmark has a field whose whole purpose is pinning the expected
+  answer date, and nothing uses it. This is the offline counterpart of the recency.py
+  injectable `today`: the harness cannot reproduce a historical run because it never
+  feeds the anchor to anything. Also "not a date" passes validation.
+
+* BUG (metric inflation): load_runs dedupes RANKS but not URLS. Two hits in the same run
+  whose URLs differ only in normalization form (trailing slash, default port :443, case)
+  both pass, occupy separate ranks, and both hit the SAME normalized judgment key. In
+  _summarize, `returned_at_k += len(top_hits)` counts both, and relevant_at_k counts both
+  as relevant. precision_at_k is inflated for a provider that returns duplicate URLs — the
+  exact behaviour a search-engine client should be penalised for. evaluate() never
+  dedupes hits within a run.
+
+* BUG (silent partial evaluation): query_count = len({run.query_id for run in runs})
+  counts only queries THAT HAVE RUNS. Manifest queries with no run are silently ignored,
+  so a provider that failed outright on 8 of 20 queries reports "query_count=12" and a
+  clean precision figure over the 12. There is no coverage/completeness metric, and
+  load_queries validates the manifest but evaluate never checks manifest-query -> run
+  coverage. load_judgments has the same one-directional gap (judgments on unrun queries
+  are accepted and simply never joined).
+
+* INCONSISTENT DENOMINATORS in _summarize: precision_at_k divides by run_count*k
+  (theoretical slots), official_source_rate_at_k divides by returned_at_k (actual slots),
+  answerable_at_k divides by run_count (runs). Three "at_k" metrics, three bases, none
+  documented. A provider returning 1 hit at k=3 loses two-thirds of its precision credit
+  while its official rate is unaffected — the two numbers can move in opposite
+  directions with no explanation in the code.
+
+* DELIBERATE BUT MISLEADING: `if item is None: unjudged += 1; irrelevant += 1` — under
+  allow_unjudged=True, UNLABELLED results are counted in irrelevant_url_rate's numerator.
+  Labeling gaps therefore read as provider failure in the headline rate. The help text
+  does say so, and judged_result_count / unjudged_result_count are reported separately so
+  it is recoverable — but the column is labelled "Irrelevant" and the contamination is
+  invisible from the table alone.
+
+* _normalized_url drops the FRAGMENT but KEEPS THE QUERY STRING. Consequence: tracking
+  params (utm_*) make two identical pages DISTINCT results requiring SEPARATE judgments,
+  so `missing` fires and the eval hard-errors on a labeling task that should have been
+  one row. Note the runtime path goes the opposite way — the frontend adapter strips
+  query AND fragment when publishing URLs (pass 1, frontend/adapters tools.py) — so
+  benchmark and runtime use opposite normalization policies on the same URLs.
+
+* NO LATENCY SAMPLE-SIZE OR RESULT-YIELD COLUMN: latency is per run and a run that
+  returned [] after a fast timeout still contributes its fast latency to the mean. So a
+  useless-but-quick provider drags the group mean down and the table shows it next to a
+  good-but-slow one with no column saying how many results each returned.
+  format_report has Mean ms / P95 ms / Labels / Missing but no "returned@k".
+
+* _ratio(n,0) -> 0.0 rather than None/n-a, so a group that returned nothing reports
+  Official@k = 0.000, which reads as "0% official sources" instead of "undefined".
+
+* GOOD: validation is genuinely strict and consistently typed — _number rejects bool
+  (correct, bool subclasses int), non-finite AND negative; _boolean rejects 0/1;
+  _string requires non-empty-after-strip; load_judgments enforces the invariant
+  answerable=true => relevant=true; ranks must be positive unique ints; run keys and
+  judgment keys dedupe. Every error message carries its path:index context, which makes
+  JSONL debugging tractable. _load_jsonl tolerates blank lines and '#' comments — a real
+  nicety for hand-edited label files.
+* GOOD: _nearest_rank_percentile is a correct nearest-rank implementation
+  (ceil(p*n)-1, clamped at 0) and format_report computes column widths from actual
+  values. The empty-values / empty-latinencies guards are dead by construction (a group
+  always has >=1 run) but harmless.
+
+DISCOVERY.PY  — orchestration, circuit breaker, staging, merge.
+
+* BUG (the deadline is NOT enforced in the common path): _discover_with_deadline has two
+  branches. The multi-provider branch enforces `timeout` via `wait(futures, timeout=...)`.
+  The SINGLE-provider branch (`if len(providers) == 1`) runs synchronously, MEASURES
+  elapsed, LOGS "completed in %.1fs after its %.1fs budget" and RETURNS THE RESULTS
+  ANYWAY. There is no cancellation, no truncation. Since _available_providers filters a
+  stage to the providers that survive cooldown + configuration, a stage that reaches one
+  provider (very common: one API key set, or fanout=1, or two of three in cooldown) takes
+  this branch — so the DEFAULT_SEARCH_DEADLINE_SECONDS=30 contract is honoured only in
+  the multi-provider case. The provider's own requests timeout is the only bound left,
+  and it is 20s for API providers by default.
+
+* BUG (cancel does nothing, threads detach, shutdown joins them): for not_done futures the
+  code calls `future.cancel()` — but every future was submitted to a fresh executor with
+  max_workers=len(providers), so all are already RUNNING and cancel() returns False and
+  stops nothing. `executor.shutdown(wait=False, cancel_futures=True)` only cancels
+  UNSTARTED futures; there are none. The provider I/O therefore keeps running in live
+  non-daemon threads after the function returns. ThreadPoolExecutor's atexit hook joins
+  all of them, so a wedged provider can hold PROCESS SHUTDOWN open for up to its socket
+  timeout. That runs outside the app's own deadline machinery, and it collides with the
+  MCP shutdown path (pass 1, frontend/adapters lifecycle) whose grace is capped at 60s:
+  20s of detached provider I/O plus the rest of teardown can exceed it.
+
+* BUG (double-counted failures -> eager breaker): a timeout records one failure for the
+  not_done future. The same task, still running, then hits its own internal
+  `except Exception` and calls _record_provider_failure AGAIN — because cancel() did not
+  stop it (above). So PROVIDER_FAILURE_THRESHOLD=2 can be reached from a SINGLE timeout,
+  opening the 60s circuit when only one failure actually happened. For exceptions that
+  complete inside the budget there is no double count (the internal handler returns [],
+  the future is `done`); the race is specific to the timeout path.
+
+* BUG (junk-returning providers are invisible to the breaker): _record_provider_success
+  fires whenever normalize_results() does not raise — including when EVERY result is
+  filtered out afterwards. _record_provider_failure fires only on exception or timeout.
+  So a provider that consistently returns 200 with garbage never trips the circuit at
+  all; the log at line 492 says "falling back when another provider is available" but
+  the circuit state is unchanged. Utility-level failure is not tracked, only
+  transport-level.
+
+* STAGE-BUDGET INFLATION (confirms the batch-2 factory note at its source):
+    provider_budget = max(_provider_timeout_seconds(p, settings) for p in providers)
+  A mixed stage (8s HTML + 20s API) gets a 20s budget, and `timeout = min(remaining,
+  provider_budget)` uses that inflated value. HTML providers self-bound at 8s via their
+  own requests timeout, so the damage is bounded, but the stage deadline is not what the
+  operator configured for the majority of providers in the stage.
+
+* THIN-RECALL GUARD DISABLES ITSELF at low top_k: _stage_result_threshold returns
+  max(1, min(MIN_STAGE_USABLE_RESULTS, top_k)). MIN_STAGE_USABLE_RESULTS=2 exists to say
+  "one usable URL from the first provider is thin recall, keep trying fallbacks", but at
+  top_k=1 the threshold becomes 1, so the first stage satisfies it with a single URL and
+  NO fallback provider ever runs. The safeguard is capped by the very knob that should be
+  independent of it.
+
+* EARLY EXIT RUNS AFTER A FULL STAGE: `if monotonic() >= deadline_at` is checked only
+  between stages, after _discover_with_deadline returned. Combined with the unbounded
+  single-provider branch, the deadline can be exceeded by one whole provider call and
+  only THEN is the loop stopped.
+
+* _is_predominantly_chinese (chinese_count>0 AND chinese_count >= latin_count) is a
+  DIFFERENT Chinese detector from query_prep._is_mandarin_query (any CJK char present).
+  A query with one Chinese char and ten Latin chars takes the MANDARIN prep path in
+  query_prep but the ENGLISH provider order here. Tie-breaks favour Chinese. That is a
+  fifth hand-kept copy of the same concept (provider type set in _provider_timeout_
+  seconds, QUESTION_FILLER_WORDS vs _GENERIC_LATIN_TOKENS, the two policy-intent regex
+  pairs, the API-key field lists).
+
+* API-vs-HTML priority is DELIBERATELY ASYMMETRIC and worth recording: for Chinese
+  questions API providers jump ahead of the configured HTML provider
+  ([*explicit, *api_names, *fallback_names]); for English, the configured HTML provider
+  jumps ahead of the APIs ([*explicit, fallback_names[0], *api_names,
+  fallback_names[1:]]). The comment justifies it (APIs avoid CAPTCHA, richer Mandarin
+  snippets). Note the English path also means an English query with a Serper key still
+  tries Bing HTML first and burns an 8s budget before Serper.
+
+* MISLEADING SKIP LOG: is_search_provider_configured() failing logs
+  "Skipping unconfigured %s web search provider (API key not set)" for BOTH cases — a
+  missing key AND an unknown provider name. Verified: normalize_provider_name does
+  `(name or "bing").strip().lower()` and `aliases.get(normalized, normalized)`, so a
+  typo'd name passes through unchanged and is never rejected. An operator who sets
+  web_search_provider="bing_api " -> "bing_api" is fine, but "serperd" is silently
+  treated as an unknown-but-keyless provider and reported as a credential problem.
+  Retract my pre-read guess that an empty string would crash: "" normalizes to "bing".
+
+* _provider_timeout_seconds hardcodes {"serper","brave","tavily","bing_api"} as the API
+  set — a THIRD copy of the provider-type classification, after factory.py's API key
+  fields and _provider_names_for_question's api_names handling. Add a provider in one
+  place and it silently inherits the 8s HTML timeout here.
+
+* _positive_seconds does NOT reject infinity: `return seconds if seconds > 0 else default`,
+  and float("inf") > 0 is True. So web_search_deadline_seconds="inf" (or a float inf from
+  YAML) yields an UNBOUNDED deadline. NaN is handled correctly (nan > 0 is False).
+  Contrast benchmark._number, which explicitly requires math.isfinite for exactly this
+  reason — the offline validator is stricter than the runtime settings coercion.
+
+* _positive_int silently truncates floats: int(2.5) == 2, so web_search_provider_fanout=2.5
+  becomes 2 with no warning. 0 and "0" correctly fall back to default.
+
+* Semantic rescoring cost multiplies: _discover_results_with_provider calls
+  build_semantic_scorer(settings) ONCE PER PROVIDER PER STAGE. Combined with the batch-3
+  finding that a broken embedding install is not negative-cached, a permanently broken
+  install retries a full model build fanout x stages times per query instead of once.
+  Also _semantic_scores silently zeroes the bonus (with NO log) if the scorer returns a
+  different count than the input — silent degradation of the whole semantic layer.
+
+* TWO DIFFERENT DEDUPE/ORDERING POLICIES for the same URL across two layers:
+  _rank_usable_results keeps max((quality_score, -provider_rank)) — relevance_score is NOT
+  considered and provider_rank is a tie-breaker. _merge_ranked_results sorts by
+  (-quality_score, -relevance_score, provider priority, provider_rank, url) — relevance IS
+  second key and provider priority beats provider_rank. Intra-provider ranking ignores
+  relevance; cross-provider ranking uses it. Inconsistent and unexplained.
+  Also provider_rank is 0-based here (enumerate) while benchmark.SearchHit.rank is
+  1-based and the HTML providers use max(1, max_results).
+
+* GOOD (the semantic rescue logic is well built): bonus>0 and quality_score<min_score sets
+  quality_score = min_score — exactly the gate floor, never above it, so a semantically
+  similar but lexically-filtered result is INCLUDED but can never outrank a lexical hit.
+  Documented inline. And the "thin recall" framing (a single usable URL must not suppress
+  every fallback provider) plus the "earlier stages are never discarded" accumulator are
+  both correct and both documented. _merge_ranked_results has a deterministic total order
+  ending in the URL string, so identical inputs always merge identically — good for
+  reproducibility and for the benchmark harness.
+
+* GOOD: circuit state is monotonic()-based (immune to wall-clock adjustment), mutation is
+  RLock-guarded, and the logger.warning is placed OUTSIDE the lock — no I/O under lock.
+  _record_provider_success correctly pops the failure count, and the verification-error
+  branch returns BEFORE success recording, so a CAPTCHA does not count as a success.
+  build_search_query is called ONCE per question and shared across all providers/stages
+  (not per provider), which is correct — one query, many sources.
+  _rank_usable_results applies prefetch_rejection_reason BEFORE any semantic scoring, so
+  embedding cost is charged only to candidates that survived the URL gates.
+
+settings_for_discovered_urls
+* ORDER-SENSITIVE FINGERPRINT: sha256("\n".join(urls))[:12] hashes the LIST IN ORDER, not
+  a set. Two URL sets differing only by order produce different fingerprints -> different
+  Chroma dirs and collection names -> duplicated vector stores. discover_search_results_
+  from_web does return rank-sorted output so the common path is stable, but any caller
+  passing an unsorted list gets a fresh store. Sort before hashing, or hash a sorted set.
+* FINGERPRINT COVERS ONLY URLS: it is unchanged by embedding model, chunk size or
+  collection_name config changes, so a config change silently REUSES a stale index built
+  with different vectors. And every distinct URL set creates a NEW chroma_dir that is
+  never garbage-collected, so repeated web-search sessions accumulate unbounded vector
+  stores on disk — compounds the pass-1 sessions finding that _finish_delete runs outside
+  the lock and can orphan disk state.
+* GOOD: sha256 truncated to 12 hex chars is 48 bits — collision risk negligible at this
+  volume, and the fingerprint is a stable content-derived ID rather than a timestamp.
+
+# STATE
+- batches 1-6 of 7 DONE. Only batch 7 left: content_fetcher.py (822) + common.py (1157)
+  = 1979 lines, the largest batch.
+- 23 of 25 files read in-session across passes 2+3.
+- NEW VERIFIED BUG this tick: benchmark.py DEFAULT_QUERY_SET points at a nonexistent
+  path (parents[2] vs parents[3]); confirmed by ls, breaks the CLI's --queries default.
+
+# OBSERVED (PASS 3c, batch 7a) — content_fetcher.py (822L). common.py still pending.
+All cross-module claims below were grepped, not inferred.
+
+STRUCTURE: fetch_pages is a 4-stage pipeline — HTTP load -> PDF re-fetch -> JS fallback
+re-render -> per-page log. FetchedPage is frozen.
+
+  GOOD: `_json_ld_text_candidates(soup)` is called BEFORE the script/style decompose loop.
+  Reversed, ld+json would be destroyed before reading. Correct, but this ordering is
+  load-bearing and nothing marks it as such.
+  GOOD: extract_text's decompose list (script, style, noscript, nav, header, footer, aside,
+  form) is MORE complete than page_structure.py's (script/style/noscript only). And line 704
+  passes raw `"\n".join(document.page_content)` to assess_page_structure — the chrome-
+  inclusive HTML extract_text already cleaned. That is the MECHANISM behind the batch-2
+  page_structure link_density miscalibration, now traced.
+  GOOD: `_document_text` normalizes PDF content directly, never through the HTML parser; the
+  comment names the exact reason (a PDF string like `<2026` would be parsed as markup and
+  dropped). Targeted real fix.
+  GOOD: two-stage PDF detection — `_page_from_documents` sees PDF bytes behind an HTML URL
+  and returns fetch_method="http_pdf_detected" with EMPTY text so binary noise never reaches
+  the prompt, then `_retry_pages_as_pdf` re-fetches via PdfPageLoader.
+  GOOD: `_fetch_js_fallback_page` returns `replace(page, error=..., fetch_method=
+  "http+js_failed")` when the render yields nothing, preserving extracted_chars/structure.
+  GOOD: `.TRS_Editor` in the selectors is a real CJK-targeted specialisation (TRS CMS, common
+  on Chinese gov/portal sites).
+
+  BUGS
+  * DEAD PUBLIC CLASS (verified by grep across all .py): WebPageFetchError is defined (60)
+    and exported (814) but NEVER RAISED anywhere — only hits are the definition and __all__.
+    Every fetch failure surfaces as a FetchedPage.error string instead. Raise it or delete it.
+  * fetch_time_ms is BATCH ELAPSED, not per-page: elapsed_ms is computed once after BOTH the
+    HTTP and JS loads (144) and passed identically to every _page_from_documents call. A
+    batch where page 1 took 0.2s and page 6 took 9s all report the same total, so latency
+    analysis on this field is meaningless. Contrast _load_js_documents, which correctly
+    measures per-URL with started_at inside its loop.
+  * `_load_documents` swallows everything: `except Exception as exc: return [], str(exc)`.
+    A TypeError from bad args is indistinguishable from a network failure.
+  * THIRD site of `max(1, int(timeout))` flooring (372), same as playwright_loader.py:18 and
+    pdf_loader.py. Sub-second timeouts impossible (0.5 -> 1.0).
+  * is_readable_text is OR not AND: `any(checks)` over min_chars and min_tokens, so the
+    WEAKER floor wins. Settles the config/ question — web_search_min_page_chars:200 and
+    web_search_min_page_tokens:50 are NOT a conjunction. At shipped defaults they coincide
+    exactly (200 chars == 50 tokens under chars/4) so it is harmless today, but
+    min_chars=200, min_tokens=500 accepts a 200-char page. The knob pair is misleading.
+  * estimate_tokens is chars/4 with TWO consumers (verified): page budgets here AND
+    prompt_builder.py:70,78,99 for the prompt budget. CJK is ~1.5-2 tokens/char in real
+    tokenizers, so chars/4 undercharges ~3-4x. max_page_tokens=8000 -> 32000 chars = ~8000
+    real tokens of English but ~20000+ of Chinese. A CJK-heavy deployment silently oversizes
+    every page AND every prompt by ~3x from one shared heuristic.
+  * SHORT_OFFICIAL_MIN_RELEVANCE_SCORE = 15 vs web_search_min_url_score = 45 in config: a
+    40-600 char page clears readability on a relevance bar a third of the ranking gate.
+  * SHORT-PAGE EXCEPTION SCOPE (corrected in batch 7b — DO NOT RELY ON the earlier
+    wording): is_readable_page grants the short-page exception only when
+    host_authority_class(url) != "standard", so non-standard hosts qualify. The earlier
+    wording claimed non-standard included "owner = the user's own configured domain".
+    FALSE: RECOGNIZED_OWNER_DOMAINS is a HARDCODED frozenset at common.py:238, referenced
+    only at :344 — no settings lookup, no config input anywhere (verified by grep). There
+    is no "user's own domain" class. The real exposure is different and arguably worse:
+    github.com IS in that 19-domain list, so the short-page exception covers ANY repo,
+    gist, community wiki or GitHub Pages fan site, which clears readability on relevance
+    15 (a third of the 45 ranking gate). gov/edu/recognized-owner all qualify; "standard"
+    does not.
+  * `_policy_http_loader_factory` keys on IDENTITY (`loader_factory is not
+    default_loader_factory`), so any injected factory — including in tests — silently loses
+    BOTH PDF routing and policy headers. No duck-typing, undocumented.
+  * `_normalize_js_documents` OVERWRITES metadata["source"]/["url"] with the REQUESTED url
+    (419-420), so a JS-rendered page that redirected is recorded under the pre-redirect URL.
+    rendered_url preserves the truth; everything downstream keys on source/url.
+  * `_load_js_documents` is sequential (no concurrency), cache_ttl=0, document_cache=None.
+    With playwright launching/closing Chromium per URL, N force_js URLs = N SERIAL cold
+    starts, uncached.
+  * `_should_retry_with_js` retries only on empty text or shape=="gateway" — not "listing" or
+    "thin". Probably deliberate (JS won't help a genuinely thin page) but unmarked.
+  * `_looks_like_loader_error` ("error:" prefix) is checked only when
+    fetch_method.startswith("js") — an HTTP loader returning "error:" text passes as content.
+  * `_document_title` returns "" when <title> has child tags (soup.title.string is None), so
+    `<title><span>x</span></title>` loses its title.
+
+  CONFIG LINK — verifies the config/ tick end to end. fetch_policy.py:57-58:
+    force_js             = bool(js_fallback_enabled and force_match)
+    retry_js_on_low_text = bool(js_fallback_enabled and browser_profile)
+  BOTH gated on the master switch. With the shipped web_search_js_fallback_enabled: false,
+  JS rendering is unreachable through BOTH paths: force_js is never true, and the fallback
+  budget is 0 (content_fetcher:541 gates the budget on the same flag). So the 4 populated
+  web_search_js_fallback_domains, js_force_domains, and the sort priority for
+  retry_js_on_low_text are ALL dead in the default config. The operator who wrote that domain
+  list gets no browser rendering at all.
+
+  __all__ exports 11 names; SHORT_OFFICIAL_MIN_CHARS, SHORT_OFFICIAL_LEAD_MAX_CHARS,
+  SHORT_OFFICIAL_MIN_RELEVANCE_SCORE and PDF_DETECTED_FETCH_METHOD are public module-level
+  constants left out. Minor.
+
+# OBSERVED (PASS 3, batch 7b) — common.py (1157 lines) — DELTA ONLY
+(Batch 7a content_fetcher.py was taken by the concurrent session. Append-only.)
+
+**RETRACTION of a pass-2 batch-2 finding (verified by grep):** the claim that
+host_authority_class's "recognized_owner" / "owner" bucket means "the user's own
+configured domain" is FALSE. RECOGNIZED_OWNER_DOMAINS is a HARDCODED frozenset of 19
+domains; grep confirms no settings lookup, no web_search_owner_* config, no
+configuration input to host_authority_class anywhere in the package. So the
+claim_consensus finding "the authority branch accepts an edu site AND, worse, the
+USER'S OWN SITE" is only half right: edu is real, "the user's own site" does not exist
+as a class. The recognized-owner set is a fixed vendor list, not operator config.
+(What IS operator-configurable is source_urls / web_search_provider / timeouts.)
+
+**YEAR REGEX INVENTORY NOW COMPLETE (6 call sites, 2 widths, split WITHIN one file):**
+  19xx AND 20xx  -> query_constraints._YEAR_RE, recency._YEAR_RE,
+                    common._YEAR_RE (line 621, used by _year_relevance_delta)
+  20xx ONLY      -> evidence window check, query_prep._contains_year,
+                    query_prep._MANDARIN_YEAR_RE, query_prep TIME_SENSITIVE[2],
+                    common.py line 554  re.fullmatch(r"20\d{2}", segment)
+  common.py ALONE contains BOTH widths 65 lines apart: the URL-segment +8 bonus is
+  20xx-only while the title/snippet year delta handles 19xx. A page at /1998/... gets no
+  URL bonus but a 1998 title gets scored. Sixth instance of the same divergence.
+
+**CJK CHARACTER CLASS HAS A FOURTH VARIANT:**
+  common._CJK_RUN_RE (598)  = 㐀-䶿 一-鿿 豈-﫿   (includes
+                                              CJK Compatibility Ideographs)
+  query_constraints._CJK_RE, discovery._CJK_CHARACTER_RE,
+  query_prep._MANDARIN_CHAR_RE  = the two ranges only, NO 豈-﫿
+  A query using a compatibility ideograph is treated as CJK by common's bigram/token
+  machinery but as NON-CJK by language detection, entity extraction and provider
+  ordering. Fourth distinct definition of "is this CJK".
+
+COMMON.PY
+* BUG (the sharpest in this batch, verified): text_relevance_delta RETURNS EARLY WITH 0
+  when the text is empty: `normalized = ...; if not normalized.strip(): return 0`. That
+  early return sits ABOVE the multi-entity guard, _year_relevance_delta,
+  _answer_completeness_delta and answer_evidence_delta — so ALL FOUR are skipped for
+  empty text. discovery._provider_search_results (batch 6) wraps bare search() URLs into
+  SearchResult(url=url) with EMPTY title and snippet, and relevance_text is
+  f"{title} {snippet}".strip() = "". CONSEQUENCE: a provider that returns only URLs
+  receives ZERO relevance scoring — no -60 off-topic penalty, no multi-entity guard, no
+  year conflict penalty, no quantity check, no evidence scoring. Ranking for that provider
+  is URL shape + host authority alone, and every one of its results clears the gate on
+  shape alone. The strongest ranking protections in the package are gated on the provider
+  bothering to return snippets. This is the concrete, measurable consequence of the
+  protocol.py "two methods, no bridge" gap (batch 1) — and it is why the gap matters.
+
+* BUG (multi-entity guard defeated by CJK bigram OVERLAP): _cjk_bigrams("北京地铁") yields
+  北京, 京地, 地铁 — three DISTINCTIVE terms (none in GENERIC_QUERY_TERMS), so the
+  multi-entity guard is armed (>=2 distinctive). A Nanjing page containing 南京地铁
+  matches 京地 and 地铁 = 2 of 3 distinctive -> guard PASSES. Coverage = 2/3 ->
+  round(0.667*45) = +30. So a Nanjing metro page scores POSITIVELY against a Beijing
+  metro query. The bridge bigram (京地) is shared between every city's "X地铁" phrase and
+  it is counted as a full-weight distinct entity match. The guard was designed for
+  disjoint Latin entities ("Argentina vs Jordan"); with CJK bigrams, entities overlap by
+  construction and the guard has no discriminating power across same-template entities.
+  Two independent failure modes from the same bigram design:
+    - adjacency penalty: a page saying "北京 ... 地铁" (non-adjacent) matches 北京 and
+      地铁 but NOT 京地 -> coverage 2/3 -> +30 instead of +45. Legitimate non-adjacent
+      mentions lose 33% of relevance credit. The comment at 596-597 notes the false
+      POSITIVE risk of the first bigram but not the false NEGATIVE cost of bridge bigrams.
+    - cross-city false match, as above.
+  Latin queries are unaffected (tokens are whole words, no bridging).
+
+* BUG (all-generic queries clear the bar, contradicting the module's own stated intent):
+  GENERIC_QUERY_TERMS downweights generic terms to 0.2 but NEVER removes them, and
+  TEXT_RELEVANCE_MIN_COVERAGE compares WEIGHTED fractions, not counts. Query
+  "model data" -> both terms generic, total_weight = 0.4, distinctive_terms is EMPTY so
+  the multi-entity guard is skipped; a page containing both words gets coverage 0.4/0.4 =
+  1.0 -> lexical_delta = +45. The comment at 810-817 states "matching a single generic
+  word ... will not, on its own, clear the relevance bar" — true for one generic word
+  (0.2/1.0 = 0.2 < 0.34), but FALSE for two-or-more generic words, which sum to full
+  coverage. Any query built entirely of common nouns scores maximally. The intended
+  semantics ("generic matches do not establish topicality") is not achievable with
+  downweighting only; generic terms would need to be excluded from both numerator and
+  denominator.
+
+* `if total_weight <= 0: return 0` in text_relevance_delta is DEAD CODE: every term from
+  _search_query_terms has weight >= 0.2 (_term_weight floors at 0.2), and the caller
+  already returned 0 for an empty term set. total_weight can never be <= 0 here.
+
+* is_owner_domain_lookalike FALSE POSITIVE on the vendor's own domain: identity "alibaba"
+  maps to owner domains ("alibabacloud.com","aliyun.com") and identity token {"alibaba"}.
+  _host_matches(alibaba.com, alibabacloud.com) and _host_matches(alibaba.com, aliyun.com)
+  are both False, so alibaba.com — the real corporate Alibaba domain, which is NOT in
+  RECOGNIZED_OWNER_DOMAINS — receives OWNER_LOOKALIKE_PENALTY (-15) on every query
+  mentioning "alibaba". The recognition list and the identity list disagree about which
+  domains an owner owns. Same shape for any owner whose canonical corporate domain is
+  absent from the 19-domain frozenset.
+
+* github.com is in RECOGNIZED_OWNER_DOMAINS, so it receives RECOGNIZED_OWNER_AUTHORITY_
+  BONUS (+16) as a FIRST-PARTY authority source. GitHub is a hosting platform: any repo,
+  gist, community wiki, fan blog or GitHub Pages site about a vendor inherits +16 owner
+  authority and, via result_constraint_score's `authority != "standard"` test, +18
+  OFFICIAL_SOURCE_BONUS for any "官方/official/site:" query. A fan wiki on github.com
+  scores exactly like a vendor press release. The 19-domain list mixes genuine vendor
+  domains (microsoft.com, openai.com) with a platform (github.com) and with vendor cloud
+  subdomains (cloud.baidu.com, cloud.tencent.com) that only cover that one product.
+
+* is_noise_url treats bing and baidu ASYMMETRICALLY: bing is an EXPLICIT LIST of three
+  hosts (bing.com, www.bing.com, cn.bing.com) checked by exact `in`, while baidu is a
+  SUFFIX RULE (`hostname == "baidu.com" or endswith(".baidu.com")`) plus a /link and /s
+  path check. m.bing.com, bing.net and any new bing hostname pass is_noise_url cleanly.
+  The baidu rule generalises; the bing rule does not. NOISE_HOSTNAMES is also exact-match
+  only, so a new Baidu product subdomain needs a list edit to be treated as noise, while
+  an equivalent bing subdomain is invisible either way.
+
+* registrable_domain, the com.hk/com.tw collapse, MECHANISM CONFIRMED precisely: for
+  "abc.com.hk", labels = ["abc","com","hk"], last_two = "com.hk" which is ABSENT from
+  COMMON_COMPOUND_PUBLIC_SUFFIXES (the set has com.cn/com.au but not com.hk, com.tw,
+  co.kr, co.nz, com.br, ne.jp, ac.jp, or.jp ...), so the function falls through to
+  `return last_two` = "com.hk". EVERY .com.hk host collapses to one identical key, and
+  every .com.tw host to another. Consequence downstream (claim_consensus, batch 2): the
+  ">= 2 independent domains" gate can NEVER be satisfied by two different HK or TW
+  commercial sources — they are the SAME domain. The approximation's failure mode is not
+  "close enough", it is total collapse of entire TLD families. Conversely compound
+  suffixes that ARE in the set (gov.cn, com.cn) are handled per-registration correctly.
+  IPs are returned as-is (correct). Note the docstring hedges "registrable-ish" — the
+  hedge is doing a lot of work.
+
+* canonical_url_key LOWERCASES THE PATH, which is wrong for HTTP: paths are case-sensitive.
+  "example.com/About" and "example.com/about" become the same key and one is silently
+  dropped (whichever arrives later). Also /index.html and /index.htm are collapsed to the
+  parent (good), single "www." stripped (good), query and fragment excluded via
+  (hostname, path) tuple (good), default ports collapsed because urlparse.hostname omits
+  the port (good). The path-lowercase is the one real defect.
+
+* _url_query_relevance_bonus: the +8 HOSTNAME branch is DEAD FOR CJK. urlparse returns
+  IDN hostnames in punycode, and path_segments() does unquote+lower but never IDNA-
+  decodes, so a CJK bigram can never appear in a punycode hostname. The +5 PATH branch
+  DOES work for CJK, because percent-encoded Chinese paths (/%E5%8C%97%E4%BA%AC) are
+  unquoted into real characters. So URL-relevance bonus is Latin-only for hosts and
+  functional for paths. In practice Chinese sites use ASCII hostnames anyway, so the dead
+  branch mostly costs nothing — but it is dead.
+
+* _SEARCH_QUERY_FILLER_RE / _CJK_QUERY_FILLERS is a THIRD hand-kept filler list, joining
+  QUESTION_FILLER_WORDS (query_prep), _GENERIC_LATIN_TOKENS (query_constraints) and
+  GENERIC_QUERY_TERMS (common, ranking stage). Same concepts, four vocabularies, no
+  shared source. _CJK_QUERY_FILLERS ordering is correct (有多少 before 多少), and
+  `re.findall(r"[a-zA-Z][a-zA-Z0-9_-]{2,}")` already implies len>=3 so the subsequent
+  `if len(token) >= 3` is redundant.
+
+* _has_quantity_answer excludes years via `_YEAR_RE.fullmatch(value)` — but _YEAR_RE is
+  (19|20)\d{2}, so any quantity in 1900-2099 is misread as a year. "总投资2000万元" for a
+  count query: value "2000" fullmatches _YEAR_RE -> excluded as a year ->
+  _has_quantity_answer False -> -12, then page_relevance_score's quantitative veto
+  returns the full -60. A 2000-unit figure is indistinguishable from a 2000 year. Also
+  "1950条公交线路" is dropped as a year. Niche but a genuine class of false negatives.
+
+* _quantity_context_matches_query: `_METRO_ENTITY_RE` uses a GREEDY {2,8}, so for
+  "大北京地铁" group(1) captures "大北京" (longest that still leaves 地铁). The subsequent
+  check requires "大北京" to appear in the page context, so a page correctly saying
+  "北京" returns False and the quantity answer is rejected. Greedy capture is the wrong
+  direction here; it should be anchored to the leftmost plausible entity.
+  The "运营线路总数" special case is well built: it rejects future/construction-only
+  context unless an operating-scope phrase is present, and separately accepts an
+  explicit-total formulation (共有/共计/总计/合计 + 线路). Correct for the domain.
+
+* page_relevance_score's `if not primary: return text_relevance_delta(full, query)` is
+  near-degenerate: primary is empty only when title, h1 AND text[:1200] are all
+  whitespace, in which case full is also whitespace and text_relevance_delta returns 0.
+  So an empty page with NO hard constraints scores 0 — not negative. Callers handle it
+  correctly: is_page_text_relevant tests `> 0`, so 0 rejects. But a caller that compared
+  against min_score instead would admit an empty page.
+  The three vetoes (year, quantity, evidence) all return the SAME -60, so the code cannot
+  tell which gate failed — no per-gate reason string here, unlike prefetch_rejection_
+  reason which does name its gate.
+
+* result_quality_score short-circuits `if score <= 0: return score` BEFORE adding host
+  authority, constraint and text deltas. Correct by design (noise is a hard rejection and
+  cannot be rescued by +24 government authority) but it means the +24/-15 authority
+  signals are never even computed for noise URLs — a minor efficiency win.
+  For non-noise URLs the arithmetic is: url_quality (base 60) + host_quality (up to +24)
+  + result_constraint (up to +18 / down to -37) + text_relevance (roughly -120..+80).
+  Against DEFAULT_MIN_USABLE_URL_SCORE = 45, the -60 text miss is decisive for a
+  government page (60+24+18 = 102 -> 42, JUST below the gate), so an official page with a
+  non-matching snippet is still rejected. Good: authority cannot override irrelevance.
+
+* GOOD: SEARCH_USER_AGENT is Chrome/124 here, pdf_loader is Chrome/124, fetch_policy is
+  Chrome/120 — three hardcoded UA strings, two version numbers, still drifting (batch 3
+  flagged the 124/120 split; this is the third copy). Accept-Language is zh-CN-first
+  everywhere, consistent with the Mandarin specialization.
+* GOOD: SEARCH_USER_AGENT + search_request() + urlopen_context() centralise fetch headers
+  in one place rather than repeating them per provider.
+* GOOD: urlopen_context(verify_ssl=True) returns None -> urllib's DEFAULT verification.
+  Correct: returning None, not a verified context, preserves the platform default
+  certificate store. ssl._create_unverified_context() is a PRIVATE underscore API, so it
+  is fragile across CPython versions but is the standard idiom for this.
+* GOOD: logger.debug in ranked_usable_results emits per-candidate url/score/min_score/
+  usable with an `extra` dict, so the ranking is diagnosable at DEBUG without changing
+  the logging format. The `extra` keys do not collide with LogRecord attributes.
+* GOOD: ranked_usable_results is deterministic — dedupe keeps (score, -position) max, so
+  highest score then earliest position; final sort is (-score, position, url) with the
+  URL as a final total-order tiebreaker. Reproducible output for the benchmark harness.
+  Sub-gate results are filtered BEFORE canonical dedupe, so a canonical duplicate's best
+  variant is what is judged — correct.
+* GOOD: normalize_results uses dataclasses.replace(result, url=clean_url) on the frozen
+  dataclass — the correct way to rewrite a field on an immutable record while preserving
+  title/snippet. Both normalize_urls and normalize_results dedupe by EXACT string only;
+  canonical dedupe is deliberately left to ranked_usable_results / discovery. The naming
+  does not say that, and it matters for the benchmark's duplicate-inflation bug (batch 6).
+
+# CROSS-BATCH SUMMARY (all 25 files, 6541 lines)
+Recurring anti-patterns, by count of independent instances:
+  1. YEAR-REGEX WIDTH SPLIT — 6 call sites, 2 widths, and both widths inside common.py.
+     Root cause of the recency -60 false rejection (batch 1), the evidence pre-2000
+     impossibility (batch 3) and the query_prep 19xx blindness (batch 5).
+  2. HAND-KEPT DUPLICATE VOCABULARIES — at least 7: provider-type sets (factory API keys,
+     discovery _provider_timeout_seconds set, factory normalize aliases), filler/stopword
+     lists (query_prep QUESTION_FILLER_WORDS, query_constraints _GENERIC_LATIN_TOKENS,
+     common _SEARCH_QUERY_FILLER_RE, common _CJK_QUERY_FILLERS, common GENERIC_QUERY_TERMS),
+     CJK character classes (4 variants, 3 different range sets), policy-intent regexes
+     (query_constraints vs query_prep), count-intent 多少(?!钱) (2 copies), year regexes.
+     No shared source of truth for any of them.
+  3. THE "32 <= ord(c) != 127" CHAINED-COMPARISON TRAP — 2 instances (adapters/runtime.py,
+     frontend/adapters tools.py, pass 1). Unrelated to this package but the same shape.
+  4. DECORATIVE SCHEMA_VERSION CONSTANTS — 2 instances (reputation.py here, SQLiteStorage
+     in sessions). Defined, never written, never read.
+  5. int() FLOORING OF SUB-SECOND TIMEOUTS — 2 instances in this package (playwright_
+     loader, pdf_loader); api_providers correctly clamps to max(1.0, ...) as a FLOAT.
+  6. HARDCODED MODEL/VERSION STRINGS — deepseek-v4-flash, Chrome 120/124 x3, the "2026"
+     prompt example, 5.0s inner timeout, 16_000 max_length. No settings wiring.
+  7. ADVISORY-ONLY FLAGS with no enforcement — estimated_cost_units, categorical_allowed,
+     and now text_relevance_delta's return-0-early which silently disables the whole
+     relevance layer for bare-URL providers.
+
+# STATE — ALL 25 FILES READ. Batches 1-7 COMPLETE.
+- web_search/ read fully across passes 2+3: batches 1-7, 6541 lines, ~293 KB.
+- 3 `# REFACTOR:` markers in common.py (lines 110, 216, 803).
+- Loop work is DONE. Remaining ticks would be re-reads; the loop should stop or be
+  repointed at another directory.
+
+# PASS 4 STARTED 2026-09-05 — cron 771d69b9. USER EXPLICITLY OVERRODE THE ABOVE.
+Asked which of (fresh full pass / verify+close / repoint at tests or tools); user
+chose "Fresh full pass". So passes 2+3 findings are treated as PRIOR ART to beat, not
+as ground truth. Each PASS 4 entry below is a genuinely new observation, not a restatement.
+
+# OBSERVED (PASS 4, batch 1a) — protocol.py (45L), playwright_loader.py (72L)
+
+PROTOCOL.PY
+  * IMPORT INVERSION (verified with an AST transitive-weight script): protocol.py is a
+    45-line interface file, but `from .common import SearchResult` drags in 4 local modules
+    / 1668 lines — common.py imports evidence.py and query_constraints.py. Measured:
+        protocol          4 local modules, 1668 lines
+        playwright_loader 1 module,        72 lines
+        recency           2 modules,      376 lines
+        __init__         20 modules,    5603 lines
+        tool              1 module,        26 lines
+    A test that only wants to define a fake provider pays for the evidence-scoring and
+    constraint-extraction machinery. The INTERFACE depends on the ranking engine; the
+    dependency direction is backwards for a Protocol module.
+  * runtime_checkable + a PROPERTY: `isinstance(obj, WebSearchProvider)` resolves each name
+    via hasattr(type(obj), name), so any class with three same-named attributes passes —
+    whether provider_name is a real property, a bare string constant, or a lambda, and
+    regardless of whether search() accepts (query, max_results). Re-confirms the pass-2
+    note but adds the property-specific detail: hasattr sees the descriptor on the class,
+    never the value, so a class with `provider_name = ""` is accepted as conforming.
+  * BOTH methods are REQUIRED (no Optional, no default body), so a provider shipping only
+    search() -> list[str] silently fails isinstance and is unusable. _ApiSearchProvider
+    bridges the gap for the 4 API providers; nothing does for custom HTML providers.
+  * RankedSearchResult.provider_rank defaults to 0 with NO documented semantics — is 0 the
+    best rank or "unknown"? common.py's ranked_usable_results sorts on provider rank, so an
+    uninitialised 0 sorts as if it were position one. Ambiguous, load-bearing.
+  * as_dict() -> asdict(self) is fine for LangChain artifacts; no __post_init__ validation
+    on negative relevance_score/quality_score, which is correct since common.py's vetoes
+    legitimately produce -60.
+
+PLAYWRIGHT_LOADER.PY
+  * NEW / REAL — locale and UA SPLIT between the HTTP and JS paths:
+    `playwright.chromium.launch(headless=True)` is called with NO arguments — no locale, no
+    user agent, no viewport, no extra headers. So the JS path presents Chromium's default
+    English locale and stock Chrome UA, while the HTTP path sends
+    fetch_policy.BROWSER_REQUEST_HEADERS (Accept-Language zh-CN-first, Chrome/120). The same
+    site is visited as two different clients: zh-CN over HTTP, en-US over JS. On a
+    Mandarin-specialised stack, the fallback path — the one that rescues JS-only Chinese
+    pages — identifies itself in the wrong language. Latent today because
+    web_search_js_fallback_enabled: false disables it entirely (batch 7a); enabling it
+    activates the split.
+  * NEW / REAL — wait_until="load" produces FALSE FAILURES: `suppress(TimeoutError)` wraps
+    ONLY the networkidle wait, not page.goto(). goto(wait_until="load") waits for ALL
+    resources — images, fonts, tracking scripts. Heavy, content-rich pages routinely miss
+    that window, goto raises, and the page is reported as FAILED even though the article
+    DOM was fully rendered. JS fallback therefore fails on precisely the pages it exists to
+    rescue. domcontentloaded, or wrapping goto in suppress too, would fix it.
+  * NEW — redirected URL MASKING, now confirmed in TWO independent layers. metadata sets
+    source/url to self.url (the REQUESTED url), not response.url (the FINAL url) — even
+    though response.url is available right there on the response object. content_fetcher
+    _normalize_js_documents (batch 7a) overwrites source/url the same way. A redirected JS
+    page is keyed by its pre-redirect URL in two layers, so ranked_usable_results'
+    canonical_url_key dedupe cannot collapse it onto its post-redirect twin.
+  * NEW — UNBOUNDED OUTPUT: page.content() returns the entire rendered DOM with no size cap.
+    The HTTP path is bounded by a timeout; the JS path is not. A large SPA yields unbounded
+    HTML into extract_text before downstream truncate_to_token_budget ever runs. The only
+    cap is whatever the prompt budget applies afterwards.
+  * NEW — _PLAYWRIGHT_SETUP_MESSAGE is defined at line 50 but first referenced at line 26,
+    inside PlaywrightPageLoader.load. Works only because the lookup happens at call time,
+    not at class-creation time. A refactor that materialises the message earlier would
+    NameError at import.
+  * NEW — `# pragma: no cover` sits on the ONLY failure path in the loader (the ImportError
+    branch), so the unavailability path is untested by construction.
+  * NEW — no retry on a transient browser launch failure; one failed launch() reports the
+    whole page as failed. Combined with _load_js_documents looping sequentially (batch 7a),
+    N force-JS URLs are N serial Chromium cold starts with no recovery.
+  * RE-CONFIRMED: max(1, int(page_timeout)) * 1000 — the int() FLOOR. Third instance.
+    page_timeout=0.5 -> 0 -> 1 -> 1000ms. Sub-second timeouts are impossible.
+  * GOOD: browser.close() in finally survives a new_page() failure; response.status is
+    guarded for a None response; the lazy sync_playwright import keeps normal search, tests
+    and server startup free of the optional dependency.
+  * GOOD: `from playwright.sync_api import TimeoutError` deliberately shadows the builtin
+    so suppress() catches Playwright's own error and not a socket timeout. Correct, but it
+    means a builtin TimeoutError inside that block escapes uncaught.
+
+# OBSERVED (PASS 4, batch 1b) — tool.py (25L), __init__.py (80L), recency.py (81L)
+Everything below verified by executing against the modules (bs4/langchain_community
+stubbed + package __init__ bypassed) and by grep.
+
+* SHARPEST FINDING OF PASS 4 — the year-ambiguity bug is a HARD PAGE DROP, not a ranking
+  penalty as passes 2/3 recorded. Executed:
+      "总投资2000万元的项目有几条"   -> years=['2000'] intents=['count']
+          page dated 2024-06-01 -> score=-60 applies=True conflict=True
+      "北京地铁2000条公交线路"        -> years=['2000'] intents=[]
+          page dated 2024-06-01 -> score=-60 applies=True conflict=True
+  _YEAR_RE matches "2000" in both. recency.py then marks conflicts_with_required_year=True.
+  And src/backend/graph/nodes/web_answer.py:419-423 does:
+      if assessment.conflicts_with_required_year:
+          conflict_urls.append(url); continue        # page REMOVED from ranking
+  So a budget figure (2000万元) or a count figure (2000条) in the 1900-2099 range becomes a
+  publication-year constraint that DROPS EVERY CURRENT PAGE. If all pages conflict, ranked is
+  empty and the function returns ([], all_conflict_urls) — zero usable pages for the query.
+  Worse than the -60 penalty: the -60 still left the page eligible; here it is excluded.
+  Note: same class as common.py _has_quantity_answer misreading 2000 as a year (batch 7b),
+  but that one scored; this one filters.
+
+* `PublicationDateAssessment.applies` is a DEAD FIELD (verified by grep): set in 5 places
+  in recency.py, read by zero consumers anywhere in src/ or tests/. Its only sibling
+  boolean, conflicts_with_required_year, IS consumed (web_answer.py:419). So the dataclass
+  has one load-bearing field and one purely decorative.
+  GOOD (counterweight): web_answer.py returns conflict_urls SEPARATELY from the ranked list,
+  so the exclusion is diagnosable rather than silent. Sort key (-score, position) is
+  deterministic. recency is imported lazily inside the function.
+
+* SCORING CLIFF: len(requested_years)==1 -> ±60/20, decisive. len>=2 -> applies=True,
+  score=0, neutral. So any spurious SECOND year removes the penalty entirely. Combined with
+  the finding above, a budget figure both CREATES a hard exclusion and can CANCEL one. The
+  two behaviours are adjacent lines with no comment connecting them.
+
+* DeprecationWarning in tool.py is DEAD BY DEFAULT. Python's default filter is
+  `default::DeprecationWarning:__main__`, so a DeprecationWarning raised in
+  src.backend.web_search.tool is SILENCED for every importer. The migration notice to
+  src.backend.tools.web_search is invisible unless -W all / PYTHONWARNINGS is set.
+  tests/test_compat.py forces it, which is why it looks alive in CI. The Phase 3 form
+  records "Deprecation warnings on legacy import paths" as a delivered feature — it is
+  delivered to the test suite only.
+
+* __init__.py import COST, measured: importing the package executes 5603 lines across 20
+  local modules and REQUIRES bs4 (baidu/bing/duckduckgo/content_fetcher/page_structure)
+  plus langchain_community (content_fetcher). Neither is installed here, so
+  `import src.backend.web_search` fails outright, while the leaf modules are cheap
+  (tool.py 26 lines local, playwright_loader.py 72). The lazy-import discipline exists and
+  is correct where applied — but it does not cover the package root, which is the path most
+  callers actually take.
+
+* `_RECENCY_RE` writes every CJK literal as a \u escape (最新 = 最新) while the rest
+  of the package writes CJK literally. Same file, mixed style; the escapes make the pattern
+  unreviewable at a glance.
+
+* detect_query_intents(query) re-runs the FULL constraint extraction for EVERY page scored —
+  quoted phrases, identifiers, entities, all recomputed 6x for a 6-page batch. Wasteful but
+  correct; assess_publication_date receives the raw query, not a precomputed assessment.
+
+* __all__ exposes 32 symbols and omits PublicationDateAssessment,
+  assess_publication_date, PageStructure, assess_page_structure, QueryConstraints,
+  extract_query_constraints, validate_query_candidate, DomainReputationStore and
+  SemanticScorer. SearchResult and FetchPolicy are exported while their siblings are not, so
+  the package root is an inconsistent public surface and callers must reach into submodules
+  for half the API.
+
+* INCIDENTAL: reading recency.py's consumers pulled three files from src/backend/graph
+  (queue unit [9], still pending): web_answer.py:410-427, plus the earlier grep hits in
+  decompose.py:194 and search_queries.py:164. Those are now partially covered.
+
+# OBSERVED (PASS 4, batch 2a) — fetch_policy.py (94L), prompt_builder.py (109L),
+# claim_consensus.py (132L). Factory.py + page_structure.py next.
+
+* SHARPEST OF THE BATCH — categorical_allowed is a DEAD FIELD and the whole
+  claim-consensus layer enforces nothing. Verified by grep: prompt_instruction IS consumed
+  (web_answer.py:195 `if status_consensus.prompt_instruction:` -> passed as
+  grounding_note= to build_web_search_prompt), but categorical_allowed is read ONLY by
+  tests. The real control is "does prompt_instruction contain text". So:
+    state=supported    -> prompt_instruction=""  -> NO evidence constraint at all
+    state=insufficient -> instruction text       -> EVIDENCE CONSTRAINT appended
+    state=conflicting  -> instruction text       -> EVIDENCE CONSTRAINT appended
+  The "supported" case carries zero epistemic guardrail and relies purely on the preamble.
+  Tests assert categorical_allowed, which makes the field look load-bearing when it is not.
+
+* THE FULL INJECTION CHAIN, now traced end to end:
+    claim_consensus.prompt_instruction
+      -> web_answer.py:199 grounding_note=status_consensus.prompt_instruction
+      -> prompt_builder.py:62-63  instructions += f"EVIDENCE CONSTRAINT —
+           {grounding_note.strip()}\n\n"
+  So the consensus logic's ONLY enforcement is a free-text string concatenated into the
+  preamble of the very prompt that tells the model "trust the source ... MORE UP TO DATE
+  than your own training data". And grounding_note is an UNBOUNDED caller-controlled
+  string with no length cap — unlike every other field in the file, which is budgeted.
+
+* github.com IS in RECOGNIZED_OWNER_DOMAINS (verified: 19-domain frozenset at common.py:238
+  — microsoft.com, openai.com, apple.com, nvidia.com, anthropic.com, langchain.com,
+  deepseek.com, alibabacloud.com, aliyun.com, huawei.com, mi.com, xiaomi.com, byd.com,
+  nio.com, xpeng.com, cloud.baidu.com, cloud.tencent.com, github.com, apple.com.cn).
+  With claim_consensus.py:64-70 requiring only ONE authoritative state and NO minimum
+  domain count, a SINGLE github.com page asserting a status yields
+  state="supported", categorical_allowed=True. So any GitHub repo, gist, community wiki or
+  GitHub Pages fan site is enough for a categorical current-status answer. The list mixes
+  genuine vendor domains, product subdomains that cover one product each (cloud.baidu.com),
+  EV makers (plausibly the real target for status queries), and a hosting platform.
+  This SUPERSEDES my batch-7a "user's own site" wording and the batch-2 claim_consensus
+  finding — both were built on the retracted premise that "owner" meant operator config.
+
+* fetch_policy consequence of the same list: authoritative_host =
+  host_authority_class(url) != "standard" (fetch_policy.py:53) is TRUE for github.com, so
+  github.com pages get browser_profile=True -> BROWSER_REQUEST_HEADERS applied, i.e.
+  Accept-Language: zh-CN,zh;q=0.9,en;q=0.8 sent to github.com. Also retry_js_on_low_text
+  becomes True for github.com, making it a JS-fallback candidate. One domain in a frozenset
+  changes fetch behaviour across three modules.
+  ALSO: header application is NOT domain-specific despite the module's
+  "Domain-aware fetch policy" docstring — one identical header dict goes to every
+  authoritative host, so an English government page receives zh-CN language preference.
+
+* prompt_builder HONESTY BUG, sharper than pass 2 recorded. The loop does
+  `continue` (not break) on an empty section, so it correctly keeps trying smaller pages
+  until one fits. The misleading replacement fires only when NO page fits at all:
+  "No readable web source content was available." which is FALSE when pages had readable
+  text but the question block exhausted the budget. Compounded by _source_section returning
+  "" when content_budget <= 0 — a very long URL+title alone can drop a page even with budget
+  remaining, and there is no "skipped page" accounting, so the caller cannot tell pages
+  existed. The model is then told "if the sources genuinely do not contain the answer ...
+  say so plainly", and will report absent sources as absent answers.
+  max_total_tokens=0 reaches the same branch with real content available.
+
+* UNGUARDED PATH TO THE BUG. web_answer.py (per the 2026-06-09 form) skips the LLM "when
+  every fetched page is empty/unreachable" — so it guards on READABLE TEXT EXISTING, not on
+  SOURCE TEXT REACHING THE PROMPT. If some pages have text but all fail to fit the budget,
+  that guard passes and build_web_search_prompt is called with an empty source set plus the
+  misleading message. The two protections are independent; nothing asserts they compose.
+
+* `按计划开通` dual-match CONFIRMED still live: _OPEN_STATUS_RE matches 开通, _PLANNED_
+  STATUS_RE matches 计划, so _detect_page_statuses returns {"open","planned"} for one page.
+  claim_consensus then sees two official states -> _conflicting_consensus ->
+  categorical_allowed=False. One authoritative page containing that ordinary news phrase
+  manufactures a conflict and strips categorical permission. Richest pages are the most
+  likely to be penalized.
+
+* claim_consensus.py:47 `domain = registrable_domain(url) or url` — when registrable_domain
+  returns "" the RAW URL is used as the domain key, so distinct junk URLs count as
+  independent domains and can satisfy the >=2 domain gate. Conversely the com.hk/com.tw
+  collapse means two different HK/TW commercial sources count as ONE and can NEVER satisfy
+  it. Same function, both failure modes reachable.
+
+* fetch_policy nits: DEFAULT_JS_FALLBACK_DOMAINS is a mutable module-level LIST (not tuple/
+  frozenset), so it can be mutated in place. BROWSER_REQUEST_HEADERS pins Chrome/120 while
+  common.py SEARCH_USER_AGENT and pdf_loader are Chrome/124 — three copies, two versions,
+  still drifting. domain_matches correctly uses `host == d or host.endswith(f".{d}")` and
+  skips empty configured domains; url_host handles bare hostnames, trailing dots, case.
+
+* prompt_builder: the citation ban list is a three-model patch set ([1] generic,
+  【199†L91-L126】 DeepSeek-R1 native, [oaicite:0] OpenAI o-series) and writes the DeepSeek
+  marker as \u escapes while the rest of the file is literal — same \u-vs-literal
+  inconsistency as recency._RECENCY_RE. Budget arithmetic is otherwise correct: the loop
+  deducts AFTER appending and breaks at <=0, so exactly one final section can land at zero
+  but never overshoot; _source_section computes content_budget BEFORE returning so a
+  section cannot exceed the allowance.
+
+# OBSERVED (PASS 4, batch 1b) — tool.py, __init__.py, recency.py
+(tool.py + playwright_loader + protocol taken by batch 1a; all three re-read fresh this pass.)
+
+TOOL.PY / __INIT__.PY  — the two routes to the canonical tool module are asymmetric
+  * __init__.py reaches the 3 tool symbols LAZILY (module-level __getattr__), so
+    `import src.backend.web_search` costs nothing extra. tool.py reaches the SAME three
+    symbols EAGERLY (`from ..tools.web_search import ...` at module level) and additionally
+    fires a DeprecationWarning. So the deprecated shim is strictly more expensive than the
+    live entry point it forwards to — the deprecation costs the importer a full import of
+    the canonical module, not just a warning.
+  * __init__.py never imports `.tool`, so the package does not self-reference its own
+    deprecated facade. The DeprecationWarning can therefore only fire from an external
+    `from src.backend.web_search.tool import ...` — anything that imports the package and
+    grabs build_web_search_tool through the lazy __getattr__ gets the symbol with NO
+    deprecation signal at all. Two identical call sites, only one warns.
+  * __init__.py's __getattr__ miss-path raises AttributeError(name) with the UNRESOLVED
+    name, so if the canonical module ever renames one of the 3 symbols, the error reads
+    "module 'src.backend.web_search' has no attribute 'build_web_search_tool'" instead of
+    pointing at the canonical module that actually lost it. One extra frame of indirection
+    in the most likely future failure.
+  * GOOD: __all__ lists both eager and lazy names, and `from pkg import *` resolves __all__
+    through __getattr__, so star-import works. Confirmed by reading (pass 2 stated this);
+    no new detail.
+
+RECENCY.PY
+  * BUG (NEW, ordering): the future-dated penalty is UNREACHABLE for any year-bearing query.
+    Control order is: (a) len(requested_years)==1 -> return +/-20/-60; (b) requested_years
+    non-empty -> return neutral; (c) THEN age_days is computed and age_days < -31 -> -12.
+    Both (a) and (b) return before the future-date test, so -12 applies ONLY to queries that
+    have recency wording but NO year. A query "2026" against a page published 2026-12-31
+    (three months in the future relative to 2026-09-05) scores +20 as if perfectly fresh.
+    Scheduled/pre-announced publication dates — routine on gov and vendor calendars — are
+    rewarded rather than flagged. The guard is only reachable from the English/CJK recency
+    lexicon branch, which is the rarest of the three triggers.
+  * NEW: asymmetric magnitudes in the single-year branch — +20 for a match, -60 for a
+    conflict, a 3:1 ratio. Combined with the pass-2 note that -60 equals common.py's
+    text-relevance miss, a page that MATCHES the year but misses the topic nets
+    +20 -60 = -40, while a page that MISSES the year but hits the topic nets
+    -60 +80 = +20. Exact-year match is effectively a higher-priority gate than topical
+    relevance, and the two penalties are numerically interchangeable (-60 means both
+    "wrong year" and "off topic"), so a debugging log cannot tell which gate fired.
+  * NEW: recency and claim_consensus engage ASYMMETRICALLY. Both key on detect_query_intents
+    STATUS_INTENT, but recency ORs in requested_years AND _RECENCY_RE, so "latest price"
+    turns recency scoring ON while assess_status_consensus returns not_applicable. Two
+    scoring layers that look like a pair engage independently, and the extra _RECENCY_RE
+    trigger is documented nowhere as a divergence.
+  * NEW: `_RECENCY_RE` matches \bnow\b and \btoday\b with no negation handling — "not the
+    latest" and "before today" both arm recency scoring. English negation would need a
+    lookbehind the pattern does not have; CJK 不 has the same exposure.
+  * GOOD (re-confirmed): today is an injectable keyword with date.today() default, and it is
+    the ONLY clock in this module — the score table is fully deterministic under a pinned
+    clock, which is why the tests for it are cheap.
+
+# OBSERVED (PASS 4, batch 2) — fetch_policy, prompt_builder, semantic, claim_consensus,
+factory, page_structure (681 lines, all fresh this pass)
+
+FETCH_POLICY.PY
+  * NEW (perf): resolve_fetch_policy pays O(len(domains)) urlparse calls PER URL. url_host()
+    parses once for the URL, then domain_matches() calls url_host() again once per configured
+    domain in BOTH lists, re-parsing constants. 30 URLs x (4 fallback + N force) domains is
+    ~120 redundant urlparse calls per fetch batch. Pre-normalising the domain lists once
+    would remove it. Cosmetic scale, but it sits on the hot path that runs per candidate URL.
+  * NEW: authoritative_host only feeds browser_profile — it never sets force_js. So a gov
+    host gets the JS-retry budget and browser headers but is never force-rendered, while a
+    js_force_domains entry gets BOTH. Two different privileges from two different match
+    kinds, and force_match alone also silently confers browser headers.
+
+PROMPT_BUILDER.PY
+  * NEW: the "No readable web source content was available." fallback is emitted for THREE
+    distinct causes — zero pages passed in, every page empty, and budget exhausted by
+    question_block+footer before any section fitted. Only the first two are truthful; the
+    third tells the answer model there was no content when sources existed and were dropped.
+    (Pass 2 flagged the honesty issue; this is the missing third case.)
+  * NEW: publication_date is read via getattr(page, "publication_date", None) and then
+    .isoformat() is called on it unconditionally when not None. FetchedPage holds a real
+    date, so in-package this is safe — but the getattr signals duck-typing is intended, and a
+    duck-typed page whose publication_date is an ISO string crashes prompt construction with
+    AttributeError instead of degrading. Either annotate the parameter or drop the getattr.
+  * GOOD: budget accounting is sound — remaining_tokens is decremented by the ACTUAL
+    estimate_tokens(section) after building, so a section can never overshoot, and the
+    break fires after the append which is what permits exactly one final section. The
+    preamble exclusion is commented. No new defect here.
+
+SEMANTIC.PY
+  * NEW (threading): _model() loads the model under self._lock, but similarities() calls
+    model.embed_query/embed_documents OUTSIDE it. Two threads can embed concurrently on one
+    shared model object with no synchronisation — safe only if SentenceTransformer's encode
+    path is thread-safe, which the code never asserts.
+  * NEW: a config change to web_search_semantic_model is NOT atomic. _default_scorer is
+    swapped under _default_scorer_lock, but any thread that already held a reference to the
+    OLD scorer keeps the old model forever (per-instance _embeddings is never invalidated).
+    Config changes take effect per-thread opportunistically, not on reload.
+  * NEW: default_semantic_scorer("") is accepted — the empty-string guard lives in
+    build_semantic_scorer (`str(...) or DEFAULT`), not here. A direct caller with "" gets a
+    scorer whose model_name is "" and which will fail on first use.
+
+CLAIM_CONSENSUS.PY
+  * BUG (NEW, integration trap): assess_status_consensus reads page.text via getattr with a
+    "" default, but it accepts ANY object. discovery's RankedSearchResult has url/title/
+    snippet and NO text attribute, so every such page contributes an empty string and zero
+    claims. The function then falls through to state="insufficient", categorical_allowed=False
+    and emits "The sources do not contain a clear current-status claim" — the most
+    conservative outcome, silently, with no error and no log. Passing the wrong type
+    degrades to maximum hedging rather than failing or reading the snippet. Given that
+    discovery produces RankedSearchResult and content_fetcher produces FetchedPage, this is
+    an easy call-site mistake with an invisible symptom.
+  * NEW: the status regexes scan page.text in FULL — the entire article body, not the lead.
+    So an archive page narrating both history and future ("opened 2019, phase 2 planned
+    2028") registers BOTH claims for its own domain and can single-handedly force
+    state="conflicting". Refines the pass-2 "按计划开通" finding: the mechanism is unbounded
+    context, not just phrase overlap.
+  * GOOD (re-confirmed): unicodedata NFKC + casefold before matching, and the authority
+    tier is checked before the independence-tier fallback — correct precedence.
+
+FACTORY.PY
+  * BUG (NEW, real): the timeout getattr defaults are passed straight to requests with NO
+    validation. web_search_api_timeout_seconds=0 and web_search_provider_timeout_seconds=0
+    flow into requests' timeout as 0, and in requests 0 means "wait indefinitely". A single
+    operator typo in config converts every API provider (default 20s) and every HTML
+    provider (default 8s) into unbounded waits. discovery._positive_seconds guards its own
+    reads, but get_search_provider does not — the guard is on the consumer side of the
+    fanout, not on the provider that actually opens the socket. discovery's deadline then
+    fires while a request blocks forever behind it.
+  * NEW: get_search_provider() with ZERO arguments constructs a live BingWebSearch with
+    market=None->"zh-CN", timelimit=None, verify_ssl=True, timeout=8. There is no null
+    path: the factory cannot express "no provider available", and is_search_provider_
+    configured returns True for all three HTML providers by construction. A caller checking
+    "am I configured?" through the factory always gets yes.
+  * NEW: normalize_provider_name is called twice on the happy path (line 53 and again via
+    the provider dispatch), and the error path re-derives raw_name rather than reusing the
+    normalised value — so an unknown-but-aliasable name in the error message shows the
+    normalised form while a typo'd name shows the typo. Inconsistent reporting.
+
+PAGE_STRUCTURE.PY
+  * NEW: coercion is asymmetric between the two tunables. min_content_words is coerced at the
+    call site (max(0, int(...))) while max_link_density is coerced inside _is_listing
+    (max(0.0, min(1.0, float(...)))). One is int-coerced, one is float-clamped, in the same
+    function, with no comment saying which is deliberate.
+  * NEW: the gateway check runs FIRST and only needs <=25 content units plus any gateway
+    phrase anywhere in those units. A 20-word support snippet about a login problem matches
+    登录 / 注册 / 验证码 and is classified gateway, losing categorical content status. The
+    phrase is unscoped within the page text.
+  * NEW: _SENTENCE_SPLIT_RE splits on [.!?。！？\n]+ only. Punctuation-free CJK text (titles,
+    machine-generated strings) yields exactly ONE sentence, so mean_sentence_words equals
+    total_words. This only touches the dead metric (pass-2 finding), so the blast radius is
+    telemetry-only — but it means the dead metric is also unreliable where it could matter.
+
+# STATE — PASS 4
+- Fresh re-read this session: 11 of 25 files (batches 1-2 = 984 lines) plus the batch 1a
+  pair from the earlier PASS 4 tick. Remaining: batches 3-7 (pdf_loader, evidence,
+  date_extractor, api_providers, reputation, duckduckgo, baidu, bing, query_constraints,
+  query_prep, benchmark, discovery, content_fetcher, common = 14 files, ~5557 lines).
+- New findings this tick that pass 2/3 did not have: recency future-date penalty unreachable
+  for year queries; factory timeout=0 -> requests infinite wait; claim_consensus silently
+  degrading to "insufficient" on RankedSearchResult input; prompt_builder's third
+  no-content cause; semantic scorer thread/config races; fetch_policy O(domains) urlparse.
+- 3 cron jobs are live and two of them (2c235158, e7ae8025) are for src/tests, not for this
+  loop. They will interleave with these ticks. 1e49aa75 is this loop's job; no duplicate was
+  created.
+
+# OBSERVED (PASS 4, batch 3) — pdf_loader, evidence, date_extractor, api_providers,
+reputation (934 lines, all fresh this pass)
+
+PDF_LOADER.PY
+  * SEAM INCONSISTENCY (new): PdfPageLoader accepts a max_pages keyword, but
+    pdf_loader_factory(url, page_timeout) takes only two positional args and never forwards
+    it — so the factory always yields MAX_PDF_PAGES=30. A caller wanting a different page
+    cap must construct PdfPageLoader directly, not through the factory. Two construction
+    paths with different surfaces, same as the factory.py positional-config overload.
+  * NEW: metadata carries BOTH "source" and "url" with the identical value (plus
+    fetch_method and pdf_pages). playwright_loader does the same. Three loaders each emit the
+    duplicated pair because different consumers read different keys. Undocumented convention,
+    repeated by hand in every loader.
+  * NEW: _pdf_title() returns the last URL path segment, so an extension-less download
+    endpoint yields a title like "download" or "whitepaper" — plausible-shaped but wrong.
+    The title is never derived from the PDF's own /Title metadata, which pypdf can read.
+  * NEW: extract_pdf_text builds pypdf.PdfReader(BytesIO(content)) with no strict=False and
+    no exception handling, on top of the pass-3 encrypted-PDF finding. pypdf's default strict
+    mode also raises on malformed but readable PDFs, so the unhandled surface is wider than
+    just FileNotDecryptedError.
+  * RETRACT / NARROW my own pass-3 phrasing: the pass said the size cap is "a POST-download
+    check". Precisely: raise_for_status() runs BEFORE the size check, so a 200 with a multi-GB
+    body is fully materialised into response.content and only then rejected. A 413/5xx is
+    rejected earlier but still after full download. Both paths download everything.
+
+EVIDENCE.PY
+  * MECHANISM for the count-intent gap (pass 3 batch 5 flagged it; this is why): evidence_
+    intents = constraints.intents ∩ _EVIDENCE_PATTERNS, so COUNT_INTENT — which has no
+    pattern — is excluded BEFORE scoring. answer_evidence_delta then returns 0 on
+    `if not assessment.intents`. A count question is not scored 0-net, it is not scored at
+    all. The 6-intent upstream set and the 5-pattern downstream set disagree silently.
+  * BUG (new, real): the English price vocabulary is thin. _PRICE_EVIDENCE_RE accepts
+    元/万元/亿元/人民币/美元/港元/欧元/英镑 plus rmb/cny/usd/hkd/eur/gbp and $€£¥￥ — but
+    NOT the English words "yuan", "dollar", "euro", "pound", "yen", "ringgit". An English
+    page saying "10 dollars" produces NO price evidence, so a price query against English
+    sources misses the hard-intent gate and takes the -18 penalty. CJK prices are covered;
+    English prices are not.
+  * NEW (pattern overlap, unmarked): 发布 ("issued/published") appears in BOTH
+    _POLICY_EVIDENCE_RE and _STATUS_EVIDENCE_RE. So one occurrence satisfies two intents.
+    _STATUS_EVIDENCE_RE also includes 运营, which matches 运营公司 ("operating company") in
+    the ordinary Chinese sense — broad for a status gate.
+  * `_COMPARITION` — no: _COMPARISON_EVIDENCE_RE matches 优于/劣于 which require the 于
+    suffix, and 分别 ("respectively") which alone satisfies comparison. 而 remains the
+    always-on single character (pass 3).
+  * DATE regex, two new details: the day group is optional, so "2024/03" (a bare year-month)
+    counts as date evidence; and the separators [-/.] are MIXABLE, so "2024/03-15" matches.
+    The day range 0?[1-9]|[12]\d|3[01] is month-agnostic (Feb 31 matches — pass 3 noted).
+  * MECHANISM CONFIRMED for the quoted-phrase loophole (pass 3): in _window_matches_
+    constraints, quoted_phrases are checked against FULL TEXT (`phrase in full_text`),
+    identifiers require all in the WINDOW, and the entity check is gated by
+    `not constraints.quoted_phrases`. De Morgan'd: any non-empty quoted_phrases returns True
+    once the quote+identifier checks pass. So a quote in the query removes topical anchoring
+    entirely. Now pinned at code level.
+  * PERF (new, the expensive dimension): assess_answer_evidence calls extract_query_
+    constraints(query) on every invocation, and this runs PER CANDIDATE PAGE, not per query.
+    Pass 3 noted the per-call re-extraction; per-page is what makes it material. Query
+    constraints are invariant across a page batch and could be extracted once.
+
+DATE_EXTRACTOR.PY
+  * NEW (real, unreachable branch): _metadata_candidates reads seven keys
+    (published_at, publication_date, datePublished, date_published, article:published_time,
+    date_published, created_at). The three loaders in this package emit metadata keys
+    source/url/title/fetch_method/pdf_pages (pdf_loader) and source/url/title/status_code
+    (playwright_loader) — NONE of the seven. So extract_publication_date's documented
+    metadata-first priority never fires for this package's own loaders; only an external
+    caller passing its own dict reaches it. Dead-by-default in the shipped pipeline.
+  * BUG (sharp, generalises the pass-3 year-boundary finding): the affected paths are
+    exactly the two real-world ones. parsedate_to_datetime returns an AWARE datetime with the
+    original offset, so an RFC2822 "Mon, 1 Jan 2024 00:30:00 +0800" → 2023-12-31, and an ISO
+    "2024-01-01T00:30:00+08:00" does the same. HTTP Date/Last-Modified headers and Chinese
+    newsroom ISO timestamps are precisely the inputs that carry a +0800 offset, and
+    _datetime_to_date converts to UTC rather than to the source's own zone. Naive datetimes
+    are left untouched, so the same instant gives different dates depending on whether an
+    offset is present.
+  * PRECEDENCE (new, concrete): _html_candidates collects in the order meta → JSON-LD →
+    <time>, and the FIRST non-None parse wins. META_DATE_SELECTORS ends with the generic
+    {"name": "date"}. So a page with only a generic `name="date"` meta AND a correct
+    `<time datetime>` returns the crawl/import date the generic meta usually carries. The
+    explicit time element loses to the generic meta tag. Pass 3 suspected this ordering risk;
+    here it is exact.
+  * SEMANTIC CONFLATION (new): _json_ld_date_values (non-modified) reads dateCreated as a
+    publication date. In JSON-LD, dateCreated on an Article is when the metadata record was
+    created, not when the article was published — and the same conflation is in
+    _metadata_candidates, where "created_at" sits in the publication key list. creation
+    timestamps are treated as publication dates in two places.
+  * NEW: `from datetime import UTC` pins a 3.11+ runtime floor, matching the cpython-311
+    __pycache__. Also the module has NO __all__, so everything — including the module-level
+    `BeautifulSoup` guard variable that shadows the imported class — is importable.
+  * NEW: the bare DATE_RE search over the WHOLE string runs whenever BeautifulSoup is None or
+    _looks_like_html is false. For non-HTML content that means the FIRST YYYY-MM-DD anywhere
+    becomes the publication date — in a 30-page extracted PDF that is often a footer
+    copyright line, not a publication date.
+
+API_PROVIDERS.PY
+  * NARROWS my own PASS 4 batch-2 factory finding: the API providers are immune to the
+    timeout=0 infinite-wait bug. _ApiSearchProvider sets `self.timeout = max(1.0,
+    float(timeout))` — a FLOAT floor — so 0 becomes 1.0s, not an unbounded requests wait.
+    The infinite-wait exposure is therefore the 3 HTML providers only (bing/baidu/duckduckgo),
+    where factory.py passes the config value through unvalidated. API: safe. HTML: not.
+  * NEW: _result_limit truncates silently — int(2.5) == 2. A float max_results is rounded
+    down with no warning, same shape as discovery._positive_int.
+  * NEW: Brave hardcodes safesearch="moderate" with no settings knob, so a safety filter is
+    permanently on for that provider. Serper, Tavily and BingApi expose no safety
+    parameter at all. Safety posture is provider-by-provider and unconfigured.
+  * NEW: Serper and Tavily POST (query in JSON body) but Brave and BingApi GET (query in the
+    URL). Query strings land in server-side access logs, proxy logs and proxy auth headers —
+    relevant since the queries here are the sensitive part of the product.
+  * NEW: credential placement is per-provider and inconsistent — Serper X-API-KEY header,
+    Brave X-Subscription-Token header, BingApi Ocp-Apim-Subscription-Key header, Tavily JSON
+    BODY. Body-borne credential remains the outlier (pass 3) and no header auth is sent to
+    Tavily at all.
+  * NEW: BingApiWebSearch accepts endpoint with only `(endpoint or DEFAULT).strip()` — no
+    scheme or URL-shape validation, so a typo'd endpoint surfaces later as requests'
+    InvalidURL rather than at construction.
+  * _contains_cjk is the 㐀–鿿 two-range form, matching query_constraints/query_prep/
+    discovery. common._CJK_RUN_RE with its third range (豈-﫿) remains the lone outlier in
+    the 4-variant inventory. Confirms the split, adds nothing new.
+
+REPUTATION.PY
+  * DOC-vs-CODE (new, sharpest in this batch): the module header says "This replaces
+    hand-written syndication and noise-host lists" — but common.py still defines
+    NOISE_HOSTNAMES and is_noise_url (pass 3 batch 7b documents both, including the bing/
+    baidu asymmetry). Reputation is an ADDITION layered on the hand-written lists, not a
+    replacement. The stated purpose is wrong.
+  * RETENTION (new): updated_at is stored on every record but read by NOTHING. There is no
+    decay, no expiry, no pruning, and all_stats() returns every row ordered by attempts. The
+    table grows forever for every domain ever fetched, persisted in SQLite under chroma_dir
+    with no TTL — the same unbounded-growth shape as the per-query Chroma stores in
+    discovery.settings_for_discovered_urls.
+  * SHARPENS the pass-3 unreachable finding: attempts is its own incremented column, never
+    reconciled with grounded+rejected+unreachable. success_ratio = grounded/attempts, and a
+    domain that was never grounded but was always unreachable (client network down) reaches
+    ratio 0 → the full -10 penalty. Domain quality and client connectivity are conflated, and
+    the result is persisted across restarts. The invariant is held by hand with no assertion.
+  * NEW: record_many() is named as a batch but loops record(), and each record() opens a new
+    connection, commits and closes. 20 outcomes = 20 round trips. Confirmed; the name
+    promises a batch that does not exist.
+  * NEW (narrow-exception variants): build_reputation_store catches only sqlite3.Error.
+    Besides the pass-3 mkdir/OSError finding, `Path(chroma_dir)` on a WRONG-TYPE chroma_dir
+    raises TypeError, also uncaught — while a MISSING chroma_dir (None) degrades cleanly to
+    None. Missing degrades, mis-typed crashes.
+  * GOOD (re-confirmed): the f-string INSERT is safe — {column} comes from a fixed literal
+    map whose keys were validated against a closed set two lines earlier, and the `# noqa:
+    S608` comment states exactly that. The threading.Lock is held across connect+commit+
+    close, so a failed statement rolls back and closes in finally. reputation_delta is
+    bounded to ±10, linear, and 0 below min_samples, matching the docstring's "ranking prior
+    only, never rejects".
+
+# STATE — PASS 4
+- 16 of 25 files read fresh this session (batches 1-3 = 1918 lines).
+- Remaining: duckduckgo (216), baidu (233), bing (251) = 700 lines [batch 4];
+  query_constraints (295), query_prep (468) = 763 [batch 5]; benchmark (490), discovery
+  (623) = 1113 [batch 6]; content_fetcher (822), common (1157) = 1979 [batch 7].
+- This tick also corrected two of my own earlier entries: the API providers are immune to the
+  factory timeout=0 bug (HTML-only), and evidence.py's count-intent gap is explained by the
+  ∩-with-_EVIDENCE_PATTERNS filter, not by a missing pattern key alone.
+- Further narrowed by tests/test_config.py: the LOADER clamps WEB_SEARCH_PROVIDER_TIMEOUT_
+  SECONDS=0 -> 1, so the shipped config path cannot produce 0. The factory timeout=0 exposure
+  is direct Settings construction only (which most test doubles do).
+
+# OBSERVED (PASS 4, batch 4) — duckduckgo (216L), baidu (233L), bing (251L)
+
+DUCKDUCKGO.PY
+  * BUG (new, scheme validation gap in the redirect layer): unwrap_duckduckgo_redirect does
+    `target = parse_qs(parsed.query).get("uddg", [""])[0]; return unquote(target)` with NO
+    scheme check. So a `uddg` value of `javascript:alert(1)` or `data:text/html,...` is
+    returned as a "result URL". Contrast in the same package: bing's decode_bing_target
+    requires `decoded.startswith(("http://", "https://"))` and returns "" otherwise; baidu
+    requires `final_url.startswith(("http://", "https://"))` in resolve_redirect. Two of
+    three redirect unwrappers validate the scheme, the DuckDuckGo one does not.
+  * The gap is bounded only OUTSIDE the redirect layer. search_results() runs through
+    _dedupe_results, which drops non-http(s) urls; search_html_results()'s own
+    `url in seen` check does not validate schemes. But search_html() (line 113-114) calls
+    search_html_results directly and returns result.url values with NO dedupe and NO scheme
+    filter. So the scheme validation is a downstream safety net that one of this class's
+    public methods bypasses entirely.
+  * THREE DIFFERENT BUDGET SCALES across the three HTML providers (new inventory):
+      bing       timeout=self.timeout                     (full budget, no reserve)
+      baidu      provider_budget = max(0.1, timeout - 0.5) (0.5s reserved for redirects)
+      duckduckgo network_budget = max(0.1, min(timeout*0.4, timeout-1.0))
+    Same timeout config, three unrelated derivations, no shared helper, no comment on why
+    the fractions differ. A caller tuning web_search_provider_timeout_seconds cannot predict
+    how much of it each provider actually spends.
+  * DDGS path has NO BUDGET AT ALL (new): search_ddgs_results calls `ddgs.text(query,
+    **search_kwargs)` where search_kwargs contains only region, max_results, timelimit.
+    verify_ssl and timeout are passed to the DDGS CONSTRUCTOR but never to .text(). So the
+    package path has no caller-side deadline at all — exactly the "may fan one query out to
+    many search engines and continue working after the chat deadline" that the comment at
+    line 63-66 warns about. The comment justifies demoting it; it does not bound it. Also
+    verify_ssl is applied inconsistently: client-level only, not per-request.
+  * `except TypeError: ... except TypeError: ... client = DDGS()` — three construction
+    attempts to survive DDGS signature drift, on top of load_ddgs()'s double-import
+    fallback (ddgs -> duckduckgo_search) with aggregated errors. A maintenance treadmill:
+    every ddgs release can break any of five call shapes, and none of them is pinned by a
+    version check.
+  * DEAD STRUCTURE confirmed at line level: `for base_url in ("https://html.duckduckgo.com/html/",)`
+    is a single-element loop carrying a `remaining` check and a `break`. If the loop body
+    never runs (remaining <= 0), last_error is None and the error reads
+    "DuckDuckGo HTML search failed: None" — no diagnostic.
+  * GOOD: network_budget is provably < timeout for all inputs (timeout < 1.666 -> the
+    timeout-1.0 term wins; otherwise the 0.4x term wins), and the inner
+    `timeout=max(0.1, min(self.timeout, remaining))` prevents overshoot. Sound.
+
+BAIDU.PY
+  * GOOD (new mechanism detail): redirect resolution has NO failure double-recording, unlike
+    discovery.py. A failed redirect keeps the original URL, which is then filtered by the
+    final scheme check — so unresolved baidu /link URLs are silently dropped from the result
+    set rather than returned to the ranker as baidu.com URLs. Clean degradation, no log.
+  * STRICTNESS GAP SHARPENED: is_baidu_verification_page runs BEFORE any parsing (line 81),
+    unconditionally. bing.py checks only `if not raw_results and is_bing_verification_page`
+    (line 123). Two consequences:
+      - baidu: a verification page that HAPPENS to contain parseable-looking result markup
+        still raises BaiduVerificationError. Strict.
+      - bing: a page that returns REAL results and also mentions "captcha" somewhere (an
+        article about captcha, a site footer) parses normally and NEVER raises. Lenient.
+    Same concept, opposite failure modes, neither marked. The lenient one is the dangerous
+    direction for captcha detection, because the whole point of raising is to trigger
+    discovery's 300s cooldown + provider fallback.
+  * Both still carry the bare "captcha" substring marker, so any page merely mentioning
+    captcha (a security explainer, 验证码 documentation) trips it. baidu trips it
+    unconditionally; bing only when zero results parsed.
+  * GOOD: the redirect budget is correctly nested — `request_timeout = self.timeout if
+    timeout is None else min(self.timeout, timeout)`, so a shrinking outer budget cannot
+    inflate a per-redirect timeout. And resolve_redirect is a no-op for non-redirect URLs,
+    which is why non-redirect results cost nothing extra.
+  * MINOR: `except (HTTPError, URLError, TimeoutError, OSError)` — HTTPError, URLError and
+    TimeoutError are all OSError subclasses in 3.10+, so OSError alone suffices. Redundant
+    but harmless; bing.py has the analogous binascii.Error/ValueError/OSError overlap.
+
+BING.PY
+  * NEW (likely-inert param): build_bing_search_url emits the key `setlang`, but Bing's
+    documented parameter is `setLang` (capital L). Case-sensitive query params mean the
+    requested setlang may be ignored entirely, with `mkt` alone driving the UI language.
+    The value is correct (`bing_set_language` lowercases the mkt prefix); only the key's
+    case is suspect. Cannot verify Bing's server behaviour offline, but it is a
+    one-character deviation from the documented API and it silently changes what "set
+    the result language" does.
+  * BUG (new, asymmetric info loss): unwrap_bing_redirect returns "" (not the original
+    href) when the hostname is a bing.com variant but no query key yields an http(s)
+    target. The results loop then drops the whole result — including the title and snippet
+    that were successfully extracted. If Bing changes its redirect query shape, results
+    vanish with no error and no log, because "" is indistinguishable from "no redirect".
+  * GOOD: the explicit hostname set {"bing.com","www.bing.com","cn.bing.com"} is the
+    correct form, unlike duckduckgo's endswith. Also `urljoin(BING_BASE_URL, href)` normalises
+    relative hrefs before testing, which baidu does separately via urljoin against
+    BAIDU_BASE_URL — both correct.
+  * CONFIRMED: BING_TIMELIMIT_FILTERS has NO "y"/"year" entry, so a yearly timelimit
+    silently yields no freshness filter at all (bing_timelimit_filter returns None and the
+    `filters` param is omitted). Bing HTML cannot be told to filter by year — this is still
+    the architectural reason recency.py enforces year constraints in-rank.
+  * GOOD: build_bing_search_url uses count=max(1, max_results), so 0 is clamped. Contrast
+    api_providers._result_limit which turns an explicit 0 into 20 — same intent, different
+    semantics, neither documented.
+
+CROSS-PROVIDER (batch 4) — the sharpest finding
+  * CONCRETE MECHANISM for the empty-snippet relevance bypass: both baidu.py (line 231) and
+    bing.py (line 189) have a bare-anchor fallback that appends
+    (href, title, "") — snippet is EMPTY, and when the container selector fails entirely
+    the title is the anchor text only. Every result from that path therefore enters the
+    ranker with an empty snippet. From batch 7b (common.py), text_relevance_delta returns
+    0 EARLY when the normalised text is empty, skipping _year_relevance_delta,
+    _answer_completeness_delta and answer_evidence_delta together. So a provider whose
+    HTML markup drifts past both the container selectors AND the fallback selectors
+    produces results with no text at all, and those results skip every topical, year,
+    completeness and evidence gate — ranking on URL shape + host authority alone.
+    The strongest protections in the package are conditional on the provider returning
+    parseable text. This is the concrete chain behind the batch-1 protocol.py "two methods,
+    no bridge" gap: URL-only results were known to lose ranking quality, and now the HTML
+    parsers can manufacture URL-only results from a live provider too.
+  * GOOD (the parsers are defensively layered, just inconsistently): container selector ->
+    bare-anchor selector -> (baidu/bing only) a third selector list of compound forms.
+    All three read the snippet from a container-level node (baidu:
+    ".c-abstract, [class*='content-right'], .c-span-last"; bing:
+    "div.b_caption p, p.b_lineclamp, .b_caption"), which is what lets the ranker judge
+    topicality rather than URL shape. The docstrings state that intent explicitly.
+  * GOOD: both dedupe by FINAL URL with a `seen` set, both require http(s), and both cap at
+    max_results with an early break. baidu additionally slices candidates to max_results
+    BEFORE paying for redirect resolution, which bounds the network work — a real cost
+    control the bing/ddg paths do not need because their redirects are string decoding.

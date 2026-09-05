@@ -1,0 +1,852 @@
+LOOP STATE (job e7ae8025) — read one src/ folder-unit per tick, every file in it.
+NOTE: this file is separate from .claude/read-progress.txt, which is owned by a
+different loop (src/backend/web_search, cron d3485eb1) — do not edit that one.
+
+REQUEST: /loop 10s "Read each folder of src/tests in this project, each loop reads one folder
+and read each file in the folder"
+
+NOTES:
+- No `src/tests` exists. `tests/` is flat (78 files, no subfolders). `src/` was restructured:
+  the old top-level src/* package dirs are now EMPTY shells containing only __pycache__/ and
+  empty subdirs.
+- Real code: 220 tracked files under src/backend/, src/frontend/, src/utils/, src/config/,
+  src/deployment/, plus src/{__init__.py,_compat.py,errors.py}.
+- Cadence: every 1 minute (requested 10s — cron minimum granularity is 1 minute).
+- Ordered smallest-first so each tick finishes within ~60s. LARGE FOLDERS NEED BATCHING:
+  src/backend/tools (72) is ~2-3x bigger than web_search was; split into ~5 file batches.
+- Skip __pycache__. DONE = every file in that unit was Read this session.
+- A SECOND identical cron job 2c235158 also exists (duplicate of e7ae8025) — fires double.
+
+#   folder-unit            files  status
+1   src/deployment         3      DONE
+2   src/config             3      DONE
+3   src/backend/security   3      DONE
+4   src/utils              4      DONE
+5   src/backend/llm        4      DONE
+6   src/backend/adapters   6      DONE
+7   src/backend/application 7     DONE
+8   src/backend/sessions   7      DONE
+9   src/frontend/api       8      DONE
+10  src/backend/rag        8      DONE
+11  src/backend/core       8      DONE
+12  src/backend/mcp        9      DONE — 3599 lines, 3 batches all read
+                                  b1 telemetry,__init__,secrets,catalog_lifecycle,models (877) DONE
+                                  b2 providers,observability (913) DONE
+                                  b3 catalog,policy DONE
+13  src/frontend/adapters  10     DONE — 1924 lines, all 3 batches read
+                                  b1 __init__,mcp_server/__init__,main,audit,auth,url_policy DONE
+                                  b2 transport,config (530) DONE
+                                  b3 lifecycle,tools (1013) DONE
+14  src/frontend/chat      9      IN PROGRESS — 2379 lines, 4 batches (file count was 11, stale):
+                                  b1 state,__init__,sessions,graph,nodes (174) DONE
+                                  b2 memory_hooks,main (520) DONE
+                                  b3 uploads (597) pending
+                                  b4 api (1088) pending
+15  src/backend/memory     11     pending
+16  src/backend/graph      18     pending
+17  src/backend/web_search 25     pending  (another session is already reading this one)
+18  src/backend/tools      72     pending  (needs ~5 batches)
+19  src/ root files        3      pending  (__init__.py, _compat.py, errors.py)
+
+# FINDINGS SO FAR (for the summary, do not lose)
+- deployment: __init__.py re-exports only .topology, nothing from .release_gate.
+- config: _coerce_setting bare int() for ~30 fields (raw ValueError) vs clean msgs for
+  quota/memory ranges; DEFAULT_URLS look like pasted aliyun browser URLs; __init__.py
+  omits parse_csv_list + DEFAULT_DASHSCOPE_HTTP_BASE_URL from re-export.
+- security: estimate_token_units ceil(len/4) undercharges CJK ~3x; estimated_cost_units
+  is advisory only (cost_units defaults 1); identity spray hits max_tracked_identities.
+- utils: configure_ssl_from_env silently disables TLS globally, no prod guard, no success log;
+  empty-message TimeoutError never retries (marker heuristic); dashscope_call_with_retry
+  retries unconditionally (inconsistent); no upper bound on max_retries anywhere;
+  remove_tree_with_retry hardcodes ".chroma directory" in generic log.
+- llm: AGENT_SYSTEM_PROMPT lists ~35 tools but defaults disable ~30 (static prompt);
+  DeepSeek reuses dashscope_request_timeout/max_retries (no own knobs);
+  RAG_PROMPT bans fake citations but AGENT_SYSTEM_PROMPT does not (sanitize.py is the
+  only defense on the agent path).
+- adapters: runtime.py:227 "32 <= ord(c) != 127" chained-comparison trap keeps non-ASCII
+  (intended <= 126); retry_safe=True retries possibly-non-idempotent 3rd-party calls with no
+  enforcement (double-apply risk); _spawn_process child gets exactly the allowlisted env dict,
+  empty by default with no warning (needs PATH/HOME/PYTHONHOME enumerated). Strongest security
+  posture in repo so far: no allow_private switch, DNS pinning + peer verification, origin-scoped
+  redirect allowlist, stdio/http mutual exclusion.
+- application: session_lifecycle.py:124 `if request.urls:` truthiness on raw value ->
+  urls="   " reports source_mode="explicit" while running default/web sources, and
+  _source_refresh_allowed returns False for "explicit" so that session loses refresh forever;
+  principal defaults to trusted Principal.local_process() (fail-open, models.py:56,78 +
+  chat_service.py:122,134 + session_lifecycle.py:80,312); stream_turn acquires quota lease
+  synchronously but releases only in the asyncgen finally -> abandoned stream leaks a
+  concurrent_calls slot until GC; errors.py:70 SessionLifecycleError.code="RETRIEVER_ERROR"
+  copy-paste; errors.py:8 RagApplicationError inherits Exception not RAGError (sibling
+  ChatApplicationError inherits RAGError) + duplicated __init__/public_detail;
+  rag_service.py:109-110 needs_new_graph == effective_rebuild (identical exprs, dead dup);
+  gc.collect() x2 per rebuild under lock; turn_execution.py:131 checks stop_requested only
+  AFTER graph.invoke returns (late cancellation); turn_execution.py:121 falls back to ALL
+  messages if a turn removed messages, so _last_assistant_answer can return a stale reply.
+- sessions: _safe_isolated_chroma_dir only checks resolved.parent.name == "chat" (never that
+  chat is inside the configured Chroma root) - load-bearing guard vs deleting shared .chroma;
+  ChatSessionRegistry.get() is ownership-free and exported in __all__ (get_owned is the safe
+  one; app layer uses require_session -> get_owned correctly); SQLiteStorage.SCHEMA_VERSION is
+  written but never read back (no migration gate, owner_* add is a one-shot v1->v2 hack);
+  _finish_delete runs outside the lock AFTER popping from memory -> crash mid-cleanup orphans
+  disk metadata + Chroma dir; registry ISOLATED_SOURCE_MODES={"explicit","web_search"} so
+  "defaults" is shared Chroma, "web_search" isolated; storage.py SessionMetadata is frozen but
+  holds mutable list/dict (InMemoryStorage._copy_metadata correctly defends).
+  checkpoint.py: enforce_ownership defaults FALSE -> whole checkpointer ownership layer is
+  opt-in; put()/put_writes() only check that SOME owner is registered for thread_id, no caller
+  identity check (snapshot/restore/delete do verify expected != owner) -> inconsistent
+  authorization; pickle.loads on arbitrary bytes in restore_thread() + on the DB blob at
+  startup (write the SQLite file = RCE, expected for pickle but name it);
+  _persist_state() rewrites the ENTIRE all-threads pickle into one row on every put/put_writes
+  -> O(sessions) write amplification, single giant blob, does not scale past a few sessions
+  (contrast sqlite.py which is per-row); delete_thread persists state then deletes the owner
+  row in a 2nd _connect -> crash in between orphans the owner row.
+- frontend/adapters b2 (mcp_server transport.py + config.py):
+  * transport.py: `_NoSignalUvicornServer.capture_signals()` is a bare `yield` no-op that
+    deliberately strips uvicorn's own signal handling so the app installs its own. The
+    intent is implied only by the name — no comment says uvicorn's handlers are suppressed.
+  * [RETRACTED in b3 — DO NOT RELY ON] transport.py:146-151 (grace deadline never bounds
+    shutdown). On SIGTERM the code
+    computes `shutdown_deadline` but then calls `await runtime.shutdown()` with NO bound;
+    the deadline is applied only to the operation_task wait in the else-branch. If shutdown()
+    blocks on an in-flight request that never ends, the process hangs forever despite
+    MCP_SHUTDOWN_GRACE_SECONDS being validated to <=60s. Grace bounds the operation, not
+    the shutdown.
+  * transport.py:169-170: the finally-block calls `await runtime.shutdown()` a SECOND time
+    whenever lifecycle_status != "closed" — including when the first shutdown in the signal
+    branch RAISED. Shutdown idempotency is load-bearing; verify against lifecycle.py (b3).
+  * transport.py:74-84: dependency_health is guarded by scope `rag:invoke`, NOT an admin
+    scope, while the comment at 91-94 calls it "an explicit admin scope check". Anyone who
+    can invoke tools can read dependency health -> over-grant if
+    restricted_dependency_health() exposes internals. Anonymous-dev branch returns 404 (not
+    401) to hide the surface entirely — good.
+  * transport.py:95 `app.router.routes[0:0] = [...]` prepends operational routes by POSITION,
+    coupling to the SDK's route ordering. An SDK route inserted at index 0 (health/404
+    handler) would silently reorder these.
+  * transport.py:113-122: signal handlers installed unconditionally; `signal.signal` raises
+    ValueError off the main thread, so run_stdio() awaited from a worker thread crashes.
+    SIGINT and SIGTERM share ONE handler, so a 2nd Ctrl+C does not force-quit — a wedged
+    runtime ignores Ctrl+C+C.
+  * transport.py:161 `asyncio.wait_for(asyncio.shield(operation_task))`: on grace expiry the
+    task keeps running (shielded) then is cancelled in the except branch — in-flight MCP
+    requests are hard-killed, never answered. Presumably deliberate but unmarked.
+  * GOOD: liveness/readiness deliberately public via `public_*()` accessors whose names
+    signal the sanitization contract; dependency_health adds WWW-Authenticate on 401 and
+    Cache-Control: no-store on every probe.
+  * config.py — best-behaved config module in the repo: hard caps on every knob (16k
+    question / 100k answer / 256KB body+output / 600s deadline / 60s grace / 64 concurrency
+    / 600 rpm), each with a default 4-10x below the cap. `_coerce` maps type errors back to
+    the ENV VAR NAME ("MCP_PORT must be an integer") — the correct opposite of the bare
+    int() in src/config.py (unit 3).
+  * config.py: `_reject_unknown_configuration` REFUSES (not silently ignores) unknown mcp_*
+    YAML keys and unknown MCP_* env vars, hard-refuses anything containing OUTBOUND/CLIENT,
+    and specifically MCP_BEARER_TOKEN -> strong anti-scope-creep. Called BEFORE the
+    precedence merge, so an env override cannot mask a YAML typo.
+  * config.py transport policy is genuinely strict: anonymous HTTP needs transport=http AND
+    environment=development (checked twice); staging/prod require allowed_hosts AND
+    public_base_url AND https AND no wildcards; stdio rejects ALL HTTP-only settings;
+    MCP_PATH refuses the 3 reserved operational paths + query/fragment/trailing-slash;
+    public_base_url rejects credentials/query/fragment.
+  * config.py BUG (real footgun): the unknown-env check scans GLOBAL os.environ against the
+    25 MCP_* field names with NO opt-out. Any unrelated MCP_-prefixed var — MCP_LOG_LEVEL,
+    MCP_CONFIG, or anything an MCP *client* wrapper exports — hard-fails server startup.
+    Given this server IS an MCP server that clients launch with their own env, prefix
+    collision is live, not hypothetical.
+  * config.py:149 `_validate_text` allows ord>126 and DEL(127) — CJK/control-adjacent chars
+    pass through into MCP_HTTP_PRINCIPAL_ID, while src/backend/adapters/runtime.py:227
+    sanitizes to <=126. Inconsistent allow-lists for the same class of value; DEL chars can
+    reach audit log fields.
+  * config.py: slots=True frozen dataclass, tuple (not list) fields, secrets referenced only
+    by env-var NAME and never stored ("secret values are never stored here") — the module
+    genuinely keeps the secret out of the settings object.
+
+  RACE NOTE: a concurrent rewrite by the other duplicate cron job (2c235158/e7ae8025)
+  truncated this block — the page_structure b2 findings below were lost once and had to be
+  re-appended. Two cron jobs writing one state file is actively destroying findings.
+
+- frontend/adapters b3 (lifecycle.py + tools.py):
+
+  REACTION — the b2 "grace deadline never bounds shutdown" claim is WITHDRAWN.
+  MCPRuntime.shutdown() IS internally bounded: deadline = loop.time()+grace;
+  cleanup_reserve = min(grace, max(0.05, grace/2)); drain_timeout =
+  deadline-now-cleanup_reserve; each resource closes with remaining=max(0,deadline-now).
+  It cannot hang past the grace period. And shutdown() is guarded by _shutdown_lock with
+  an early return on _shutdown_complete, so transport.py's second shutdown() call in its
+  finally block IS a safe no-op in the normal path — it returns the stored
+  _shutdown_drained. So the double-shutdown is idempotent and the "hangs forever" claim
+  was wrong. Credit where due.
+
+  REFINEMENT — the guard is still defeatable: _close_resource RE-RAISES
+  KeyboardInterrupt / SystemExit / asyncio.CancelledError (lifecycle.py:72-73). If one of
+  those fires mid-cleanup, shutdown() exits BEFORE setting _shutdown_complete=True and
+  lifecycle_status="closed"; transport.py's finally then sees != "closed" and RE-RUNS the
+  whole shutdown — begin_draining, drain, and closing every managed resource again.
+  RagServiceHost.aclose survives (it sets _graph=None first, so the second pass closes
+  None and _close_resource returns True on a non-callable), but observability closes
+  twice.
+
+  * BUG (silent leak): the grace deadline is SHARED across resources as a shrinking
+    remainder. If the first resource eats the whole budget, later ones get
+    timeout_seconds=0.0 and _close_resource returns False immediately at
+    `if timeout_seconds <= 0: return False` — so they are marked "degraded" and NEVER
+    CLOSED. Not a hang, but shutdown can silently leave resources open while health
+    reports them as merely "degraded".
+  * BUG (telemetry): restricted_dependency_health reports
+    active_requests=min(gate.active_count, settings.max_concurrency) — CLAMPS DOWN, so an
+    over-admission breach is invisible in health. An overrun looks like a full-but-normal
+    server.
+  * BUG (verify downstream): RagServiceHost._discover_safe_urls is SYNC and calls
+    discover_urls_from_web (network I/O, up to 20s API timeouts) + validate_sync, then is
+    handed to RagApplicationService as dependencies.discover_urls. If the application
+    layer does not offload it to a thread, ONE web discovery blocks the whole event loop —
+    freezing every concurrent MCP request, liveness/readiness probes, AND the shutdown
+    drain timer. With max_concurrency=4 default, one slow search stalls three siblings.
+  * GOOD: RagServiceHost.ask builds a FRESH RagApplicationService per call whose graph_state
+    lambdas read self._graph/self._settings live — atomic promotion, each request sees the
+    latest generation. _promote does two attribute writes with NO lock and no await between
+    them, so it is safe only because the loop is single-threaded; insert a future await
+    there and atomicity silently breaks. _clear() sets _graph=None mid-rebuild, so
+    current_graph() can return None and the app layer must tolerate it.
+  * aclose uses a HARDCODED 5.0s inner timeout while the outer _close_resource bound comes
+    from the shared deadline — nested bounds, outer wins.
+  * LifecycleRequestGate.slot counts concurrency WAITERS as active (adds the task before
+    super().slot() waits on the semaphore), per its docstring. Deliberate: waiters block
+    drain and cancel_active() cancels them; cancel_active() correctly excludes the current
+    task.
+  * LOST-WAKEUP RACE in BASE RequestGate.slot only: the rate timestamp is appended (line
+    206) BEFORE await self._semaphore.acquire() (207), and _active+=1 / _drained.clear()
+    come AFTER it. A request admitted by the rate check but still queued is invisible to
+    wait_for_drain, which returns "drained" and lets shutdown close resources while the
+    request is about to run. LifecycleRequestGate.slot CLOSES this race (it registers the
+    task before delegating) and initialize_runtime always passes the lifecycle gate, so the
+    race is latent — reachable only by constructing RequestGate directly.
+  * initialize_runtime: refuses to start unless settings.enabled; calls
+    validate_single_instance_deployment(environment) — imported LOCALLY inside the function
+    (cycle break, unmarked); calls load_settings() so this process holds TWO settings
+    objects (MCPSettings + RAG Settings) that can drift; replace() clamps web_search_top_k
+    down to max_returned_sources; raises if web_search_enabled is false (good hard
+    dependency); validates configured source_urls via validate_sync before publishing;
+    builds the graph EAGERLY before the server is published, so startup is slow but the
+    atomic-init guarantee holds; `except BaseException` cleans up service_host +
+    observability within the grace deadline then re-raises, so Ctrl+C during init does not
+    leak. redaction_values=(resolved_auth.token,) — the bearer token IS held in memory
+    inside MCPObservability; MCPSettings stores only the env-var NAME, consistent with its
+    own claim.
+  * AUDIT duration_ms=0 is hardcoded in every lifecycle/transport audit event — lifecycle
+    timing is never actually measured. Telemetry gap.
+
+  TOOLS.py
+  * TWO TOOLS ONLY — CANONICAL_TOOL_NAMES=("rag_ask","rag_web_search_answer"), and
+    build_canonical_tools asserts the built names equal that tuple exactly. Minimal public
+    surface with an invariant check to stop drift.
+  * BUG (REDACTION, traced): _REDACTION = \b(api[_ -]?key|authorization|bearer|access[_ -]?
+    token|refresh[_ -]?token)(\s*[:=]\s*|\s+)[^\s,;]+ — the value group consumes exactly ONE
+    whitespace-delimited run after the separator. For the standard header form
+    "Authorization: Bearer tok_abc": group1=authorization, group2=": ", and [^\s,;]+ matches
+    the WORD "Bearer", producing "authorization=[REDACTED] tok_abc" — THE REAL TOKEN
+    SURVIVES. The bare "Bearer tok_abc" form IS redacted correctly (bearer is in group1). So
+    the leak is specific to the most common header spelling. The literal redaction_values
+    replace afterwards catches the actual MCP token, so exposure is limited to OTHER secrets
+    (e.g. API keys) appearing in answer text.
+  * _REDACTION coverage gaps: no password / secret / cookie / session / private_key.
+    "password: hunter2" in a RAG answer passes through unredacted.
+  * SECOND INSTANCE of the chained-comparison trap: _bounded_audit_field does
+    `32 <= ord(character) != 127`, identical in shape to src/backend/adapters/runtime.py:227.
+    Python parses it as (32 <= ord) AND (ord != 127), so it strips ONLY control chars <32
+    and DEL(127) while KEEPING every non-ASCII char. If the intent was printable-ASCII-only
+    this is a bug; if it is DEL+control-only sanitisation it works but the intent is
+    undocumented and the construct is the classic trap. Two copies of the same expression.
+  * BUG (error mislabelling): `except TimeoutError` at line 313 catches EVERY TimeoutError
+    from the whole call — including nested socket/upstream timeouts from inside the RAG
+    service — and converts them all to DEADLINE_EXCEEDED "the request exceeded the server
+    deadline". A dead search provider reports as a server deadline. Same family as the
+    empty-message TimeoutError heuristic in utils.
+  * TELEMETRY FAILURE MASKS TOOL FAILURE: _execute's `finally` calls emit_audit with NO
+    try/except, so a failing audit sink raises over the real tool exception.
+    lifecycle.shutdown DOES wrap emit_audit; SafeMCPServer._handle_call_tool does not either.
+    Only the shutdown path is protected — inconsistent.
+  * _execute ordering is otherwise good: question bounds first, then
+    `async with asyncio.timeout(deadline_seconds)` wraps URL validation AND the gate slot AND
+    service.ask, so the whole call is bounded INCLUDING concurrency waiting. Consequence
+    nobody marks: a request queued behind max_concurrency=4 can hit DEADLINE_EXCEEDED without
+    ever executing — bounded latency is right, but clients see DEADLINE_EXCEEDED for work that
+    never ran.
+  * RequestGate rate limiting: sliding 60s window per principal, evicts expired, raises
+    PublicToolFailure RATE_LIMITED. But the timestamp is appended at ADMISSION, before the
+    semaphore — so requests that then queue for capacity still burn rate budget. A burst of
+    queued-but-not-running requests can exhaust the budget and be RATE_LIMITED for never
+    having run.
+  * _find_public_failure walks __cause__/__context__ with a `seen` id-set — `raise X from Y`
+    chains resolve correctly without looping. Good.
+  * SafeMCPServer._handle_call_tool emits its own audit ONLY when adapter_recorded is False
+    (no double-emit) — good, but its fallback PublicToolFailure generates a FRESH uuid4().hex
+    so for adapter-unrecorded failures the client-visible error ID and the audit ID DIFFER,
+    making server-side correlation impossible. Also current_principal_id() runs AFTER
+    _execute's finally already reset the contextvar, so these audits almost always record
+    principal_id="unknown".
+  * _bounded_result: redact then cap answer at max_answer_chars (adds "answer_truncated"),
+    maps source_note against the closed set {web_search_failed,web_search_no_results,
+    web_search_disabled}, sources capped at max_returned_sources, titles redacted+256,
+    citation_id 64, URLs through _safe_public_url which STRIPS query and fragment (credential
+    hiding, at the cost of citation precision). grounded = bool(sources) AND
+    (not require_web_search OR source_mode=="web_search") — a web_search answer WITH sources
+    still counts as ungrounded if source_mode is wrong. Good.
+  * BUG (minor): _fit_output_bytes appends "output_truncated" then re-truncates warnings to
+    max_warnings, which can drop earlier warnings order-dependently; and the FINAL fallback
+    sets warnings=[] and answer="" — ERASING the "output_truncated" signal it just added. A
+    client receiving an empty answer with zero warnings cannot distinguish "truncated to
+    nothing" from "genuinely empty". Strategy itself is sound: binary-search the answer
+    length (O(log n) serialisations), drop sources one at a time, then last-resort empty.
+  * build_canonical_tools hardcodes max_length=16_000 in the Annotated Field, then OVERWRITES
+    the published schema maxLength from settings (line 487). Because _HARD_MAX_QUESTION_CHARS
+    is also 16_000, settings can never be TIGHTER than the model, so when settings<16k the
+    app-level check supplies the informative message. Benign, but the published schema and the
+    Pydantic model are now two sources of truth.
+  * Extra strictness belt-and-braces: model_config["extra"]="forbid" +
+    model_rebuild(force=True) + parameters["additionalProperties"]=False + _validate_schema_
+    bounds (depth<=8, properties<=32, enums<=64) + a 16_384-byte serialized-schema cap.
+    rag_ask's sources anyOf branch gets maxItems + format:"uri" + maxLength 4096.
+
+- page_structure.py (b2, RE-APPENDED after the concurrent rewrite dropped it):
+  * DEAD METRIC: mean_sentence_words is computed, rounded, stored, used by NO branch.
+  * `unknown` as a MEASURED shape is unreachable: total_words==0 returns PageStructure()
+    (unknown + measured=False); total_words>0 always starts at "article". So
+    is_content_page including "unknown" is dead at measured=True — the real protection is
+    the `not structure.measured` guard, not the "unknown is content" rule.
+  * MEASUREMENT MISMATCH: total_words comes from caller-supplied `text` (often only the
+    extracted article) but anchor_words/len(anchors) come from the FULL soup. The clamp
+    min(1.0, anchor_words/max(total_words, anchor_words or 1)) saturates link_density to 1.0
+    whenever anchors outnumber article words — the normal case when text was extracted. So
+    link_density is uncalibrated in the common path and _is_listing reduces to
+    "anchors_per_100_words>=12 AND anchors>=article words", the latter almost always true.
+  * Decompose list is only script/style/noscript — nav, footer, iframe and header chrome
+    are NOT removed, so their anchors stay and bias link_density up toward "listing".
+  * GOOD: structure_rejection_reason checks `not measured` FIRST -> unmeasurable = abstain,
+    never reject. PDF-extracted text and empty fetches are never killed for
+- frontend/chat b1 (state.py, __init__.py, sessions.py, graph.py, nodes.py — 174 lines):
+  THIS UNIT IS MOSTLY A DEPRECATED SHIM. state.py, sessions.py, graph.py and nodes.py are
+  four thin facades that re-export from src.backend.graph.state / src.backend.sessions /
+  src.backend.graph.builder / src.backend.graph.nodes. __init__.py is a docstring only
+  (9 lines, NO exports). The real chat code is main.py, memory_hooks.py, uploads.py,
+  api.py — 2200 of the 2379 lines.
+  * All four facades call warn_deprecated_import(...) at MODULE IMPORT TIME. Under
+    Python defaults DeprecationWarning is NOT shown unless raised in __main__ or with
+    -W all, so a user who imports these paths normally may never see the notice. The
+    restructure's guidance channel is effectively silent.
+  * PUBLIC-EXPORT-OF-PRIVATE: sessions.py __all__ includes `_settings_for_session`;
+    graph.py __all__ includes `_build_memory_saver`; nodes.py __all__ includes
+    `_build_extractive_answer`, `_format_history`, `_invoke_with_retry`,
+    `_latest_user_index`, `_new_chat_model`, `_question_from_state`. 8 underscore-prefixed
+    names promoted to public API by restructure. Same class of leak as
+    ChatSessionRegistry.get() in sessions (unit 8). Encapsulation is nominal only.
+  * The chat graph's ACTUAL behavioural delta over the shared RAG graph is small and
+    worth naming: nodes.py injects `chat_question_resolver` as the question extractor and
+    sets `update_current_question=True` on rewrite_factory. Everything else is a pass-through
+    to src.backend.graph.nodes(.common). So "chat" == "RAG with history question-resolution
+    and rewrite-in-place".
+  * nodes.py re-exports CONDENSE_PROMPT and RAG_PROMPT from src.backend.llm.prompts through
+    the graph-node facade — prompts leaking out of a graph module.
+  * graph.py build_chat_graph has an INCONSISTENT guard style for the same conceptual gate:
+    `if checkpointer is not None` and `if session_root is not None` use identity, but
+    `if thread_id:` uses TRUTHINESS. So thread_id="" is silently dropped (intended, per the
+    docstring) but thread_id=" " (whitespace) WOULD be passed through and reach the builder
+    as a "confined" session. Minor, but the two styles side by side invite copy-paste bugs.
+  * build_chat_graph docstring states graphs are rebuilt per source set, consistent with the
+    unit-8 finding that "explicit"/"web_search" source modes get isolated Chroma dirs — so
+    per-session graph rebuilds are load-bearing, not optional.
+  * GOOD: every facade's docstring correctly names the module it moved to, and the
+    `build_kwargs` assembly is clean (no dead keys, no positional guessing).
+- frontend/chat b2 (memory_hooks.py 227 + main.py 293 = 520 lines):
+
+  MEMORY_HOOKS
+  * GOOD: build_extraction_runtime is triple-gated (memory_enabled AND
+    memory_extraction_enabled AND checkpointer is not None) and returns None -> fully inert
+    when disabled. Both request hooks catch Exception with noqa BLE001 and log only, so a
+    failing memory subsystem can never break the request path.
+  * GOOD: on_session_start documents WHY it reads PERSISTED metadata rather than the live
+    registry — "the failure must leave the previous session eligible for retry". A reasoning
+    comment on a non-obvious ordering choice, exactly where it belongs.
+  * BUG (accessor): SessionWatermarkStore calls self._registry.get(thread_id, touch=False)
+    — the OWNERSHIP-FREE accessor that unit 8 flagged as the unsafe one (get_owned is the
+    safe one). It then WRITES: it mutates session.extraction_watermark and rewrites the
+    metadata config. So the watermark store reads and writes ANY thread's session state with
+    no ownership verification — a privilege path the rest of the app avoids via
+    require_session -> get_owned.
+  * BUG (silent abandonment): if the most-recently-accessed eligible session is OLDER than
+    memory_extraction_max_session_age_hours, on_session_start sets its watermark to `turns`
+    — i.e. marks it fully extracted — and returns. Over-age sessions are permanently
+    skipped and never retried. Deliberate age cap, but it silently discards extraction
+    rather than deferring, and nothing logs that a session was abandoned.
+  * CONTRACT MISMATCH: build_extraction_runtime happily builds a runtime with registry but
+    storage=None (SessionWatermarkStore(registry, None) -> no persistence at all), yet
+    on_session_start returns early when storage is None. So a registry-only runtime
+    silently never performs session-start extraction, and its watermarks are lost on
+    restart. The builder does not warn about the half-configured state.
+  * O(all sessions) on EVERY session start: on_session_start sets registry.list_ids() then
+    iterates storage.list_metadata() and calls extractor.turn_count() per candidate. As
+    session count grows this runs on the request path. Pairs with sessions._persist_state's
+    O(sessions) write amplification — the registry layer scales poorly in both directions.
+  * _is_valid_watermark correctly excludes bool (`isinstance(raw, bool)`), which matters
+    because bool is an int subclass in Python — a stored True would otherwise coerce to 1.
+    The validity check is diagnostic only (coerce_watermark is called first and the value
+    is returned regardless), so a bad watermark degrades rather than failing.
+  * after_turn uses extractor.should_extract(thread_id) as the boundary check and submits to
+    a bounded ExtractionScheduler(max_concurrency=..., runner=extractor.run).
+  * _runtime_watermark falls back to constructing a SessionWatermarkStore behind an
+    `assert runtime.registry is not None` — asserts are stripped under -O, after which
+    SessionWatermarkStore(None, ...) would TypeError. Both are caught by the hook's
+    except Exception, so it degrades to a warning either way.
+
+  MAIN.PY
+  * BUG (expensive steady state): the CLI REPL re-runs discover_urls_from_web on EVERY
+    message (line 184-200) when web search is on and URLs are not explicit, and whenever
+    the found URLs differ it calls build_chat_graph(..., rebuild_vectorstore=True) —
+    REBUILDING AND RE-INDEXING THE VECTOR STORE PER TURN. Combined with the application-
+    layer finding that a rebuild runs gc.collect() twice under the lock, every differently-
+    worded question can trigger a full re-index. The lightweight in-graph path
+    (graph_owned_web) exists precisely to avoid this; the CLI's default is the expensive
+    legacy mode.
+  * BUG (UX): the outer `except KeyboardInterrupt` wraps BOTH input() and executor.stream.
+    So Ctrl+C during a slow turn exits the whole REPL rather than cancelling the turn and
+    returning to the prompt. Ctrl+C is overloaded as both "cancel turn" and "quit".
+  * BUG (broken flag): _serve passes the app OBJECT to uvicorn.run(..., reload=args.reload).
+    uvicorn's reload expects an importable module path; passing a live ASGI app object with
+    reload=True is unsupported and will error or silently ignore reload. `chat serve --reload`
+    is likely broken.
+  * IN-MEMORY-ONLY EXTRACTION: build_extraction_runtime(settings, checkpointer=checkpointer)
+    is called with NO registry and NO storage, so the CLI gets InMemoryWatermarkStore and
+    its watermarks are lost on every restart; and on_session_start never fires (it requires
+    both). Only after_turn extraction runs in the CLI.
+  * THREAD: thread_id = "cli" is hardcoded for the whole REPL — one checkpoint thread for
+    every turn, never rotated. Combined with on_session_start skipping the current thread,
+    the CLI cannot trigger extraction of its own session.
+  * TYPO / LEAKED BRANDING: parser description says "Run the only Subcribers chat agent."
+    ("Subcribers" misspelled) while _serve prints "Starting Subscribers chat server". Two
+    spellings of what looks like a product name, one of them a typo, in the same module.
+  * parse_args bakes int(os.getenv("CHAT_API_PORT", "8001")) into the default at PARSER
+    BUILD time — a non-integer env value raises at parse time with a bare traceback.
+  * DEAD CODE: subparsers are required=True, so args.mode is always "serve" or "chat"; the
+    `else: print("Unknown mode..."); sys.exit(2)` branch in main() is unreachable.
+  * GOOD: secret_fingerprint() is printed, never the raw DashScope key.
+  * GOOD: the CLI passes build_turn_messages(...) — the SAME turn builder as the FastAPI
+    path, with a comment saying so — so memory selection/placement/limits are identical
+    between CLI and web.
+  * GOOD: extraction is skipped on failed turns (`if not turn_failed`), after_turn is
+    wrapped in with suppress(Exception) as belt-and-braces on top of its own guard, and the
+    scheduler is shut down at exit. Streamed output has a fallback to DoneEvent.answer when
+    no token chunks arrived, and "(no reply produced)" when there is no answer at all.
+  * GOOD: --urls accepts comma-separated explicit sources and skips web search; the
+    "graph_owned_web" branch clears source_urls so the graph does the searching; the
+    seed-question branch sets web_search_enabled=False on the settings handed to
+    settings_for_discovered_urls so discovered URLs become configured sources. "not being an
+    article".
+
+# ============================================================
+# UNIT: tests/  (78 .py files, 27129 lines, FLAT — no subfolders)
+# ============================================================
+REQUEST: /loop "Read each folder of src/tests in this project, each loop reads one folder
+and read each file in the folder" — delivered every minute by DUPLICATE cron jobs 2c235158
+and e7ae8025 (both fire the same prompt; CronList shows 2 src/tests jobs + 1 web_search job
+1e49aa75). RE-VERIFIED THIS TICK: `ls src/tests` -> No such file or directory; `tests/` has
+only __pycache__ as a subdirectory, 78 .py files. So one folder = the whole folder; batched
+alphabetically at ~2500 lines per tick so each tick finishes within the 60s cadence.
+Cadence note: this file is also written by the whole-project sweep; APPEND ONLY.
+
+  batch  files (alphabetical)                                        lines  status
+  1      conftest, agent_tools, amap, amap_proxy, answer_sanitizer,   2521   DONE
+         api_dependencies, bounded_search_queries,
+         chat_application_services, chat_static_amap
+  2      chat_turn_inputs, chat_upload, code_edit, compat,            ~1680  pending
+         conditional_expansion_nodes, config, csv_edit,
+         deployment_topology, excel_create
+  3      excel_edit .. json_edit                                      ~2340  pending
+  4      lightweight_graph_web_answer .. memory_primitives            ~3600  pending
+  5      memory_recall_note .. provider_publication                   ~2900  pending
+  6      rag_application_service .. search_api_providers              ~2750  pending
+  7      sessions .. text_edit                                        ~3500  pending
+  8      tool_catalog_policy .. word_edit, zip_file                   ~2940  pending
+
+  conftest.py — 3 fixtures only. `mock_settings` builds Settings(dashscope_api_key=
+  "test-key", chroma_dir=tmp_path/"chroma", source_urls=[1 url], dashscope_max_retries=1);
+  `isolated_settings` is a factory wrapping dataclasses.replace(mock_settings, **kw);
+  `ai_message` is a content-argued factory. NO vectorstore fixture, so tests never touch
+  real Chroma. Note: test_agent_tools.py ignores these and constructs its own
+  Settings(dashscope_api_key="test-key") inline — two sources of test settings.
+
+  test_agent_tools.py (625L) — the `requester=` injection seam is used consistently for
+  every network tool (weather, currency, wikipedia, directions, map), which is why these
+  tests are fast and offline. GOOD: `test_wikipedia_tool_searches_and_fetches_summary_with_
+  user_agent` asserts the exact User-Agent round-trip, `test_directions_tool_accepts_raw_
+  coordinates_and_converts_wgs84_before_routing` asserts the coordinate-convert endpoint
+  was hit exactly twice AND that the converted coords were the ones routed, and
+  `test_map_tool_geocodes_place_and_returns_amap_link` asserts "121" not in result — a
+  negative assertion proving Shanghai coords don't leak into a Paris lookup.
+  * TEST-QUALITY: the numeric assertions are substring matches on markdown tables and are
+    therefore satisfiable by the wrong value. `assert "-2" in result` (determinant),
+    `assert "6" in result` (evaluate sqrt(16)+2 — would also pass "= 16"),
+    `assert "= 6" in gcd` and `assert "= 12" in lcm` (the lcm assertion can be satisfied by
+    the gcd's own output), `assert "ff" in result.lower()` (would pass "eff"), and
+    `assert "-2" in result and "2" in result` (solve) which almost any string containing a
+    2 satisfies. No test parses the tool output; the markdown contract is asserted by
+    fragment. Fine as a smoke contract, but a silent formatting change to the number
+    column would pass.
+  * MINOR: the comment "Two AMap POI geocoding calls + one routing call per invocation"
+    justifies `len(calls) == 6`, which is 3 per invocation x 2 invocations — the comment
+    states the per-invocation figure, not the asserted total. Reads as an undercount.
+
+  test_amap.py (299L) — the strongest defensive tests in this batch, all aimed at AMap:
+  * GOOD: test_amap_request_json_does_not_allow_params_to_override_credentials — a caller
+    passing params={"key": "caller-key", "output": "xml"} loses both; the configured key
+    wins and output is forced back to "json". Param injection is defended on credentials
+    AND on response format, which is the one that would hand the caller an XML payload.
+  * GOOD: safe_amap_error is tested against three secret shapes in one string — a query
+    param (key=secret), a JSON dict ({'key': 'dict-secret'}) and an env-var form
+    (AMAP_WEB_SERVICE_KEY=env-secret) — and validate_amap_envelope is tested on an info
+    field containing "key=secret-value" with the assertions "secret-value" not in message
+    and "key=***" in message. Redaction is breadth-tested, not just present.
+  * GOOD: test_route_parser_rejects_nonfinite_and_negative_metrics_and_reads_v4_step_cost
+    feeds distance="nan", duration="-1" and step distance="inf" and asserts None — payload
+    metrics are validated for finiteness and sign, and the v4 `cost.duration` nested form
+    is read. test_numeric_zero_is_a_successful_v4_envelope pins that int 0 (not just "0")
+    is success, which is exactly the truthiness trap a reviewer would write.
+  * GOOD: parse_lnglat/parse_latlon are asserted in BOTH directions, including that each
+    REJECTS the swapped order (returns None). The lng/lat swap bug is guarded both ways.
+  * GOOD: normalize_travel_mode("transit") and ("metro") both return None rather than
+    raising — the router deliberately drops transit/metro, which matters on a Chinese-
+    metro-focused stack.
+  * NOTE: the test imports parse_lnglat, parse_latlon, safe_amap_error etc. from
+    src.backend.tools._amap — a PRIVATE module. Tests pin the internal split; fine for
+    coverage, but it means renaming _amap is a test-wide edit.
+  * parse_polyline(max_points=3) over 10 points yields indices 0, 4, 9 — round(i*(n-1)/
+    (max-1)) sampling, NOT a stride. The test pins the exact endpoints-and-middle shape,
+    so the sampling is not uniform and the test documents that.
+
+  test_amap_proxy.py (240L) — SSRF hardening, and it is thorough:
+  * The path allowlist rejects, in one parametrisation: an absolute https URL, "..", a
+    double slash, a PERCENT-ENCODED "..", a percent-encoded "v3" (so encoding cannot
+    bypass the version check), a LEADING SPACE, an unsupported version (v2, v5), and
+    v3/place/text — which IS a real AMap endpoint the backend tools use. The browser proxy
+    allowlist is deliberately narrower than the backend's needs, and the test asserts it.
+  * GOOD: test_amap_proxy_uses_fixed_rest_host_and_overrides_caller_jscode asserts the
+    fixed host, the jscode override, and `allow_redirects is False`. Redirect-following is
+    explicitly off, which is the other half of an SSRF defence.
+  * GOOD: v4/map/styles routes to a DIFFERENT host (webapi.amap.com) than v3
+    (restapi.amap.com) — the host switch is path-dependent and asserted.
+  * GOOD: test_amap_proxy_bounds_discarded_jscode_values_too — the value of the DISCARDED
+    jscode param is size-bounded too. Unbounded discarded input is a classic probing
+    vector; testing it is a sign the author thought about it. Also bounds CJK query size
+    by ENCODED bytes (1000 CJK chars), not character count.
+  * GOOD: test_amap_proxy_does_not_reflect_active_image_content_types — image/svg+xml is
+    rewritten to application/octet-stream. SVG carries script, so this is an
+    SVG-XML-injection defence on a proxied asset, and it asserts response.closed too.
+  * GOOD: test_amap_proxy_wraps_stream_read_failures_and_ignores_close_failures — 502,
+    "connection reset" NOT in the message (no upstream text reflection), and a raising
+    close() is swallowed. Also asserts the reader requests chunk_size > 0.
+  * GOOD: the oversized-response test streams two chunks of just over half the max, so it
+    proves CUMULATIVE bounding, not per-chunk.
+
+  test_answer_sanitizer.py (187L) — ONE output defect defended at FOUR layers, which is
+  the most notable thing in this batch:
+  1. unit: strip_citation_artifacts on whole strings;
+  2. streaming: CitationArtifactFilter.feed() on a marker SPLIT ACROSS CHUNKS (6 chunks);
+  3. transport: the same split marker through the real GraphExecutor.stream(
+     stream_tokens=True), collected from token events;
+  4. node: web_answer itself, with sys.modules monkeypatched to inject fake
+     content_fetcher/prompt_builder modules, asserting the marker is gone from the
+     grounded answer; plus a prompt test asserting build_web_search_prompt says "full URL
+     in parentheses" and "never invent bracketed reference".
+  _MARKER = 【199†L91-L126】 — DeepSeek-R1's native citation format. This closes the loop
+  on the prompt_builder.py finding from web_search PASS 4 batch 2: the prompt bans exactly
+  【199†L91-L126】, [1] and [oaicite:0], and the sanitizer removes those three.
+  * The sanitizer covers MORE shapes than the prompt lists: "citeturn3search2" is stripped
+    (a DeepSeek search-tool artifact) but does not appear anywhere in prompt_builder's ban
+    list. Asymmetric: the generator is told not to emit 3 shapes, the sanitizer removes 4.
+  * DELIBERATE ASYMMETRY, worth recording: the prompt tells the model never to invent [1],
+    yet strip_citation_artifacts PRESERVES "note [1] for 2026 [sic]" unchanged. [1] is
+    banned at generation but tolerated in output — keeping a legitimate bracket is judged
+    safer than stripping one. Reasonable, but undocumented in the prompt itself.
+  * GOOD: test_cleanup_removes_the_space_a_marker_leaves_before_punctuation handles
+    "final 【...】." -> "final." — the leftover space before punctuation, which is the
+    artifact that actually ships in a user-visible answer.
+  * GOOD: test_streaming_filter_flushes_an_unterminated_marker_prefix RELEASES an
+    unterminated prefix instead of swallowing it, with an explicit comment that dropping
+    text the model really produced is worse than showing a stray marker. A stated
+    tradeoff, not an accident.
+  * NOTE: the node test monkeypatches sys.modules for content_fetcher and prompt_builder
+    rather than importing them. Same "import cost / optional dep" problem solved two
+    different ways across the suite (sys.modules here, private-module imports in
+    test_amap.py, stubbing described in read-progress.txt PASS 3b).
+
+  test_api_dependencies.py (300L) — FastAPI app-state and chat API contracts:
+  * GOOD: test_state_initializers_preserve_existing_lock_and_registry — a second
+    initialize_chat_app_state swaps settings but KEEPS the existing registry and lock, so
+    a duplicate startup cannot double the session registry. Idempotency is tested.
+  * SUBTLE THREE-WAY DISTINCTION, correctly pinned: in
+    test_chat_web_search_ignores_request_toggle_and_refreshes_turns, when settings say
+    web_search_enabled=True the request's "web_search": False is IGNORED (the test name
+    says so). The search call then receives the ORIGINAL base source_urls
+    (["https://chat-default.test"]) while the graph is rebuilt with the DISCOVERED urls,
+    rebuild_vectorstore=True, and web_search_enabled=False. Three different settings views
+    for one turn: search gets base URLs, the graph gets discovered URLs with search off,
+    and the toggle cannot override the server.
+  * GOOD: test_chat_web_search_lightweight_is_graph_owned_and_built_once makes the fake
+    discover_urls_from_web RAISE with the message "lightweight chat search must be owned by
+    the graph", and asserts searches == [] and heavy_built == [] — a negative test that the
+    API layer never searches in lightweight mode. Better than asserting a value.
+  * GOOD: test_chat_graph_factory_receives_session_word_edit_scope pins the per-thread
+    sandbox as file_read_root / "chat_uploads" / thread_id.
+  * GOOD: test_history_uses_existing_global_api_key_guard pins 401 without / 200 with the
+    Bearer key on /chat/{id}/history.
+
+  test_bounded_search_queries.py (270L) — TESTS THE MODULES READ IN web_search PASS 4,
+  so it confirms/refutes those findings directly:
+  * CONFIRMS the prompt_builder citation ban end-to-end (see test_answer_sanitizer above).
+  * CONFIRMS the asymmetric language guard: test_search_queries_keeps_original_mandarin_
+    and_rejects_english_translation feeds two English translations of a Chinese question
+    and asserts BOTH are rejected in favour of the original with 对比 appended. The
+    validate_query_candidate zh->en rejection is real and live. The test covers only one
+    direction, matching the code's asymmetry.
+  * Side effect worth noting: rejecting two different translations yields
+    ["DeepSeek V3.2 和 V3.1 有什么区别 对比", "DeepSeek V3.2 和 V3.1 有什么区别 对比 官方"]
+    — two near-duplicates of the SAME Chinese string, differing only by 官方, and dedupe
+    does not collapse them. Every rejected translation becomes a redundant variant.
+  * CONFIRMS the elif-chain hint behaviour I flagged in query_prep (web_search PASS 4
+    batch 5 notes): test_search_queries_plans_mandarin_variants_within_global_limit pins the
+    exact output, and the price query "小米 SU7 Ultra 2026 款价格是多少" gets only ONE
+    variant (+"官方"), while the count query gets two (+"运营线路总数", +"官方 数据") and
+    the policy query gets two (+"发布时间", +"官方 原文 site:gov.cn"). So exactly one intent
+    hint per query, and a price question never gets an official-source site:gov.cn query.
+    The test treats this as correct, so it is intentional, not a gap.
+  * GOOD: WEB_SEARCH_MAX_QUERIES is imported and used as the clamp in three tests —
+    dedupe+clamp on 8 queries with one duplicate, the per-query fan-out variant limit, and
+    the expansion retry clamped to WEB_SEARCH_MAX_QUERIES - 1 (one slot reserved).
+  * GOOD: test_lightweight_graph_searches_each_decomposed_query asserts the ORIGINAL agent
+    question IS searched ("Compare all three policies") plus all 3 sub-questions, and that
+    the agent's own tool-call query is NOT ("unused original agent query" not in calls).
+  * GOOD: test_lightweight_graph_clamps_expanded_search_retry asserts answer_calls == 2,
+    that the clamped expansion tail is never searched, and that exactly ONE tool message
+    survives in the transcript.
+  * NOTE: RankedSearchResult is imported from protocol and used with relevance_score=41,
+    which is BELOW the 45 default gate — sub-gate scores round-trip through
+    web_search_result_metadata untouched. Also note the test asserts quality_score=106,
+    which matches the arithmetic in common.py (60 base + 24 authority + 18 constraint).
+
+  test_chat_static_amap.py (155L) — NO JAVASCRIPT IS EXECUTED. Every one of the ~90
+  assertions is a SUBSTRING PRESENCE check against src/frontend/chat/static/script.js and
+  index.html, e.g. assert "mathTokens.push(escapeHtml(m));" in script and
+  assert "mathTokens.push(m);" not in script.
+  * The sharpest issue: presence-only assertions cannot distinguish real behaviour from a
+    literal sitting in a comment, a dead branch, or a string. assert "document.createElement"
+    in script and assert "window._AMapSecurityConfig" in script would pass on junk. There is
+    no JS test runner in the repo, so the entire frontend is verified by grep.
+  * GOOD in intent: test_math_tokens_restore_escaped_text_not_raw_content is a regression
+    guard for an XSS fix, encoded as a substring pair (the escaped form must be present and
+    the raw form absent). test_markdown_links_are_protected_before_html_escaping asserts
+    ORDER by index() — that linkTokens is initialised before escapeHtml is applied — and
+    test_streaming_defers_markdown_katex_and_artifact_rendering_until_final slices the source
+    between two literals to prove renderMarkdownPreview/renderMath do not appear in the
+    streamed renderer. Ordering assertions by source position are a real technique here.
+  * FRAGILE: script.split('eventType === "token"', maxsplit=1)[1] and
+    script.index("const linkTokens = [];") raise IndexError instead of an assertion
+    message if the JS is renamed or reformatted. A refactor breaks these with a traceback
+    pointing at the split, not at the contract.
+  * GOOD: test_index_has_responsive_amap_styles_and_bumped_script_cache_version asserts
+    '<script src="/static/script.js?v=17"></script>' — a literal cache-buster, so every JS
+    edit must bump ?v= by hand or the test fails. Enforced discipline with a manual step.
+  * GOOD: assert "AMAP_WEB_SERVICE_KEY" not in script and "AMAP_API_KEY" not in script —
+    the server-side key must never appear in the shipped frontend, asserted by absence.
+  * GOOD: test_script_contains_no_literal_nul_bytes asserts b"\x00" is absent — a guard
+    against a build artefact that would break JS parsing in the browser.
+  * GOOD: test_maps_are_destroyed_on_transcript_clear_new_chat_and_pagehide asserts map
+    instances are destroyed in three places, with a liveMapInstances Set — a real
+    resource-leak defence.
+
+  SUITE-WIDE PATTERNS (batch 1)
+  * Two import-workaround patterns for the same problem: sys.modules monkeypatching
+    (test_answer_sanitizer) and direct private-module imports (test_amap.py -> _amap).
+  * The `requester=` / `discovery=` / `ticker_factory=` / `monkeypatch.setattr` injection
+    seams are used consistently, so network and LLM tests are offline and deterministic.
+    This is the single biggest reason the 78-file suite is runnable at all.
+  * Settings(dashscope_api_key="test-key") is constructed inline in test_agent_tools and
+    test_chat_static_amap ignores conftest entirely; other files use isolated_settings.
+    Three fixture conventions coexist.
+  * The conftest `ai_message` fixture is not used by any of these 9 files — possibly dead,
+    but 69 files remain unread, so it is not claimed as such.
+
+# STATE — tests/
+- Batch 1 of 8 DONE (9 of 78 files, 2521 of 27129 lines).
+- Next: batch 2 = chat_turn_inputs, chat_upload, code_edit, compat,
+  conditional_expansion_nodes, config, csv_edit, deployment_topology, excel_create.
+- 2 duplicate src/tests cron jobs keep firing this prompt every minute; the web_search
+  loop (1e49aa75) is still mid-PASS-4 with 14 files left. Both loops share this file.
+
+  batch 2 DONE (2026-09-05): chat_turn_inputs (82), chat_upload (712), code_edit (244),
+  compat (27), conditional_expansion_nodes (801), config (986), csv_edit (386) = 2525 lines.
+  16 of 78 files, 5046 of 27129 lines read.
+
+  test_chat_turn_inputs.py (82L) — checkpoint-hygiene, the sharpest thing in this batch:
+  * test_lightweight_web_turn_resets_checkpointed_search_state pins a HAND-KEPT LIST of 9
+    state keys reset per turn (source_urls, current_question, sub_questions, expanded_
+    queries, search_queries, web_search_results, web_search_result_metadata,
+    web_answer_attempts, web_answer_no_readable_content, expansion_attempted). A LangGraph
+    checkpoint accumulates across turns, so any NEW web-search state key added to the graph
+    must be added here too or it leaks from turn N into turn N+1. Nothing enforces that —
+    there is no test asserting "every web-search state key appears in the reset list", only
+    a test asserting the 9 keys that exist today. Add a 10th key and the regression is
+    silent. This is the most likely future defect in the suite.
+  * test_graph_inputs_omit_source_urls_when_session_has_none asserts the keys are OMITTED
+    (not set to []), documented as "no empty override". Consequence: an empty session cannot
+    clear a stale checkpoint value. Deliberate, but it means the reset only fires when a
+    session HAS urls.
+
+  test_chat_upload.py (712L) — the heaviest file; upload sandbox + artifact isolation:
+  * GOOD: test_upload_text_file_then_tool_reads_it builds a REAL build_text_file_tool and
+    reads back the relative path the API returned, proving the upload lands inside the
+    file-read root. Tests the seam, not a mock of the seam.
+  * GOOD: artifact download isolation is tested three ways — a SECOND thread gets 404 for
+    the first thread's filename, /chat/unknown/files/... is 404, and a missing filename is
+    404. Cross-thread download access is covered, not just asserted.
+  * GOOD: test_upload_injects_context_into_next_turn asserts the injected SystemMessage does
+    NOT appear in /history (no "system" role). The LLM-facing context note is internal only.
+  * GOOD: test_upload_context_not_repeated_on_later_turns (exactly 1 SystemMessage) plus
+    test_delete_upload_re_announces_remaining (a delete invalidates the announced set and a
+    fresh note listing only the survivors is emitted) — a correct announced-set cache.
+  * GOOD: test_upload_edit_text_artifact_download_and_cleanup asserts
+    download.content == b"alpha\r\ngamma\r\n" — exact byte preservation of CRLF through an
+    edit. Copy-on-edit is verified elsewhere by re-reading the untouched original.
+  * GOOD: pytest.importorskip("docx"/"openpyxl"/"pptx") keeps the optional-dep tests
+    graceful; _docx_bytes() builds a minimal docx zip in-test instead of a fixture file.
+  * NOTE (coupling): test_upload_powerpoint_requires_editor_flag rejects a pptx upload when
+    powerpoint_edit_enabled is False ("powerpoint uploads are disabled"). The UPLOAD
+    allowlist is gated by the EDITOR flag, so a user who wants to inspect a PPTX but not
+    edit one cannot upload it. Reasonable attack-surface reduction, but the coupling is not
+    documented.
+  * NOTE: rejected uploads return HTTP 200 with an errors[] body, not 4xx. Consistent, but
+    status-code monitoring will not see a rejected upload.
+
+  test_code_edit.py (244L) — 16 languages through ONE parameterised table:
+  * LANGUAGES covers r, rust, go, sql, php, ruby, latex, prolog, haskell, lua, julia,
+    shell, matlab, groovy, swift, log. Two parameterised tests -> 32 cases for the cost of
+    writing 2. This is the right way to keep 16 language editors honest, and it is exactly
+    the per-language-module discipline the project follows.
+  * GOOD: test_registration_requires_flags_scope_and_exposes_names asserts the builder
+    returns [] — not an exception — for three distinct conditions: flag disabled,
+    session_root is None, thread_id is "". A missing scope silently removes the tools from
+    the model's toolset rather than erroring.
+  * GOOD: test_cross_session_and_traversal_access_are_denied covers BOTH the relative form
+    ("../thread-b/secret.sql") and the ABSOLUTE path to another session, asserts both
+    "outside this chat session" and "Could not edit SQL file" in the reply, and asserts the
+    sibling secret.edited.sql was never created. Path traversal is tested in both shapes.
+  * GOOD: test_jsonl_create_and_edit_reject_non_json_lines asserts artifact is None AND the
+    file was never written to disk for an invalid create, and that a failed edit leaves the
+    original glob unchanged. Atomicity is asserted on the filesystem, not just the return.
+  * GOOD TRANSPARENCY: the LaTeX sample deliberately avoids backslashes, with a comment that
+    the inspector JSON-quotes lines so \section would render as \\section. The test states
+    the wart it sidesteps instead of hiding it.
+
+  test_compat.py (27L) — deprecation facades:
+  * test_core_compat_imports_warn_and_remain_functional and
+    test_chat_compat_imports_warn_and_remain_functional assert both a DeprecationWarning on
+    import and that the re-exported symbols still exist. Uses importlib.reload() inside
+    catch_warnings(record=True, simplefilter("always", DeprecationWarning)) — reload is
+    required because an already-imported module does not re-emit the warning.
+  * This is the THIRD instance of the "warn on import + re-export" facade pattern, after
+    web_search/tool.py (web_search PASS 4 batch 1b) and __init__.py's lazy __getattr__.
+  * NOTE: hasattr(module, "_question_tokens") pins a PRIVATE symbol as public contract.
+
+  test_config.py (986L) — the config loader contract. Two things matter most:
+  * POLICY SPLIT, unmarked and real: the loader has TWO mutually inconsistent
+    validation philosophies.
+      - MEMORY / EXTRACTION ints are STRICT: out-of-range or non-integer raises ValueError
+        whose message includes the env name, the raw value, and BOTH bounds (verified by
+        test_load_settings_rejects_out_of_range_*ints and *_non_integer_*ints, 4 int fields
+        x 2 boundary values each). Garbage booleans become False silently, but the 6
+        accepted spellings (true/1/yes/on and false/0) are pinned.
+      - WEB_SEARCH / PAGE_LOAD ints are CLAMPED: test_load_settings_accepts_page_load_max_
+        concurrency_env sets WEB_SEARCH_MIN_URL_SCORE=-10, WEB_SEARCH_MIN_PAGE_CHARS=-50,
+        WEB_SEARCH_MAX_PAGE_TOKENS=-50, WEB_SEARCH_DEADLINE_SECONDS=-10 and asserts they
+        all become 0 or 1 rather than raising.
+    Consequence: a MISCONFIGURED (negative) web-search threshold does not fall back to the
+    default, it zeroes the gate. WEB_SEARCH_MIN_URL_SCORE=-10 -> 0 means EVERY URL clears
+    the ranking gate; WEB_SEARCH_MIN_PAGE_CHARS=-50 -> 0 means any page is "readable". A
+    typo silently disables quality filtering instead of failing loudly. Contrast with
+    discovery._positive_seconds, which falls back to the DEFAULT on a non-positive value —
+    the loader and the runtime disagree on the same knob.
+  * RETRACTION of my own web_search PASS 4 batch 2/3 finding: I wrote that factory.py's
+    unvalidated timeout getattr defaults allow timeout=0 -> requests infinite wait. That is
+    only reachable by CONSTRUCTING Settings directly. The loader clamps — the test sets
+    WEB_SEARCH_PROVIDER_TIMEOUT_SECONDS=0 and WEB_SEARCH_DEADLINE_SECONDS=-10 and asserts 1
+    and 1. So the shipped configuration path cannot produce 0. Residual exposure: any code
+    that builds Settings(...) or a SimpleNamespace with a raw 0 (including, notably, the
+    many test doubles in this suite) still hits the unguarded factory path. Narrowed, not
+    retracted fully.
+  * GOOD: test_web_search_and_page_load_defaults_align_with_yaml is a ~45-field drift guard
+    between Settings defaults and config/default.yaml, and asserts "amap_web_service_key",
+    "amap_js_api_key" and "amap_js_security_code" are ABSENT from the YAML. Secrets are
+    pinned out of the config file by a negative assertion.
+  * GOOD: test_amap_secret_settings_are_env_only_and_timeout_is_configurable proves env
+    beats YAML for the three AMap secrets (yaml-secret overridden by env-amap-web) and
+    that 0 clamps to 1 at load time.
+  * GOOD: test_env_example_documents_extraction_ranges asserts .env.example contains the
+    literal "low-high" range string for every EXTRACTION_INT_RANGES entry. Documentation is
+    asserted in sync with the code, so a range change that skips the docs fails CI.
+  * GOOD: test_load_settings_precedence_cli_env_yaml_defaults pins CLI overrides > env >
+    YAML > defaults explicitly, including CLI urls beating YAML urls while YAML web_search_
+    enabled survives when nothing overrides it.
+  * GOOD (negative by design): test_no_extraction_model_setting_exists asserts NO
+    memory_extraction_*model* field exists, documented as "out of scope for this version".
+    Absence is tested as a scope decision. Also test_transcript_and_record_char_bounds_are_
+    independent asserts there is deliberately NO cross-field constraint, and test_memory_
+    recall_top_k_may_exceed_max_records asserts top_k > max_records is allowed.
+  * NOTE (side effect): test_load_settings_from_env_file asserts
+    os.environ["DASHSCOPE_API_KEY"] == "test-key" AFTER load_settings. The .env loader
+    WRITES to the process environment, so settings load mutates global state and leaks
+    across tests and into the rest of the process.
+
+  test_csv_edit.py (386L) — the reference-quality test in this batch:
+  * GOOD: exact-output assertions on written bytes, not substrings.
+    test_edit_preserves_delimiter_and_newline asserts the edited body is byte-exact
+    b"a;b;c\r\n1;20;3\r\n4;5;6\r\n" for a semicolon+CRLF input; test_edit_preserves_utf8_
+    bom asserts the BOM bytes survive and the edited content is correct. Delimiter, newline
+    style AND encoding are all preserved — three properties that a naive csv.writer would
+    all destroy.
+  * GOOD: test_edit_rejects_stale_expected_row_and_aborts and
+    test_edit_rejects_cell_update_on_a_row_targeted_by_delete both assert artifact is None,
+    "no changes were made" in the content, and that the SOURCE file bytes are unchanged.
+    Optimistic concurrency (expected_row / expected_value) is enforced and atomicity is
+    proven by re-reading the original.
+  * GOOD: test_create_writes_downloadable_csv_and_is_collision_safe — a second create with
+    the same name yields "report-2.csv" rather than overwriting. Collision safety, and the
+    quoting round-trips ("beta, green" stays one quoted field).
+  * GOOD: the fixture CSV contains a quoted field with an embedded comma
+    ("Banana, yellow"), which propagates through inspect (asserted as one cell),
+    replace_row (asserted re-quoted on write), and column-count checks. A quoted-comma
+    fixture is the right stress input for a CSV tool.
+  * GOOD: test_operation_validator_requires_expected_row_for_structural_actions and
+    *_requires_new_row_for_append assert the Pydantic validator REJECTS malformed operations
+    — so the schema enforces optimistic-concurrency fields rather than the function body
+    checking them ad hoc.
+  * GOOD: build_csv_edit_tools returns [] for disabled flag AND for thread_id "" AND for
+    thread_id "bad thread!" — the thread_id is VALIDATED, not just checked for emptiness.
+    (Contrast test_code_edit's languages, which check "" only. The csv editor validates the
+    shape of the id; the 16 language editors do not. Inconsistent across the suite.)
+
+  SUITE-WIDE PATTERNS (batch 2)
+  * The file-editing tools are the best-tested surface in the repo: copy-on-edit, source
+    immutability, optimistic concurrency, path traversal in both relative and absolute form,
+    per-thread sandbox isolation, atomicity on failure, byte-exact preservation. The
+    web_search module got string-substring tests; the file tools got byte-exact tests.
+  * Negative-as-[] rather than negative-as-exception is the house style for disabled
+    features: a flag off, a scope missing, or a bad thread_id all yield an empty tool list.
+    Predictable, but a misconfigured flag silently removes capability with no error.
+  * Three fixtures coexist (conftest mock_settings/isolated_settings, per-file _client
+    helpers, inline Settings(...)); csv_edit and code_edit ignore conftest entirely.
+
+# STATE — tests/
+- Batches 1-2 of 8 DONE (16 of 78 files, 5046 of 27129 lines).
+- Next: batch 3 = deployment_topology (375), excel_create (192), excel_edit (355),
+  fallback_answer (55), file_tools (378), geocoding (270) = ~1625 lines.
+- Cross-loop: this tick retracted one web_search PASS 4 finding (factory timeout=0 is
+  guarded at the loader; only direct Settings construction bypasses it). Logged in
+  read-progress.txt as well.
+
+

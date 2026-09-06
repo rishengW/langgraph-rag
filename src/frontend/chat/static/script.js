@@ -298,7 +298,12 @@ function renderMarkdownPreview(text) {
         if (/^[A-Za-z0-9_+.-]+$/.test(lines[0].trim())) {
             lines.shift();
         }
-        return `<pre><code>${escapeHtml(lines.join("\n").trim())}</code></pre>`;
+        return (
+            `<div class="code-block">` +
+            `<button type="button" class="copy-code-btn" aria-label="Copy code to clipboard">Copy</button>` +
+            `<pre><code>${escapeHtml(lines.join("\n").trim())}</code></pre>` +
+            `</div>`
+        );
     }).join("");
 }
 
@@ -1412,6 +1417,52 @@ messageInput.addEventListener("keydown", (e) => {
         e.preventDefault();
         sendMessage(messageInput.value);
     }
+});
+
+// ---- code block copy buttons -------------------------------------------
+
+async function copyCodeToClipboard(text, button) {
+    let copied = false;
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            copied = true;
+        }
+    } catch (_) {
+        copied = false;
+    }
+    if (!copied) {
+        // execCommand fallback for plain-http origins where the async
+        // clipboard API is unavailable.
+        const area = document.createElement("textarea");
+        area.value = text;
+        area.setAttribute("readonly", "");
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        try {
+            copied = document.execCommand("copy");
+        } catch (_) {
+            copied = false;
+        }
+        area.remove();
+    }
+    button.textContent = copied ? "Copied!" : "Copy failed";
+    button.classList.toggle("copied", copied);
+    setTimeout(() => {
+        button.textContent = "Copy";
+        button.classList.remove("copied");
+    }, 1500);
+}
+
+// One delegated listener covers every rendered code block, including
+// re-renders, without wiring each button individually.
+transcript.addEventListener("click", (event) => {
+    const button = event.target.closest(".copy-code-btn");
+    if (!button) return;
+    const code = button.parentElement.querySelector("pre code");
+    if (code) void copyCodeToClipboard(code.textContent, button);
 });
 
 // ---- file uploads ------------------------------------------------------

@@ -7,42 +7,49 @@ FastAPI app:
 
 The project started as a Python extraction of a Jupyter notebook; it is now organized as a reusable codebase with YAML configuration, typed graph events, SSE streaming, health/readiness/metrics endpoints, optional API-key auth, Docker support, CI quality gates, and company-readiness documentation.
 
-The same stateless RAG engine that grounds the chat app is also exposed outside the web app as stateless MCP tools (`rag_ask`, `rag_web_search_answer`); see [MCP RAG tools](#mcp-rag-tools).
+The same stateless RAG engine that grounds the chat app is also exposed outside the web app as stateless MCP tools (`rag_ask`, `rag_web_search_answer`); see [Inbound MCP Server](#inbound-mcp-server).
 
 The project supports two LangGraph workflows:
 
 - **Full graph**: agent → retrieve (Chroma) → grade → generate, with query rewrite on low-relevance grades.
 - **Lightweight graph**: agent → decompose → bounded parallel search → relevance-aware merge → web_answer, with one expanded retry followed by a tool-free training-data fallback. Skips Chroma, embeddings, and grading; search-query LLM rewriting is optional and disabled by default.
 
-The project started as a Python extraction of a Jupyter notebook; it is now organized as a reusable codebase with YAML configuration, typed graph events, SSE streaming, health/readiness/metrics endpoints, optional API-key auth, Docker support, CI quality gates, and company-readiness documentation.
-
 ## Project Structure
 
 ```text
 langgraph-rag/
-|-- .github/workflows/        # CI
-|-- config/                   # YAML config (default + per-environment overlays)
+|-- .github/workflows/            # CI quality gates (pytest + coverage, ruff, mypy)
+|-- benchmarks/mandarin_search/   # Offline search-quality benchmark queries
+|-- config/                       # YAML config (default + per-environment overlays)
+|-- docs/                         # Operations runbook, production topology, tool catalog, workflow graphs
 |-- src/
-|   |-- adapters/mcp_server/  # Separate stateless inbound MCP server (stdio or authenticated Streamable HTTP)
-|   |-- api/                  # Shared FastAPI helpers (auth, CORS, errors, streaming, dependencies)
-|   |-- chat/                 # Multi-turn chat app (API, UI, entry point)
-|   |-- config/               # Settings dataclass + YAML/env loader
-|   |-- core/                 # Deprecated re-exports (redirect to src/backend/graph, src/backend/rag, etc.)
-|   |-- errors.py             # Typed RAG exceptions
-|   |-- graph/                # LangGraph builder, state, edges, executor, metrics
-|   |   |-- nodes/            # Node factories (agent, condense, decompose, bounded search, expand, generate, grade, merge, rewrite, web_answer)
-|   |-- llm/                  # LLM provider seam (DashScope, DeepSeek) + prompt templates
-|   |-- rag/                  # Chroma retriever, embeddings (DashScope, HuggingFace), document loader/quality
-|   |-- sessions/             # Chat session registry, SQLite metadata + checkpoint persistence
-|   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, live web search, file readers, document editors, long-term memory) + shared HTTP and geocoding helpers
-|   |-- utils/                # Retry, networking, URL parsing helpers
-|   |-- web_search/           # Search APIs + HTML fallbacks, discovery, ranking, fetching (HTML/PDF/JS), structural + semantic filtering, domain reputation
-|-- tests/                    # Offline-focused pytest suite
-|-- ARCHITECTURE.md           # System architecture and operational notes
-|-- COMPANY_READINESS_GAPS.md # Completed and remaining company-readiness work
-|-- CONTRIBUTING.md           # Local development workflow and quality gates
-|-- SECURITY.md               # Secret handling and API security behavior
-|-- CHANGELOG.md              # Notable project changes
+|   |-- _compat.py                # Deprecated-import warning helper used by shim modules
+|   |-- errors.py                 # Typed RAG exceptions
+|   |-- config/                   # Settings dataclass + YAML/env loader
+|   |-- deployment/               # Fail-closed production topology checks
+|   |-- utils/                    # Retry, networking, URL parsing helpers
+|   |-- backend/
+|   |   |-- adapters/mcp_client/  # Outbound MCP client adapter (config, lifecycle, runtime, SSRF guards)
+|   |   |-- application/          # Chat/RAG application services, turn execution, session lifecycle
+|   |   |-- core/                 # Deprecated re-export shims (redirect to src/backend/graph, rag, web_search)
+|   |   |-- graph/                # LangGraph builder, state, edges, executor, metrics
+|   |   |   |-- nodes/            # Node factories (agent, condense, decompose, bounded search, expand, generate, grade, merge, rewrite, web_answer)
+|   |   |-- llm/                  # LLM provider seam (DashScope, DeepSeek), prompts, citation sanitizer
+|   |   |-- mcp/                  # Tool catalog, policy, secrets redaction, telemetry
+|   |   |-- memory/               # Long-term memory store, recall, automatic extraction
+|   |   |-- rag/                  # Chroma retriever, embeddings (DashScope, HuggingFace), document loader/quality
+|   |   |-- security/             # Principals, quota budgets and manager
+|   |   |-- sessions/             # Chat session registry, SQLite metadata + checkpoint persistence
+|   |   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, live web search, file readers, document editors, long-term memory) + shared HTTP and geocoding helpers
+|   |   |-- web_search/           # Search APIs + HTML fallbacks, discovery, ranking, fetching (HTML/PDF/JS), structural + semantic filtering, domain reputation
+|   |-- frontend/
+|       |-- adapters/mcp_server/  # Separate stateless inbound MCP server (stdio or authenticated Streamable HTTP)
+|       |-- api/                  # Shared FastAPI helpers (auth, CORS, errors, streaming, AMap proxy)
+|       |-- chat/                 # Multi-turn chat app (API, UI, entry point, static assets)
+|-- tests/                        # Offline-focused pytest suite
+|-- ARCHITECTURE.md               # System architecture and operational notes
+|-- CONTRIBUTING.md               # Local development workflow and quality gates
+|-- SECURITY.md                   # Secret handling and API security behavior
 |-- Dockerfile
 |-- docker-compose.yml
 ```
@@ -205,8 +212,8 @@ Key settings:
 | `RAG_WORKER_COUNT` | `1` | Declared production worker count; must remain `1` while local state or locks are authoritative |
 | `RAG_REPLICA_COUNT` | `1` | Declared production replica count; must remain `1` while local state or locks are authoritative |
 | `API_KEY` | — | API auth key for mutation endpoints via `Authorization: Bearer`; open when unset |
-| `API_HOST` | `127.0.0.1` | Bind address for the Chat server |
-| `API_PORT` | `8001` | Listen port for the Chat server |
+| `API_HOST` | `127.0.0.1` | Bind address via the settings loader; `CHAT_API_HOST` overrides the `serve` command default |
+| `API_PORT` | `8000` | Listen port via the settings loader; the `serve` command and Docker use `CHAT_API_PORT` (default `8001`) |
 | `CORS_ALLOW_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
 | `MCP_ENABLED` | `false` | Enable only the separately launched inbound MCP process |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or stateless Streamable HTTP (`http`) |
@@ -479,7 +486,7 @@ Chat sessions survive app restarts. Sessions with explicit URLs use isolated per
 
 ## File Uploads and Reading
 
-Chat mode can read local files through five agent tools (`read_text_file`, `read_markdown_file`, `read_word_document`, `read_excel_spreadsheet`, `read_pdf`). When PowerPoint editing is enabled, the chat UI can also upload `.pptx` files for the `inspect_powerpoint` and `edit_powerpoint` tools. File uploads are gated by `FILE_READ_ENABLED` (default `false`), and `.pptx` uploads additionally require `POWERPOINT_EDIT_ENABLED=true`.
+Chat mode can read local files through the file-reading agent tools — plain text, Markdown, Word, Excel, and PDF readers, plus per-language source readers (TypeScript, JSON/JSONL, C, Python, Java, JavaScript, HTML, R, Rust, Go, Groovy, SQL, Swift, PHP, Ruby, LaTeX, Prolog, Haskell, Lua, Julia, shell, MATLAB, log) and zip archives. When PowerPoint editing is enabled, the chat UI can also upload `.pptx` files for the `inspect_powerpoint` and `edit_powerpoint` tools. File uploads are gated by `FILE_READ_ENABLED` (default `false`), and `.pptx` uploads additionally require `POWERPOINT_EDIT_ENABLED=true`.
 
 ### Enabling
 
@@ -549,7 +556,7 @@ Shape locations are zero-based paths. A top-level shape is addressed as `shape_p
 
 - Uploads and reads require `FILE_READ_ENABLED=true`; otherwise both are refused.
 - Word creation and edits additionally require `WORD_EDIT_ENABLED=true`; PowerPoint uploads and edits require `POWERPOINT_EDIT_ENABLED=true`; Excel creation requires `EXCEL_CREATE_ENABLED=true`; text creation and edits require `TEXT_EDIT_ENABLED=true`; Markdown creation and edits require `MARKDOWN_EDIT_ENABLED=true`; TypeScript creation and edits require `TYPESCRIPT_EDIT_ENABLED=true`; JSON requires `JSON_EDIT_ENABLED=true`, JSONL `JSONL_EDIT_ENABLED=true`, and R/Rust/Go/SQL `R_EDIT_ENABLED=true` / `RUST_EDIT_ENABLED=true` / `GO_EDIT_ENABLED=true` / `SQL_EDIT_ENABLED=true`; PHP `PHP_EDIT_ENABLED=true`; Ruby `RUBY_EDIT_ENABLED=true`; LaTeX `LATEX_EDIT_ENABLED=true`; Prolog `PROLOG_EDIT_ENABLED=true`; Haskell `HASKELL_EDIT_ENABLED=true`; Lua `LUA_EDIT_ENABLED=true`; Julia `JULIA_EDIT_ENABLED=true`; shell scripts `SHELL_EDIT_ENABLED=true`; MATLAB `MATLAB_EDIT_ENABLED=true`; Groovy `GROOVY_EDIT_ENABLED=true`; Swift `SWIFT_EDIT_ENABLED=true`; log files `LOG_EDIT_ENABLED=true`. All writes are confined to the current thread and never overwrite an existing file.
-- Excel creation uses `@oai/artifact-tool` from the loader-provided Node runtime. Set `EXCEL_NODE_EXECUTABLE` and `EXCEL_NODE_MODULES_PATH` to those loader paths; the tool creates a task-local dependency junction, validates the exported workbook, scans formula errors, and renders every worksheet before publication.
+- Excel creation uses `@oai/artifact-tool` from the loader-provided Node runtime. Set `EXCEL_NODE_EXECUTABLE` and `EXCEL_NODE_MODULES_PATH` to those loader paths; the tool creates a task-local dependency junction, validates the exported workbook, scans formula errors, and renders every worksheet before publication. The Node adapter script ships as `src/backend/tools/excel_create.mjs` and is read at runtime from next to `excel_create.py`, so it must stay in the package.
 - All paths resolve under `FILE_READ_ROOT`; `../` traversal outside the root is denied.
 - Sensitive files (`.env`, private keys, `credentials`, etc.) are always refused even inside the root.
 - File type is allowlisted and size is capped (`FILE_READ_MAX_BYTES`) at both the upload endpoint and the tools.
@@ -704,5 +711,5 @@ git diff --check                            # Whitespace check
 - The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/backend/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
 - Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.
 - Location questions route to `find_on_map` before `live_web_search`. Place lookup goes through the shared geocoder in `src/backend/tools/_geocoding.py`: request wording is stripped ("在地图上找出上海的位置" → "上海"), then AMap resolves the place in three fallback stages — POI text search first, address geocoding if that yields no confident match, administrative district lookup last — and the candidates are deduped and ranked by match score. Coordinates come back in GCJ-02, which the map artifact renders directly. Requires `AMAP_WEB_SERVICE_KEY`; with no key configured the geocoder returns no candidates. Since text-similarity geocoding can return a neighbouring or same-named place, results below the confidence threshold are labelled `APPROXIMATE MATCH` and same-name ties are labelled `AMBIGUOUS`; the agent is instructed to verify those with a web search rather than assert them.
-- Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (the five file readers — .txt, .md, .docx, .xlsx, .pdf — share `FILE_READ_ENABLED`). Most need no API key; the exceptions are `get_directions` and `find_on_map`, which require `AMAP_WEB_SERVICE_KEY`. `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.
+- Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (all file readers share `FILE_READ_ENABLED`; the per-language create/edit tools additionally need their own `_EDIT_ENABLED` flag). Most need no API key; the exceptions are `get_directions` and `find_on_map`, which require `AMAP_WEB_SERVICE_KEY`. `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.
 - The lightweight graph's conditional expansion fires only on web-search retrieval failure — single-keyword questions that get a readable, relevant page back take the fast path with one search and one LLM call. Compound questions that decompose into multiple sub-Qs still take the fast path; expansion only fires when no fetched page yields usable evidence.

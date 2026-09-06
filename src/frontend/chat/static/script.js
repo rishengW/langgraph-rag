@@ -1164,6 +1164,13 @@ async function restoreSession() {
 
 const TOOL_STATUS_MIN_MS = 1200;
 
+// Status line for the web-answer page fetches: show the real URL being read.
+function fetchStatusLabel(url) {
+    let display = String(url || "");
+    if (display.length > 72) display = display.slice(0, 69) + "...";
+    return "Reading " + display;
+}
+
 const TOOL_ACTION_LABELS = Object.freeze({
     retrieve_source_documents: "Searching source documents",
     live_web_search: "Searching the web",
@@ -1251,12 +1258,19 @@ async function streamMessage(message, thinking, signal) {
     let streamError = "";
     let toolStatusVisibleUntil = 0;
     let answerRenderTimer = null;
+    let fetchStatusUrl = "";
+    let fetchStatusUntil = 0;
     const responseArtifacts = new Map();
     const activeTools = new Map();
     const statusBubble = thinking.querySelector(".bubble");
 
     const updateToolStatus = () => {
         if (bubble || !thinking.isConnected || !statusBubble) return;
+        if (fetchStatusUrl && Date.now() < fetchStatusUntil) {
+            statusBubble.textContent = fetchStatusLabel(fetchStatusUrl);
+            transcript.scrollTop = transcript.scrollHeight;
+            return;
+        }
         const activeNames = Array.from(activeTools.values());
         if (activeNames.length) {
             statusBubble.textContent = toolActionLabel(activeNames[activeNames.length - 1]);
@@ -1307,6 +1321,13 @@ async function streamMessage(message, thinking, signal) {
         } else if (eventType === "tool_end") {
             const toolCallId = String(payload.tool_call_id || payload.tool || "");
             activeTools.delete(toolCallId);
+            updateToolStatus();
+        } else if (eventType === "web_fetch" && typeof payload.url === "string" && payload.url) {
+            fetchStatusUrl = String(payload.url);
+            fetchStatusUntil = Math.max(
+                fetchStatusUntil,
+                Date.now() + TOOL_STATUS_MIN_MS,
+            );
             updateToolStatus();
         } else if (eventType === "token" && typeof payload.token === "string") {
             answer += payload.token;

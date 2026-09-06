@@ -10,11 +10,13 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.config import get_stream_writer
 
 from src.config import Settings
 from src.utils.retry import invoke_with_retry
 
 from ...llm.sanitize import strip_citation_artifacts
+from ..events import WebFetchEvent
 from .common import chat_question_resolver, message_text, new_chat_model
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,32 @@ QuestionResolver = Callable[[dict[str, Any]], str]
 # swallow the surrounding sentence and produce an unreachable garbage URL.
 _URL_RE = re.compile(r"https?://[^\s<>()\[\]{}\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+")
 _YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+
+
+def _announce_web_fetches(urls: Sequence[str]) -> None:
+    """Announce each source URL through the LangGraph custom stream.
+
+    Only the streaming chat runner subscribes to custom events, so MCP tools
+    and the REPL discard these payloads. Every failure is swallowed: a progress
+    announcement must never break the answer path.
+    """
+
+    ordered = [url for url in urls if url]
+    if not ordered:
+        return
+    try:
+        writer = get_stream_writer()
+    except Exception:
+        return
+    if not callable(writer):
+        return
+    total = len(ordered)
+    for url in ordered:
+        try:
+            writer(WebFetchEvent(url=url[:2048], total=total, node="web_answer"))
+        except Exception:
+            logger.debug("Dropped web fetch announcement for %s", url, exc_info=True)
+            return
 
 
 def web_answer_factory(
@@ -56,6 +84,7 @@ def web_answer_factory(
         from ...web_search.page_structure import structure_rejection_reason
         from ...web_search.prompt_builder import build_web_search_prompt
 
+        _announce_web_fetches(urls)
         pages = fetch_pages(
             urls,
             timeout=settings.page_load_timeout,

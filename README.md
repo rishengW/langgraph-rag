@@ -661,9 +661,9 @@ URLs, markdown links, ordinary brackets like `[1]` or `[sic]`, and a lone `†` 
 
 The chat app exposes an SSE streaming endpoint:
 
-- **Chat `/chat/{id}/message/stream`**: node lifecycle events (`node_start`, `node_end`, retriever/grader summaries), and — by default — per-token `token` events streamed from the answer-producing nodes (`generate`, `web_answer`, `agent`) as the LLM generates them, followed by a final `done` event. Pass `?tokens=false` to fall back to node-events-only streaming.
+- **Chat `/chat/{id}/message/stream`**: node lifecycle events (`node_start`, `node_end`, retriever/grader summaries), `web_fetch` events announcing each source URL the web-answer path is about to read (shown in the UI status line), and — by default — per-token `token` events streamed from the answer-producing nodes (`generate`, `web_answer`, `agent`) as the LLM generates them, followed by a final `done` event. Pass `?tokens=false` to fall back to node-events-only streaming.
 
-Token streaming uses LangGraph's combined `stream_mode=["updates", "messages"]`. Only genuine streaming chunks (`AIMessageChunk`) are forwarded; the aggregated final message a node returns is dropped so the answer is not duplicated. Tokens from internal structured-output calls (decompose, expand, grade, condense, rewrite) are filtered out so they never leak into the user-visible answer.
+Token streaming uses LangGraph's combined `stream_mode=["updates", "messages", "custom"]`. Only genuine streaming chunks (`AIMessageChunk`) are forwarded; the aggregated final message a node returns is dropped so the answer is not duplicated. Tokens from internal structured-output calls (decompose, expand, grade, condense, rewrite) are filtered out so they never leak into the user-visible answer. The `custom` mode carries `WebFetchEvent` payloads emitted inside `web_answer` while pages are being fetched.
 
 Streamed tokens also pass through `CitationArtifactFilter` (`src/backend/llm/sanitize.py`), which buffers partial text so a fabricated citation marker split across chunks is still removed. See [Answer citations](#answer-citations).
 

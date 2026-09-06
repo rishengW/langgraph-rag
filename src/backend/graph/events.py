@@ -91,6 +91,19 @@ class ArtifactEvent:
 
 
 @dataclass(frozen=True)
+class WebFetchEvent:
+    """Announce one source URL the web-answer path is about to read."""
+
+    url: str
+    total: int = 0
+    node: str = "web_answer"
+    type: Literal["web_fetch"] = "web_fetch"
+
+    def __post_init__(self) -> None:
+        _validate_fetch_url(self)
+
+
+@dataclass(frozen=True)
 class ErrorEvent:
     message: str
     recoverable: bool = True
@@ -104,6 +117,13 @@ class DoneEvent:
     answer: str = ""
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     type: Literal["done"] = "done"
+
+
+def _validate_fetch_url(event: WebFetchEvent) -> None:
+    if not event.url or len(event.url) > 2048 or any(ord(c) < 32 for c in event.url):
+        raise ValueError("Invalid web fetch URL metadata")
+    if not 0 <= event.total <= 100_000:
+        raise ValueError("Invalid web fetch total")
 
 
 def _validate_tool_metadata(event: ToolStartEvent | ToolEndEvent) -> None:
@@ -125,6 +145,7 @@ GraphEvent = (
     | RetrieverResultEvent
     | GraderDecisionEvent
     | ArtifactEvent
+    | WebFetchEvent
     | ErrorEvent
     | DoneEvent
 )
@@ -143,4 +164,5 @@ __all__ = [
     "ToolEndEvent",
     "ToolEventOutcome",
     "ToolStartEvent",
+    "WebFetchEvent",
 ]

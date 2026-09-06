@@ -23,6 +23,7 @@ from .events import (
     ToolEndEvent,
     ToolEventOutcome,
     ToolStartEvent,
+    WebFetchEvent,
 )
 from .metrics import MetricsCollector
 
@@ -150,12 +151,14 @@ class GraphExecutor:
     ) -> Iterator[GraphEvent]:
         """Stream node lifecycle events plus per-token deltas.
 
-        Uses ``stream_mode=["updates", "messages"]`` so the same pass yields
-        node-update chunks (for the existing typed lifecycle/summary events and
-        the final answer) and LLM message chunks (for token deltas). Token
-        deltas are emitted only for nodes in ``token_nodes`` so internal
-        structured-output calls (decompose, expand, grading) do not leak into
-        the user-visible answer stream.
+        Uses ``stream_mode=["updates", "messages", "custom"]`` so the same pass
+        yields node-update chunks (for the existing typed lifecycle/summary
+        events and the final answer), LLM message chunks (for token deltas),
+        and in-node progress payloads (for ``WebFetchEvent`` announcements
+        emitted while ``web_answer`` reads source pages). Token deltas are
+        emitted only for nodes in ``token_nodes`` so internal structured-output
+        calls (decompose, expand, grading) do not leak into the user-visible
+        answer stream.
         """
 
         final_output: Mapping[str, Any] | None = None
@@ -167,7 +170,7 @@ class GraphExecutor:
         # either complete (and are dropped) or are ruled out (and released).
         token_filters: dict[str, CitationArtifactFilter] = {}
         try:
-            stream_kwargs: dict[str, Any] = {"stream_mode": ["updates", "messages"]}
+            stream_kwargs: dict[str, Any] = {"stream_mode": ["updates", "messages", "custom"]}
             if config is not None:
                 stream_kwargs["config"] = config
             for mode, chunk in self.graph.stream(inputs, **stream_kwargs):
@@ -177,6 +180,10 @@ class GraphExecutor:
                         token_nodes,
                         token_filters,
                     )
+                    continue
+                if mode == "custom":
+                    if isinstance(chunk, WebFetchEvent):
+                        yield from self._emit(chunk)
                     continue
                 yield from self._flush_token_filters(token_filters)
                 if not isinstance(chunk, Mapping):

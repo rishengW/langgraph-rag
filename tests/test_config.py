@@ -93,7 +93,7 @@ def test_web_search_and_page_load_defaults_align_with_yaml():
     assert settings.wikipedia_max_summary_chars == 1500
     assert defaults["wikipedia_max_summary_chars"] == settings.wikipedia_max_summary_chars
     assert defaults["wikipedia_user_agent"] == settings.wikipedia_user_agent
-    assert settings.page_load_max_concurrency == 4
+    assert settings.page_load_max_concurrency == 8
     assert defaults["page_load_max_concurrency"] == settings.page_load_max_concurrency
     assert settings.page_load_cache_ttl_seconds == 0
     assert defaults["page_load_cache_ttl_seconds"] == settings.page_load_cache_ttl_seconds

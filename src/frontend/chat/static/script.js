@@ -1260,6 +1260,7 @@ async function streamMessage(message, thinking, signal) {
     let answerRenderTimer = null;
     let fetchStatusUrl = "";
     let fetchStatusUntil = 0;
+    let fetchStatusTimer = null;
     const responseArtifacts = new Map();
     const activeTools = new Map();
     const statusBubble = thinking.querySelector(".bubble");
@@ -1328,6 +1329,14 @@ async function streamMessage(message, thinking, signal) {
                 fetchStatusUntil,
                 Date.now() + TOOL_STATUS_MIN_MS,
             );
+            // The fetch itself finishes in 1-2s while the answer LLM may take
+            // much longer; expire back to the tool label instead of leaving
+            // "Reading <url>" on screen for the whole generation.
+            clearTimeout(fetchStatusTimer);
+            fetchStatusTimer = setTimeout(() => {
+                fetchStatusUrl = "";
+                updateToolStatus();
+            }, Math.max(0, fetchStatusUntil - Date.now()));
             updateToolStatus();
         } else if (eventType === "token" && typeof payload.token === "string") {
             answer += payload.token;

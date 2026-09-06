@@ -230,7 +230,9 @@ class Settings:
     wikipedia_max_summary_chars: int = 1500
     wikipedia_user_agent: str = "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
     page_load_timeout: int = 15
-    page_load_max_concurrency: int = 4
+    # Sized so a full WEB_SEARCH_TOP_K batch loads in one wave; 4 made a
+    # top_k above 4 wait for a second sequential wave of slow pages.
+    page_load_max_concurrency: int = 8
     page_load_cache_ttl_seconds: int = 0
     # REFACTOR: Pre-index document quality filtering defaults to conservative checks.
     document_quality_filter_enabled: bool = True

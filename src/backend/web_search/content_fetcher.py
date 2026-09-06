@@ -6,6 +6,7 @@ import logging
 import re
 import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any
@@ -126,20 +127,28 @@ def fetch_pages(
     effective_loader_factory = _policy_http_loader_factory(policies, loader_factory)
 
     started_at = time.monotonic()
-    documents, load_error = _load_documents(
-        http_urls,
-        timeout=timeout,
-        cache_ttl_seconds=cache_ttl_seconds,
-        max_concurrent_loads=max_concurrent_loads,
-        document_cache=document_cache,
-        loader_factory=effective_loader_factory,
-    )
+    # HTTP and forced-JS loads run concurrently: the two batches touch
+    # disjoint URL sets, so the JS round-trip no longer waits behind the
+    # (typically larger) HTTP batch.
     js_factory = js_loader_factory or playwright_loader_factory
-    js_documents, js_load_error = _load_js_documents(
-        force_js_urls,
-        timeout=timeout,
-        loader_factory=js_factory,
-    )
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        http_future = pool.submit(
+            _load_documents,
+            http_urls,
+            timeout=timeout,
+            cache_ttl_seconds=cache_ttl_seconds,
+            max_concurrent_loads=max_concurrent_loads,
+            document_cache=document_cache,
+            loader_factory=effective_loader_factory,
+        )
+        js_future = pool.submit(
+            _load_js_documents,
+            force_js_urls,
+            timeout=timeout,
+            loader_factory=js_factory,
+        )
+        documents, load_error = http_future.result()
+        js_documents, js_load_error = js_future.result()
     documents.extend(js_documents)
     elapsed_ms = (time.monotonic() - started_at) * 1000
     grouped_documents = _group_documents_by_source(documents)

@@ -178,7 +178,7 @@ memory_extraction_max_session_age_hours: 168
 wikipedia_max_summary_chars: 1500
 wikipedia_user_agent: "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
 page_load_timeout: 15
-page_load_max_concurrency: 4
+page_load_max_concurrency: 8
 page_load_cache_ttl_seconds: 0
 # REFACTOR: Conservative pre-index filtering for loaded source documents.
 document_quality_filter_enabled: true

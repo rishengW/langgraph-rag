@@ -1650,15 +1650,8 @@ async function uploadFiles(fileList) {
         clearError();
 
         const names = (data.files || []).map((f) => f.filename);
-        if (names.length) {
-            // Let the user know the files are ready and how to use them.
-            const list = names.join(", ");
-            appendTurn(
-                "assistant",
-                `Uploaded: ${list}. Ask me to read or summarize ` +
-                    `${names.length === 1 ? "it" : "them"} by name.`,
-            );
-        }
+        // Attached files surface as chips in the input strip; no confirmation
+        // bubble is added to the transcript on a successful upload.
         if ((data.errors || []).length && !names.length) {
             showError(`Upload failed: ${data.errors.join("; ")}`);
         }

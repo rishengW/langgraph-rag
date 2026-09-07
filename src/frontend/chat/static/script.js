@@ -61,6 +61,9 @@ const attachments = document.getElementById("attachments");
 
 let threadId = null;
 let pending = false;
+// Files currently shown as chips in the input strip; snapshots of these ride
+// on the outgoing user bubble when a message is sent.
+let currentAttachments = [];
 let chatConfigCache = null;
 let chatConfigPromise = null;
 let amapLoadPromise = null;
@@ -323,9 +326,27 @@ function clearError() {
     errorBanner.classList.add("hidden");
 }
 
+function buildTurnAttachments(files) {
+    if (!files || !files.length) return null;
+    const strip = document.createElement("div");
+    strip.className = "turn-attachments";
+    for (const f of files) {
+        strip.appendChild(buildFileChip(f, { removable: false }));
+    }
+    return strip;
+}
+
 function appendTurn(role, content, opts = {}) {
     const div = document.createElement("div");
     div.className = `turn ${role}` + (opts.thinking ? " thinking" : "");
+    // File attachments sent with a user message sit above that message's bubble.
+    if (role === "user" && opts.attachments && opts.attachments.length) {
+        const strip = buildTurnAttachments(opts.attachments);
+        if (strip) {
+            div.appendChild(strip);
+            div.classList.add("has-attachments");
+        }
+    }
     const bubble = document.createElement("div");
     bubble.className = "bubble";
     if (role === "assistant" && !opts.thinking && !opts.plain) {
@@ -1217,7 +1238,13 @@ async function sendMessage(text) {
     sendBtn.disabled = true;
     stopBtn.disabled = false;
     stopBtn.classList.remove("hidden");
-    appendTurn("user", trimmed);
+    // Snapshot the pending attachments so their chips ride on the outgoing
+    // user bubble, then clear the input strip of chips.
+    const sentAttachments = currentAttachments;
+    currentAttachments = [];
+    attachments.innerHTML = "";
+    attachments.classList.add("hidden");
+    appendTurn("user", trimmed, { attachments: sentAttachments });
     messageInput.value = "";
     autoresize();
 
@@ -1531,10 +1558,11 @@ function formatFileSize(bytes) {
     return `${Math.max(1, Math.round(bytes / 1024))}KB`;
 }
 
-function buildFileChip(file) {
+function buildFileChip(file, { removable = true } = {}) {
     const type = fileChipType(file.filename);
     const chip = document.createElement("span");
     chip.className = "file-chip";
+    if (!removable) chip.classList.add("file-chip--static");
     const icon = document.createElement("span");
     icon.className = `file-chip__icon ${type.cls}`;
     icon.textContent = type.letter;
@@ -1550,18 +1578,21 @@ function buildFileChip(file) {
     body.append(name, meta);
     chip.append(icon, body);
 
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "file-chip__close";
-    close.textContent = "×";
-    close.title = "Remove attachment";
-    close.setAttribute("aria-label", `Remove ${file.filename}`);
-    close.addEventListener("click", () => deleteAttachment(file, close));
-    chip.append(close);
+    if (removable) {
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "file-chip__close";
+        close.textContent = "×";
+        close.title = "Remove attachment";
+        close.setAttribute("aria-label", `Remove ${file.filename}`);
+        close.addEventListener("click", () => deleteAttachment(file, close));
+        chip.append(close);
+    }
     return chip;
 }
 
 function renderAttachmentChips(files, errors) {
+    currentAttachments = Array.from(files || []);
     attachments.innerHTML = "";
     for (const f of files || []) {
         attachments.appendChild(buildFileChip(f));
@@ -1666,6 +1697,7 @@ newChatBtn.addEventListener("click", async () => {
         attachments.innerHTML = "";
         attachments.classList.add("hidden");
     }
+    currentAttachments = [];
     seedField.value = "";
     showStart();
 });

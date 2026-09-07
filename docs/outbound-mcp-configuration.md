@@ -1,6 +1,6 @@
 # Outbound MCP Configuration Boundary
 
-Outbound MCP is a separate bounded context under `src/backend/adapters/mcp_client`. It is not imported or started by the inbound MCP server or FastAPI process. Configuration contains only non-secret references and policy identifiers; transport connectors are injected into a separately launched lifecycle.
+Outbound MCP is a separate bounded context under `src/backend/adapters/mcp_client`. It is not imported or started by the FastAPI process. Configuration contains only non-secret references and policy identifiers; transport connectors are injected into a separately launched lifecycle.
 
 ## Fail-closed activation
 

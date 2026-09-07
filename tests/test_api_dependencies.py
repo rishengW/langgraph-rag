@@ -298,3 +298,43 @@ def test_chat_web_search_lightweight_is_graph_owned_and_built_once(
         [],
     ]
     assert len(lightweight_built) == 1
+
+
+def test_session_registry_keeps_storage_backed_instance_and_persists(
+    monkeypatch,
+    isolated_settings,
+):
+    """Regression: ChatSessionRegistry defines __len__, so an empty registry is
+    falsy. ``initialize_chat_app_state`` must not use an ``or`` fallback, or the
+    lifespan's storage-backed registry is silently replaced by a bare instance
+    and session metadata never reaches SQLite (lost on every restart)."""
+    import sqlite3
+
+    settings = isolated_settings(source_urls=[], web_search_enabled=False)
+
+    class FakeGraph:
+        def get_state(self, config):
+            return SimpleNamespace(values={"messages": []})
+
+    monkeypatch.setattr(chat_api, "load_settings", lambda: settings)
+    monkeypatch.setattr(chat_api, "build_chat_graph", lambda session_settings, rebuild_vectorstore=False: FakeGraph())
+
+    app = chat_api.create_app()
+    with TestClient(app) as client:
+        registry = app.state.session_registry
+        assert registry._storage is not None, (
+            "the lifespan's storage-backed registry was replaced by a bare one"
+        )
+        thread_id = client.post("/chat", json={"web_search": False}).json()["thread_id"]
+
+    db_path = Path(settings.chroma_dir) / "chat" / "sessions.sqlite3"
+    conn = sqlite3.connect(db_path)
+    rows = [r[0] for r in conn.execute("SELECT thread_id FROM sessions").fetchall()]
+    conn.close()
+    assert rows == [thread_id]
+
+    # a fresh app instance restores the persisted session metadata
+    app2 = chat_api.create_app()
+    with TestClient(app2) as client2:
+        history = client2.get(f"/chat/{thread_id}/history")
+        assert history.status_code == 200

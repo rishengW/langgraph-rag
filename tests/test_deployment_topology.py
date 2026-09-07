@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -21,8 +20,6 @@ from src.deployment import (
     UnsupportedDeploymentTopologyError,
     validate_single_instance_deployment,
 )
-from src.frontend.adapters.mcp_server.config import MCPSettings
-from src.frontend.adapters.mcp_server.lifecycle import initialize_runtime
 from src.frontend.chat import api as chat_api
 
 
@@ -334,36 +331,6 @@ def test_fastapi_startup_rejects_scaled_production_before_local_resources(
         TestClient(app),
     ):
         pytest.fail("scaled production startup unexpectedly reached the serving state")
-
-
-@pytest.mark.parametrize("scaled_name", ["RAG_WORKER_COUNT", "RAG_REPLICA_COUNT"])
-def test_mcp_startup_rejects_scaled_production_before_tool_publication(
-    monkeypatch: pytest.MonkeyPatch,
-    scaled_name: str,
-) -> None:
-    _set_single_instance_environment(monkeypatch, scaled_name=scaled_name)
-
-    async def run() -> None:
-        settings = MCPSettings(enabled=True, environment="production")
-        with pytest.raises(UnsupportedDeploymentTopologyError):
-            await initialize_runtime(settings, service=object())
-
-    asyncio.run(run())
-
-
-def test_mcp_startup_does_not_trust_environment_only_shared_state_claims(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _set_single_instance_environment(monkeypatch, scaled_name="RAG_REPLICA_COUNT")
-    for name in REQUIRED_SHARED_STATE_CAPABILITIES:
-        monkeypatch.setenv(f"RAG_SHARED_{name.value.upper()}", "implemented,configured,validated")
-
-    async def run() -> None:
-        settings = MCPSettings(enabled=True, environment="production")
-        with pytest.raises(UnsupportedDeploymentTopologyError):
-            await initialize_runtime(settings, service=object())
-
-    asyncio.run(run())
 
 
 def test_production_launch_configuration_declares_one_instance() -> None:

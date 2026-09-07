@@ -7,8 +7,6 @@ FastAPI app:
 
 The project started as a Python extraction of a Jupyter notebook; it is now organized as a reusable codebase with YAML configuration, typed graph events, SSE streaming, health/readiness/metrics endpoints, optional API-key auth, Docker support, CI quality gates, and company-readiness documentation.
 
-The same stateless RAG engine that grounds the chat app is also exposed outside the web app as stateless MCP tools (`rag_ask`, `rag_web_search_answer`); see [Inbound MCP Server](#inbound-mcp-server).
-
 The project supports two LangGraph workflows:
 
 - **Full graph**: agent → retrieve (Chroma) → grade → generate, with query rewrite on low-relevance grades.
@@ -43,7 +41,6 @@ langgraph-rag/
 |   |   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, live web search, file readers, document editors, long-term memory) + shared HTTP and geocoding helpers
 |   |   |-- web_search/           # Search APIs + HTML fallbacks, discovery, ranking, fetching (HTML/PDF/JS), structural + semantic filtering, domain reputation
 |   |-- frontend/
-|       |-- adapters/mcp_server/  # Separate stateless inbound MCP server (stdio or authenticated Streamable HTTP)
 |       |-- api/                  # Shared FastAPI helpers (auth, CORS, errors, streaming, AMap proxy)
 |       |-- chat/                 # Multi-turn chat app (API, UI, entry point, static assets)
 |-- tests/                        # Offline-focused pytest suite
@@ -215,15 +212,6 @@ Key settings:
 | `API_HOST` | `127.0.0.1` | Bind address via the settings loader; `CHAT_API_HOST` overrides the `serve` command default |
 | `API_PORT` | `8000` | Listen port via the settings loader; the `serve` command and Docker use `CHAT_API_PORT` (default `8001`) |
 | `CORS_ALLOW_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
-| `MCP_ENABLED` | `false` | Enable only the separately launched inbound MCP process |
-| `MCP_TRANSPORT` | `stdio` | `stdio` or stateless Streamable HTTP (`http`) |
-| `MCP_ENVIRONMENT` | `development` | `development`, `staging`, or `production`; controls fail-closed HTTP policy |
-| `MCP_AUTH_SECRET_ENV` | `API_KEY` | Environment-variable reference for the transitional HTTP bearer key |
-| `MCP_ALLOWED_HOSTS` | empty | Exact HTTP Host allowlist; required outside development |
-| `MCP_ALLOWED_ORIGINS` | empty | Exact browser Origin allowlist; absent Origin remains valid for non-browser clients |
-| `MCP_DEADLINE_SECONDS` | `120` | Mandatory whole-call server deadline (bounded to 600 seconds) |
-| `MCP_MAX_SEARCH_RESULTS` | `10` | Maximum discovered web-search URLs admitted before source validation and invocation |
-| `MCP_MAX_CONCURRENCY` | `4` | Process-local concurrent MCP calls for the supported single instance |
 | `RERANK_STRATEGY` | `lexical` | `lexical`, `embedding`, or `hybrid` |
 | `MEMORY_ENABLED` | `false` | Enable long-term memory tools (save/recall/forget) and auto-recall injection |
 | `MEMORY_STORE_PATH` | - | Memory store file path; defaults to `memory/long_term_memory.json` relative to working directory |
@@ -312,7 +300,7 @@ The agent can be given any combination of these tools via per-tool config flags.
 | Tool | Module | Config flag | Notes |
 |---|---|---|---|
 | `retrieve_source_documents` | `src/backend/rag/chroma_retriever.py` | always on (full graph) | Chroma vectorstore retrieval |
-| `live_web_search` | `src/backend/tools/web_search.py` | `WEB_SEARCH_ENABLED=true` (default) | Serper/Brave/Tavily/Bing APIs plus Bing/Baidu/DuckDuckGo HTML fallbacks |
+| `live_web_search` | `src/backend/tools/live_web_search.py` | `WEB_SEARCH_ENABLED=true` (default) | Serper/Brave/Tavily/Bing APIs plus Bing/Baidu/DuckDuckGo HTML fallbacks |
 | `get_weather` | `src/backend/tools/weather.py` | `WEATHER_ENABLED=true` | Open-Meteo forecast (city or coordinates), no API key |
 | `get_stock_quote` | `src/backend/tools/stock.py` | `STOCK_ENABLED=true` | yfinance / Yahoo Finance, no API key |
 | `convert_currency` | `src/backend/tools/currency.py` | `CURRENCY_ENABLED=true` | Frankfurter API (201 currencies), no API key |
@@ -419,21 +407,6 @@ When the agent calls a non-web-search tool in the lightweight graph (weather, st
 - **DashScopeEmbeddings** — Tongyi text embeddings (default: `text-embedding-v4`)
 - **HuggingFaceEmbeddingModel** — Local HuggingFace embedding models
 
-## Inbound MCP Server
-
-The inbound MCP process is separate from both FastAPI applications and publishes exactly two stateless tools: `rag_ask` (configured defaults or caller-supplied HTTPS sources) and `rag_web_search_answer` (forced existing web discovery). It never advertises chat sessions, files, editors, memory mutation, administration, or internal graph tools.
-
-For a local MCP client, set `MCP_ENABLED=true` and keep `MCP_TRANSPORT=stdio`, then configure the client to launch:
-
-```text
-<repo>/.venv/Scripts/python.exe -m src.frontend.adapters.mcp_server.main
-```
-
-On macOS/Linux use `<repo>/.venv/bin/python`. Standard output is reserved for MCP protocol frames; diagnostics and bounded audit metadata go to standard error. The subprocess receives the explicit `local-process` principal.
-
-For Streamable HTTP, select `MCP_TRANSPORT=http`. Staging and production fail before socket bind unless the environment variable named by `MCP_AUTH_SECRET_ENV` contains a bearer key, `MCP_PUBLIC_BASE_URL` is HTTPS, and `MCP_ALLOWED_HOSTS` contains exact deployment hosts. Anonymous HTTP requires both `MCP_ENVIRONMENT=development` and `MCP_ALLOW_ANONYMOUS_HTTP=true`. The endpoint defaults to `http://127.0.0.1:8002/mcp`; send the shared key as `Authorization: Bearer <key>`.
-
-HTTP uses the SDK's stateless ASGI application with exact Host/Origin checks and request-body bounds. Caller-supplied and discovered source hosts are resolved before application invocation, and every resolved address must be public. The current legacy document loaders may resolve again and follow redirects without connection-address pinning, so this release does **not** claim connection-boundary DNS-rebinding protection for outbound source fetching. Deploy restricted egress and an allowlisting proxy; a future fetcher must pin validated addresses and independently validate each redirect before this limitation can be removed. Downstream synchronous graph/provider calls also cannot always be force-cancelled after the adapter deadline fires, although cancellation propagates through asynchronous seams.
 
 ## Running Chat
 

@@ -60,6 +60,12 @@ from .julia_file import build_julia_file_tool
 from .latex_edit import build_latex_edit_tools
 from .latex_file import build_latex_file_tool
 from .linalg_tool import LinearAlgebraInput, build_linalg_tool
+from .live_web_search import (
+    WebSearchDiscovery,
+    WebSearchInput,
+    build_web_search_tool,
+    format_web_search_results,
+)
 from .log_edit import build_log_edit_tools
 from .log_file import build_log_file_tool
 from .lua_edit import build_lua_edit_tools
@@ -137,12 +143,6 @@ from .typescript_edit import (
 )
 from .typescript_file import TypeScriptFileInput, build_typescript_file_tool
 from .weather import WeatherInput, build_weather_tool
-from .web_search import (
-    WebSearchDiscovery,
-    WebSearchInput,
-    build_web_search_tool,
-    format_web_search_results,
-)
 from .wikipedia_tool import WikipediaInput, build_wikipedia_tool
 from .word_edit import (
     WordContentBlock,

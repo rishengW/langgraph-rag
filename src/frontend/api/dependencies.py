@@ -50,14 +50,21 @@ def initialize_chat_app_state(
         resolved_settings = None if settings is _UNSET else settings
         app.state.settings = resolved_settings
         app.state.config = resolved_settings
+    # Explicit None checks: ChatSessionRegistry defines __len__, so an empty
+    # (zero-session) registry is falsy and an `or` fallback here would silently
+    # replace the storage-backed registry created by the lifespan.
     if session_registry is not None or not hasattr(app.state, "session_registry"):
-        app.state.session_registry = session_registry or ChatSessionRegistry()
+        app.state.session_registry = (
+            session_registry if session_registry is not None else ChatSessionRegistry()
+        )
     if graph_factory_lock is not None or not hasattr(app.state, "chat_graph_factory_lock"):
         app.state.chat_graph_factory_lock = graph_factory_lock or asyncio.Lock()
     if metrics is not None or not hasattr(app.state, "metrics"):
-        app.state.metrics = metrics or MetricsCollector()
+        app.state.metrics = metrics if metrics is not None else MetricsCollector()
     if quota_manager is not None or not hasattr(app.state, "quota_manager"):
-        app.state.quota_manager = quota_manager or QuotaManager()
+        app.state.quota_manager = (
+            quota_manager if quota_manager is not None else QuotaManager()
+        )
 
 
 def get_config(request: Request) -> Settings:

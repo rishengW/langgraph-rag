@@ -5,7 +5,7 @@ This runbook is the release-blocking procedure for the supported internal produc
 ## Scope and safety invariants
 
 - Run exactly one chat worker and one replica while SQLite, Chroma, uploads, artifacts, checkpoints, or process-local locks remain authoritative. Never attach two writers to the persistent volume.
-- Keep the inbound MCP server in its separate process. Outbound MCP clients are separate dependencies and must not be activated implicitly.
+- Outbound MCP clients are separate dependencies and must not be activated implicitly.
 - Keep all authoritative local state under one protected, encrypted persistent-volume root. Restrict it to the service identity.
 - Store secret references in configuration and evidence, never secret values. Resolve values only through the approved runtime provider.
 - Use immutable image digests, a restricted maintenance window, restricted ingress/egress, and an authenticated administrative boundary.
@@ -27,7 +27,6 @@ python -m pytest --tb=short \
   tests/test_sessions.py::test_sqlite_storage_round_trips_metadata \
   tests/test_sessions.py::test_registry_restores_session_from_metadata \
   tests/test_sessions.py::test_sqlite_memory_saver_restores_graph_state_after_reopen \
-  tests/test_mcp_server.py::test_graceful_shutdown_stops_readiness_and_is_bounded
 ruff check src/deployment tests/test_production_release_gate.py
 ruff format --check src/deployment tests/test_production_release_gate.py
 mypy src/
@@ -62,10 +61,10 @@ A valid result is a bounded JSON summary with `status` equal to `passed`, the re
 **Procedure**
 
 1. Enter the approved maintenance window and mark readiness false or remove the instance from ingress.
-2. Drain requests within the configured grace period, stop the prior chat and inbound MCP processes, and confirm no writer retains the volume. Do not use blue/green writers against local state.
-3. Start the candidate digest as one chat process and, if enabled, one separately launched inbound MCP process.
+2. Drain requests within the configured grace period, stop the prior chat process, and confirm no writer retains the volume. Do not use blue/green writers against local state.
+3. Start the candidate digest as one chat process.
 4. Confirm public `/health` is live and `/ready` is ready. Through the restricted authenticated route, confirm required dependency health without copying details into public evidence.
-5. Invoke one authenticated QA request and one controlled chat/session request. If MCP is enabled, list tools and confirm only the configured subset of `rag_ask` and `rag_web_search_answer` is advertised.
+5. Invoke one authenticated QA request and one controlled chat/session request.
 6. Verify logs/audit events are correlated and contain no credential, question, source-content, or secret marker.
 
 **Pass criteria:** one candidate instance serves; readiness and smoke checks pass; state uses the intended volume; auth and tool surface fail closed. Otherwise execute rollback.
@@ -87,7 +86,7 @@ Use a platform volume snapshot when available. The portable file-copy rehearsal 
 ```bash
 # STATE_ROOT and EVIDENCE_DIR are operator-controlled, protected paths.
 test -n "$STATE_ROOT" && test -n "$EVIDENCE_DIR"
-# Stop/drain chat, QA, inbound MCP, and every maintenance process that can mutate state.
+# Stop/drain the chat process and every maintenance process that can mutate state.
 ( cd "$STATE_ROOT" && find . -type f -print0 | sort -z | xargs -0 sha256sum ) \
   > "$EVIDENCE_DIR/state-files.sha256"
 tar --xattrs --acls -C "$STATE_ROOT" -czf "$EVIDENCE_DIR/state.tgz" .
@@ -123,7 +122,7 @@ Put the SHA-256 of `state-files.sha256` in both `backup_sha256` and `restore_sha
 
 1. Inventory applicable references: `API_KEY` injection, the environment variable named by `MCP_AUTH_SECRET_ENV`, and each outbound `authorization_secret_ref`. Record provider/identifier pairs only.
 2. Create a new secret-provider version without changing the persisted reference object. Do not place either value in configuration, evidence, shell arguments, tickets, logs, or health output.
-3. In the maintenance window, inject the new runtime version and restart/reload only the owning bounded context. Do not start outbound clients while rotating inbound MCP.
+3. In the maintenance window, inject the new runtime version and restart/reload only the owning bounded context.
 4. Verify the new credential succeeds, the prior credential receives the same sanitized authentication failure as any invalid credential, and unauthenticated production HTTP remains rejected.
 5. Search bounded logs/audit output for a non-secret rotation correlation ID, not for the credential itself. Revoke the old provider version after validation.
 6. Revert to the prior provider version and stop the rollout if new authentication or dependency readiness fails; record only version references.
@@ -137,7 +136,7 @@ Perform the outage with network policy or a controlled unavailable test endpoint
 1. Deny one optional outbound MCP provider. Publish/reload the catalog and confirm the provider's complete tool set is omitted atomically, public readiness is bounded and degraded, and unaffected required tools still work.
 2. Restore the optional provider and confirm a new complete catalog generation becomes ready; active calls retain their starting generation until completion.
 3. Deny one required provider in an isolated startup/reload rehearsal. Confirm startup/publication fails atomically or retains the previous generation, with no partial tool set.
-4. Confirm inbound MCP and FastAPI lifecycles do not implicitly start or restart the outbound client. A separate outbound outage must not change the canonical inbound tool surface.
+4. Confirm the FastAPI lifecycle does not implicitly start or restart the outbound client. A separate outbound outage must not change the chat tool surface.
 5. Verify timeout, reconnect, cancellation, and shutdown remain bounded and raw provider errors or credentials do not reach public responses/logs.
 
 **Pass criteria:** optional failure is explicit degradation with dependent tools omitted; required failure never publishes partial capability; recovery publishes one validated generation.

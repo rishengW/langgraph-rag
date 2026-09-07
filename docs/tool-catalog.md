@@ -1,6 +1,6 @@
 # Immutable Tool Catalog and Policy Boundary
 
-Phase 3 centralizes agent-visible tools under `src/backend/mcp` without enabling outbound MCP. The inbound MCP server remains a separate adapter and keeps its canonical bounded execution path.
+Phase 3 centralizes agent-visible tools under `src/backend/mcp` without enabling outbound MCP.
 
 ## Catalog lifecycle
 
@@ -18,7 +18,7 @@ Both graph builders call one provider composition. The full graph contributes th
 
 `ToolExecutionPipeline` preserves the LangChain `BaseTool` contract for sync and async tools and applies: authorization, input validation, deadline/concurrency limits, invocation, output bounds, redaction, audit, and outcome metrics. Principal/tenant allowlists and risk classes are immutable policy inputs. Errors and audit outcomes are stable and sanitized; arguments and results are never placed in audit metadata.
 
-Canonical inbound MCP tools can mark `canonical_inbound_mcp_tool` metadata to avoid double wrapping. Session editor factories remain responsible for filesystem confinement and receive only the existing session root and trusted thread ID.
+MCP-provided tools can mark `canonical_inbound_mcp_tool` metadata to avoid double wrapping. Session editor factories remain responsible for filesystem confinement and receive only the existing session root and trusted thread ID.
 
 ## Telemetry
 

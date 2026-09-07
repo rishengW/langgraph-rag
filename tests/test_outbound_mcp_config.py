@@ -23,7 +23,6 @@ from src.backend.mcp import (
     SecretResolver,
 )
 from src.errors import ConfigurationError
-from src.frontend.adapters.mcp_server.config import load_mcp_settings
 
 
 def _document(*, enabled: bool = True, secret_reference: object | None = None) -> dict[str, object]:
@@ -59,11 +58,9 @@ def test_outbound_config_is_explicit_and_separate_from_inbound(
     monkeypatch.delenv("MCP_ENABLED", raising=False)
     monkeypatch.setenv("OUTBOUND_MCP_CONFIG_FILE", str(path))
     monkeypatch.setenv("OUTBOUND_MCP_ENABLED", "true")
-    inbound = load_mcp_settings(env_file="missing.env", config_file=None)
 
     assert outbound.enabled is True
     assert [server.name for server in outbound.servers] == ["approved_docs"]
-    assert inbound.enabled is False
 
 
 def test_outbound_enablement_fails_closed_without_a_dedicated_document() -> None:

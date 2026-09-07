@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import importlib
-import sys
 from threading import Lock
 from types import SimpleNamespace
 
@@ -28,7 +26,7 @@ from src.backend.graph.nodes.planning import (
     route_after_self_critique,
     route_subgoals,
 )
-from src.backend.tools.web_search import build_web_search_tool
+from src.backend.tools.live_web_search import build_web_search_tool
 
 
 @tool
@@ -407,17 +405,6 @@ def test_planning_remains_default_off_in_both_graphs(isolated_settings):
     assert "planner" not in lightweight_nodes
     assert "answer_self_critique" not in lightweight_nodes
     assert "fallback_answer" in lightweight_nodes
-
-
-def test_legacy_web_search_tool_import_is_compatible():
-    canonical = importlib.import_module("src.backend.tools.web_search")
-    sys.modules.pop("src.backend.web_search.tool", None)
-
-    with pytest.warns(DeprecationWarning, match="src.backend.web_search.tool is deprecated"):
-        legacy = importlib.import_module("src.backend.web_search.tool")
-
-    assert legacy.build_web_search_tool is canonical.build_web_search_tool
-    assert legacy.WebSearchInput is canonical.WebSearchInput
 
 
 def test_failed_dependency_plan_exits_without_dispatch_deadlock():

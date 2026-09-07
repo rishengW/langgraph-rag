@@ -40,7 +40,7 @@ def __getattr__(name: str) -> Any:
     """Lazily expose legacy tool symbols from their canonical package."""
 
     if name in _TOOL_EXPORTS:
-        from ..tools import web_search as tool_module
+        from ..tools import live_web_search as tool_module
 
         return getattr(tool_module, name)
     raise AttributeError(name)

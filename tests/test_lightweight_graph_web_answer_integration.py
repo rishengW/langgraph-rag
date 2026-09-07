@@ -77,7 +77,7 @@ def test_web_answer_fetches_state_urls_and_invokes_llm(monkeypatch, isolated_set
             "timeout": 7,
             "max_tokens_per_page": 321,
             "cache_ttl_seconds": 11,
-            "max_concurrent_loads": 4,
+            "max_concurrent_loads": 8,
             "min_readable_chars": 200,
             "min_readable_tokens": 50,
             "relevance_query": "What changed?",
@@ -878,7 +878,7 @@ def test_build_lightweight_graph_uses_fallback_when_no_readable_content(
     # intermediate web-answer refusal.
     import src.backend.web_search.content_fetcher as content_fetcher_module
     import src.backend.web_search.prompt_builder as prompt_builder_module
-    from src.backend.web_search.tool import build_web_search_tool
+    from src.backend.tools.live_web_search import build_web_search_tool
 
     settings = isolated_settings()
 
@@ -974,7 +974,7 @@ def test_build_lightweight_graph_grounded_refusal_cannot_start_a_third_search(
     # refusal must terminate without re-entering the agent.
     import src.backend.web_search.content_fetcher as content_fetcher_module
     import src.backend.web_search.prompt_builder as prompt_builder_module
-    from src.backend.web_search.tool import build_web_search_tool
+    from src.backend.tools.live_web_search import build_web_search_tool
 
     settings = isolated_settings()
 

@@ -58,12 +58,18 @@ const newChatBtn = document.getElementById("newChatBtn");
 const fileInput = document.getElementById("fileInput");
 const attachBtn = document.getElementById("attachBtn");
 const attachments = document.getElementById("attachments");
+const startAttachments = document.getElementById("startAttachments");
+const startAttachBtn = document.getElementById("startAttachBtn");
 
 let threadId = null;
 let pending = false;
 // Files currently shown as chips in the input strip; snapshots of these ride
 // on the outgoing user bubble when a message is sent.
 let currentAttachments = [];
+// Source metadata captured when a session is created lazily (a file is
+// attached from the start screen before "Start chat" is clicked) so the start
+// button can reuse that session without a second POST /chat.
+let pendingThreadSource = null;
 let chatConfigCache = null;
 let chatConfigPromise = null;
 let amapLoadPromise = null;
@@ -317,11 +323,18 @@ function renderFinalAssistantBubble(bubble, content) {
 }
 
 function showError(msg) {
-    errorBanner.textContent = msg;
-    errorBanner.classList.remove("hidden");
+    // Surface errors on whichever screen is currently visible: the start
+    // screen has its own error line, the chat screen uses the error banner.
+    if (!startScreen.classList.contains("hidden")) {
+        startError.textContent = msg;
+    } else {
+        errorBanner.textContent = msg;
+        errorBanner.classList.remove("hidden");
+    }
 }
 
 function clearError() {
+    startError.textContent = "";
     errorBanner.textContent = "";
     errorBanner.classList.add("hidden");
 }
@@ -1139,14 +1152,34 @@ startBtn.addEventListener("click", async () => {
     startBtn.textContent = "Starting chat...";
 
     try {
-        const data = await apiPost("/chat", {
-            seed_question: seed || null,
-        });
-        threadId = data.thread_id;
-        localStorage.setItem(STORAGE_KEY, threadId);
-        clearTranscript();
-        clearError();
-        renderSessionInfo(data.source_urls, data.source_mode);
+        let sourceUrls;
+        let sourceMode;
+        if (threadId) {
+            // A session already exists — created lazily when the user attached
+            // files from the start screen. Reuse it instead of starting a new
+            // one (which would orphan those uploaded files under the old id).
+            clearTranscript();
+            clearError();
+            if (pendingThreadSource) {
+                sourceUrls = pendingThreadSource.source_urls;
+                sourceMode = pendingThreadSource.source_mode;
+            } else {
+                const history = await apiGet(`/chat/${threadId}/history`);
+                sourceUrls = history.source_urls;
+                sourceMode = history.source_mode;
+            }
+        } else {
+            const data = await apiPost("/chat", {
+                seed_question: seed || null,
+            });
+            threadId = data.thread_id;
+            localStorage.setItem(STORAGE_KEY, threadId);
+            clearTranscript();
+            clearError();
+            sourceUrls = data.source_urls;
+            sourceMode = data.source_mode;
+        }
+        renderSessionInfo(sourceUrls, sourceMode);
         showChat();
 
         // If the user typed a topic, send it as the first message automatically.
@@ -1244,6 +1277,10 @@ async function sendMessage(text) {
     currentAttachments = [];
     attachments.innerHTML = "";
     attachments.classList.add("hidden");
+    if (startAttachments) {
+        startAttachments.innerHTML = "";
+        startAttachments.classList.add("hidden");
+    }
     appendTurn("user", trimmed, { attachments: sentAttachments });
     messageInput.value = "";
     autoresize();
@@ -1593,17 +1630,22 @@ function buildFileChip(file, { removable = true } = {}) {
 
 function renderAttachmentChips(files, errors) {
     currentAttachments = Array.from(files || []);
-    attachments.innerHTML = "";
-    for (const f of files || []) {
-        attachments.appendChild(buildFileChip(f));
-    }
-    for (const err of errors || []) {
-        const chip = document.createElement("span");
-        chip.className = "chip error";
-        chip.textContent = err;
-        attachments.appendChild(chip);
-    }
-    attachments.classList.toggle("hidden", attachments.childElementCount === 0);
+    const renderInto = (container) => {
+        if (!container) return;
+        container.innerHTML = "";
+        for (const f of files || []) {
+            container.appendChild(buildFileChip(f));
+        }
+        for (const err of errors || []) {
+            const chip = document.createElement("span");
+            chip.className = "chip error";
+            chip.textContent = err;
+            container.appendChild(chip);
+        }
+        container.classList.toggle("hidden", container.childElementCount === 0);
+    };
+    renderInto(attachments);
+    renderInto(startAttachments);
 }
 
 async function deleteAttachment(file, closeBtn) {
@@ -1628,15 +1670,56 @@ async function deleteAttachment(file, closeBtn) {
     }
 }
 
+function setAttachDisabled(disabled) {
+    attachBtn.disabled = disabled;
+    if (startAttachBtn) startAttachBtn.disabled = disabled;
+}
+
+// The upload endpoint is per-session, so attaching a file requires a chat
+// thread to exist. When the user attaches from the start screen (before
+// "Start chat" has created one), lazily create the session now. Returns true
+// on success (threadId is set), false on failure (error already shown).
+async function ensureThread() {
+    if (threadId) return true;
+    try {
+        const data = await apiPost("/chat", { seed_question: null });
+        threadId = data.thread_id;
+        localStorage.setItem(STORAGE_KEY, threadId);
+        pendingThreadSource = {
+            source_urls: data.source_urls || [],
+            source_mode: data.source_mode,
+        };
+        // Reveal the top-right "New chat" control so an eagerly created
+        // session can be discarded without leaving the start screen.
+        sessionControls.classList.remove("hidden");
+        return true;
+    } catch (err) {
+        showError(`Could not start chat: ${err.message}`);
+        return false;
+    }
+}
+
 async function uploadFiles(fileList) {
-    if (!threadId || !fileList || !fileList.length) return;
+    if (!fileList || !fileList.length) return;
+
+    // Lazily create a session the first time a file is attached from the
+    // start screen; subsequent uploads (and "Start chat") reuse it.
+    if (!threadId) {
+        setAttachDisabled(true);
+        const ok = await ensureThread();
+        setAttachDisabled(false);
+        if (!ok) {
+            fileInput.value = "";
+            return;
+        }
+    }
 
     const form = new FormData();
     for (const file of fileList) {
         form.append("files", file, file.name);
     }
 
-    attachBtn.disabled = true;
+    setAttachDisabled(true);
     try {
         const res = await fetch(`${API}/chat/${threadId}/upload`, {
             method: "POST",
@@ -1658,12 +1741,15 @@ async function uploadFiles(fileList) {
     } catch (err) {
         showError(`Upload failed: ${err.message}`);
     } finally {
-        attachBtn.disabled = false;
+        setAttachDisabled(false);
         fileInput.value = "";
     }
 }
 
 attachBtn.addEventListener("click", () => fileInput.click());
+if (startAttachBtn) {
+    startAttachBtn.addEventListener("click", () => fileInput.click());
+}
 fileInput.addEventListener("change", () => uploadFiles(fileInput.files));
 
 function autoresize() {
@@ -1684,11 +1770,16 @@ newChatBtn.addEventListener("click", async () => {
     }
     localStorage.removeItem(STORAGE_KEY);
     threadId = null;
+    pendingThreadSource = null;
     clearTranscript();
     clearError();
     if (attachments) {
         attachments.innerHTML = "";
         attachments.classList.add("hidden");
+    }
+    if (startAttachments) {
+        startAttachments.innerHTML = "";
+        startAttachments.classList.add("hidden");
     }
     currentAttachments = [];
     seedField.value = "";

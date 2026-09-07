@@ -66,6 +66,14 @@ Install runtime dependencies:
 python -m pip install -r requirements.txt
 ```
 
+Or with [uv](https://docs.astral.sh/uv/):
+
+```powershell
+uv venv .venv
+.\.venv\Scripts\Activate.ps1
+uv pip install -r requirements.txt
+```
+
 Playwright is included in the runtime requirements. Install its Chromium binary only if you enable `WEB_SEARCH_JS_FALLBACK_ENABLED` (the browser retry is skipped silently without it):
 
 ```powershell

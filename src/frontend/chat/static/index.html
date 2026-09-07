@@ -50,11 +50,8 @@
             letter-spacing: 0.04em;
             line-height: 1.2;
             padding-bottom: 0.12em;
-            background: linear-gradient(90deg, #ec4899, #8b5cf6, #3b82f6, #10b981, #f59e0b);
-            background-clip: text;
-            -webkit-background-clip: text;
-            color: transparent;
-            filter: drop-shadow(0 2px 5px rgba(99, 102, 241, 0.22));
+            color: #00aff0;
+            filter: drop-shadow(0 2px 5px rgba(0, 175, 240, 0.28));
         }
 
         .start-screen,
@@ -313,23 +310,29 @@
             gap: 12px;
             padding: 8px 8px 0;
         }
+        #startAttachments { justify-content: center; }
+        .start-actions { display: flex; justify-content: center; }
+        .btn-attach { display: inline-flex; align-items: center; gap: 6px; }
+        .btn-attach svg { width: 16px; height: 16px; }
         .file-chip {
             position: relative;
             display: flex;
             align-items: center;
             gap: 12px;
+            flex: none;
             background: #f5f6f8;
             border: 1px solid #eceef2;
             border-radius: 12px;
-            padding: 9px 20px 9px 10px;
+            padding: 9px 32px 9px 10px;
             max-width: 320px;
         }
         .file-chip__close {
             position: absolute;
-            top: -8px;
-            right: -8px;
-            width: 20px;
-            height: 20px;
+            top: 50%;
+            right: 7px;
+            transform: translateY(-50%);
+            width: 18px;
+            height: 18px;
             padding: 0;
             display: flex;
             align-items: center;
@@ -350,7 +353,7 @@
             color: #b91c1c;
         }
         .file-chip__close:active {
-            transform: scale(0.92);
+            transform: translateY(-50%) scale(0.92);
         }
         .file-chip__close:disabled {
             cursor: default;
@@ -403,7 +406,8 @@
             border-color: #fecaca;
             color: #991b1b;
         }
-        #attachBtn { font-size: 16px; line-height: 1; }
+        #attachBtn { line-height: 0; }
+        #attachBtn svg { width: 20px; height: 20px; display: block; }
 
         /* Non-removable chips rendered on a sent user bubble: trim the space
            the close button occupied in the input strip. */
@@ -621,6 +625,20 @@
                 <div class="help-text">Just start typing — the assistant will decide when to search the web for the best answer.</div>
             </div>
 
+            <div id="startAttachments" class="attachments hidden"></div>
+            <div class="start-actions">
+                <button id="startAttachBtn" class="btn-ghost btn-attach" type="button"
+                    title="Attach .txt, .md, .csv, .docx, .xlsx, .pptx, or .pdf files"
+                    aria-label="Attach files">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14" />
+                    </svg>
+                    <span>Attach files</span>
+                </button>
+            </div>
+
             <button id="startBtn" class="btn-primary" type="button">Start chat</button>
             <div id="startError" class="help-text" style="color:#991b1b;"></div>
         </section>
@@ -635,7 +653,14 @@
                 <div id="attachments" class="attachments hidden"></div>
                 <div class="composer">
                     <button id="attachBtn" class="btn-ghost" type="button"
-                        title="Attach .txt, .md, .csv, .docx, .xlsx, .pptx, or .pdf files">📎</button>
+                        title="Attach .txt, .md, .csv, .docx, .xlsx, .pptx, or .pdf files"
+                        aria-label="Attach files">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 5v14M5 12h14" />
+                        </svg>
+                    </button>
                     <textarea id="messageInput" placeholder="Ask a follow-up..." rows="1"></textarea>
                     <button id="stopBtn" class="btn-ghost hidden" type="button" disabled
                         aria-label="Stop generating the current reply">Stop</button>
@@ -646,6 +671,6 @@
         </section>
     </div>
 
-    <script src="/static/script.js?v=19"></script>
+    <script src="/static/script.js?v=20"></script>
 </body>
 </html>

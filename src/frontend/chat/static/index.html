@@ -405,6 +405,25 @@
         }
         #attachBtn { font-size: 16px; line-height: 1; }
 
+        /* Non-removable chips rendered on a sent user bubble: trim the space
+           the close button occupied in the input strip. */
+        .file-chip--static { padding-right: 10px; }
+
+        /* Attachments sent with a user message stack above that message's
+           bubble, aligned to the right edge of the (right-aligned) turn. */
+        .turn.has-attachments {
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 6px;
+        }
+        .turn-attachments {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+            max-width: 100%;
+        }
+
         .error-banner {
             background: #fef2f2;
             border: 1px solid #fecaca;
@@ -627,6 +646,6 @@
         </section>
     </div>
 
-    <script src="/static/script.js?v=18"></script>
+    <script src="/static/script.js?v=19"></script>
 </body>
 </html>

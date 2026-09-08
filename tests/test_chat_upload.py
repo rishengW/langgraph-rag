@@ -630,6 +630,36 @@ def test_create_text_artifact_download_and_cleanup(
         assert not session_root.exists()
 
 
+def test_upload_returns_all_session_files_after_sequential_uploads(
+    monkeypatch, isolated_settings, tmp_path
+):
+    # Regression: the upload response used to list only the files in the
+    # current request, so the client (which clears and re-renders the chip
+    # strip from `data.files`) would drop chips from earlier uploads — the
+    # newest chip appeared to replace/overlap the older one. The response
+    # must mirror the DELETE endpoint and return the cumulative session list.
+    client, _ = _client(monkeypatch, isolated_settings, tmp_path)
+    with client:
+        thread_id = _start_thread(client)
+
+        first = client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("notes.txt", b"first file", "text/plain")},
+        )
+        assert first.status_code == 200
+        assert [f["filename"] for f in first.json()["files"]] == ["notes.txt"]
+
+        second = client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("todo.txt", b"second file", "text/plain")},
+        )
+        assert second.status_code == 200
+        assert [f["filename"] for f in second.json()["files"]] == [
+            "notes.txt",
+            "todo.txt",
+        ]
+
+
 def test_delete_upload_removes_file_and_returns_remaining(
     monkeypatch, isolated_settings, tmp_path
 ):

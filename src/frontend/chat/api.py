@@ -959,9 +959,28 @@ def create_app(
             results = await asyncio.gather(*(process_upload(upload) for upload in files))
         finally:
             lease.release()
-        saved = [uploaded for uploaded, _ in results if uploaded is not None]
         errors = [error for _, error in results if error is not None]
-        return UploadResponse(thread_id=thread_id, files=saved, errors=errors)
+        # Return the session's full file list (filesystem = source of truth) so
+        # the client can re-render the whole attachment strip. This mirrors the
+        # DELETE endpoint: returning only this batch would wipe the chips from
+        # earlier uploads, so only the newest file's chip would appear.
+        remaining = await asyncio.to_thread(
+            list_session_uploads_detailed,
+            settings=settings,
+            thread_id=thread_id,
+        )
+        return UploadResponse(
+            thread_id=thread_id,
+            files=[
+                UploadedFile(
+                    filename=saved.filename,
+                    relative_path=saved.relative_path,
+                    size_bytes=saved.size_bytes,
+                )
+                for saved in remaining
+            ],
+            errors=errors,
+        )
 
     @app.get(
         "/chat/{thread_id}/files/{filename}",

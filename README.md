@@ -424,6 +424,15 @@ Start the chat web/API server:
 python -m src.frontend.chat.main serve --host 127.0.0.1 --port 8001
 ```
 
+Or with [uv](https://docs.astral.sh/uv/):
+
+```powershell
+uv run --no-sync python -m src.frontend.chat.main serve --host 127.0.0.1 --port 8001
+```
+
+(`--no-sync` is required: dependencies live in `requirements.txt`, so a plain
+`uv run` would sync `.venv` against `pyproject.toml` and remove them.)
+
 Then open `http://127.0.0.1:8001`.
 
 Use the terminal REPL:
@@ -431,6 +440,13 @@ Use the terminal REPL:
 ```powershell
 python -m src.frontend.chat.main chat --urls "https://example.com,https://another.com"
 python -m src.frontend.chat.main chat --seed-question "latest model releases 2026"
+```
+
+Or with uv:
+
+```powershell
+uv run --no-sync python -m src.frontend.chat.main chat --urls "https://example.com,https://another.com"
+uv run --no-sync python -m src.frontend.chat.main chat --seed-question "latest model releases 2026"
 ```
 
 API endpoints:

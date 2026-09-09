@@ -40,7 +40,7 @@ class Settings:
     source_urls: list[str] = field(default_factory=lambda: DEFAULT_URLS.copy())
     langchain_tracing_v2: str = "false"
     langchain_api_key: str = ""
-    langchain_project: str = "only-subcribers"
+    langchain_project: str = "only-subscribers"
     api_key: str = ""
     api_host: str = "127.0.0.1"
     api_port: int = 8000

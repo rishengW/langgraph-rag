@@ -37,6 +37,11 @@ COMPANY_READINESS_GAPS.md
 CHANGELOG.md
 PROBLEMS_DETECTED.md
 SSL_FIX.md
+MEMORY.md
+docs/code-review-web-search.md
+docs/rag-operations/edit_docx_plan.txt
+docs/claude_code_CLI_history.txt
+collect.txt
 
 # Local skill notes at any directory depth
 SKILL.md

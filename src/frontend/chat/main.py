@@ -35,7 +35,7 @@ def _print_urls(label: str, urls: Iterable[str]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the only Subcribers chat agent.")
+    parser = argparse.ArgumentParser(description="Run the only Subscribers chat agent.")
     sub = parser.add_subparsers(dest="mode", required=True, help="Operation mode")
 
     # serve

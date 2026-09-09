@@ -1,5 +1,5 @@
 /**
- * Frontend logic for the only Subcribers chat app.
+ * Frontend logic for the only Subscribers chat app.
  *
  * Talks to the FastAPI backend in src/frontend/chat/api.py:
  *   POST /chat                        -> { thread_id, source_urls, source_mode }

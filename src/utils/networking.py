@@ -8,7 +8,7 @@ from typing import Any, cast
 logger = logging.getLogger(__name__)
 
 DEFAULT_DASHSCOPE_HTTP_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
-DEFAULT_USER_AGENT = "only-subcribers/1.0"
+DEFAULT_USER_AGENT = "only-subscribers/1.0"
 
 
 def configure_ssl_from_env() -> None:

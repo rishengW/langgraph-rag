@@ -19,7 +19,7 @@ source_urls:
   - "https://help.aliyun.com/zh/pai/user-guide/llm-fine-tuning-experience?spm=5176.30275541.aillm.1.17b42f3dcoHCyA&scm=20140722.S_%E6%88%91%E8%AE%B0%E5%BE%97%E6%9C%89%E4%B8%AA%E6%96%87%E6%A1%A3%E9%A1%B5%E9%9D%A2%E4%B8%93%E9%97%A8%E5%B0%86%E5%BE%AE%E8%B0%83%E7%9A%84%E5%90%84%E4%B8%AA%E6%96%B9%E6%B3%95%E7%9A%84%E5%9C%A8%E5%93%AA%E9%87%8C%E6%B2%A1%E6%89%BE%E5%88%B0._.RL_%E6%88%91%E8%AE%B0%E5%BE%97%E6%9C%89%E4%B8%AA%E6%96%87%E6%A1%A3%E9%A1%B5%E9%9D%A2%E4%B8%93%E9%97%A8%E5%B0%86%E5%BE%AE%E8%B0%83%E7%9A%84%E5%90%84%E4%B8%AA%E6%96%B9%E6%B3%95%E7%9A%84%E5%9C%A8%E5%93%AA%E9%87%8C%E6%B2%A1%E6%89%BE%E5%88%B0-LOC_aillm-OR_chat-V_3-RC_llm"
 langchain_tracing_v2: "false"
 langchain_api_key: ""
-langchain_project: only-subcribers
+langchain_project: only-subscribers
 api_key: ""
 api_host: 127.0.0.1
 api_port: 8000

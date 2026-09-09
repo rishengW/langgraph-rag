@@ -1,4 +1,4 @@
-"""FastAPI application for the only Subcribers chat agent.
+"""FastAPI application for the only Subscribers chat agent.
 
 Endpoints
 ---------
@@ -646,8 +646,8 @@ def create_app(
             await cleanup()
 
     app = FastAPI(
-        title="only Subcribers Chat API",
-        description="Multi-turn chat API on top of the only Subcribers RAG engine",
+        title="only Subscribers Chat API",
+        description="Multi-turn chat API on top of the only Subscribers RAG engine",
         version="1.0.0",
         lifespan=lifespan,
     )
@@ -669,7 +669,7 @@ def create_app(
         index = static_dir / "index.html"
         if index.exists():
             return FileResponse(index, media_type="text/html")
-        return {"message": "only Subcribers Chat API - POST /chat to start"}
+        return {"message": "only Subscribers Chat API - POST /chat to start"}
 
     @app.get("/health")
     async def health() -> JSONResponse:

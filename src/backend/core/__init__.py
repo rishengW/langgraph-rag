@@ -1,4 +1,4 @@
-"""Shared engine for the only Subcribers project.
+"""Shared engine for the only Subscribers project.
 
 Houses configuration, embeddings, the LangGraph workflow, retriever, web
 search helpers, and graph state. The chatbot app (``src.frontend.chat``) and the

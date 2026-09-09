@@ -1,0 +1,1802 @@
+﻿{
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\pdf_loader.cpython-311.pyc":  {
+                                                                                                 "len":  7159,
+                                                                                                 "mtime":  "2026-09-07T11:39:31",
+                                                                                                 "sha":  "3C3E5B7A21C5FEE25F1AE83344F04A84CD4C310E2337AC9ACC5E87DA82176D65"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\zip_file.py":  {
+                                                                "len":  9193,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "6421D06115C160822F8F8193D93E7E891A091EBA88A350193FDCB1E04A59B266"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\discovery.cpython-311.pyc":  {
+                                                                                                "len":  28389,
+                                                                                                "mtime":  "2026-09-07T11:39:31",
+                                                                                                "sha":  "14F7E632B62094CAB5D4609A3E2BC3D1DC6432EEB21E826B8AD5BED679F49E9F"
+                                                                                            },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\rust_file.cpython-311.pyc":  {
+                                                                                           "len":  1201,
+                                                                                           "mtime":  "2026-09-08T15:38:51",
+                                                                                           "sha":  "473E975E162F3E1234D2977293AAC5865CF6950AA6E149BB3C09D34A2D8ABB9D"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\pdf_file.cpython-311.pyc":  {
+                                                                                          "len":  6557,
+                                                                                          "mtime":  "2026-09-08T15:38:50",
+                                                                                          "sha":  "10FD9D4F75DA8EE24572C95AC0148E7E61C42C10572CE9D3307A425615793EB1"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\tools\\java_file.py":  {
+                                                                 "len":  818,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "77C13C38F1390C405EB69F9599C16532E23F6868F7D7853662A89B5B5E81F148"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\_geocoding.py":  {
+                                                                  "len":  9987,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "8E33E08992D261AA46E375DBB26663B3B19F96E7283609E1B11CC84AEB95EA49"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\memory_tool.cpython-311.pyc":  {
+                                                                                             "len":  14665,
+                                                                                             "mtime":  "2026-09-08T15:38:50",
+                                                                                             "sha":  "76204CDDE7B8BAA787589FA42AEB1A6A8E9B8C4ADDA7B2EC9BB12FB671AEC55D"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\application\\__pycache__\\turn_execution.cpython-311.pyc":  {
+                                                                                                      "len":  25995,
+                                                                                                      "mtime":  "2026-09-07T11:39:32",
+                                                                                                      "sha":  "96A046DE6A8F8914D9E09A554A2448534EC411F85EEF240340B9303C29390972"
+                                                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\markdown_file.cpython-311.pyc":  {
+                                                                                               "len":  4719,
+                                                                                               "mtime":  "2026-09-08T15:38:50",
+                                                                                               "sha":  "E4FFE38EF7E1C2E28BD5E7B1151430F1A2D9E98813205416EBF5B1C416DAC639"
+                                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\lua_edit.cpython-311.pyc":  {
+                                                                                          "len":  1704,
+                                                                                          "mtime":  "2026-09-08T15:38:50",
+                                                                                          "sha":  "DC77126CDCF92405CB6A1DC2DFEFBA5C632578A238AD14354A440F727362A28D"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\core\\nodes.py":  {
+                                                            "len":  1447,
+                                                            "mtime":  "2026-09-07T11:10:11",
+                                                            "sha":  "CCA0F7BD8D5F6609E92826EB09F1F04D2690235225735F73236D56595E2D6129"
+                                                        },
+    "E:\\langgraph-rag\\src\\backend\\application\\__pycache__\\session_lifecycle.cpython-311.pyc":  {
+                                                                                                         "len":  23705,
+                                                                                                         "mtime":  "2026-09-07T11:39:32",
+                                                                                                         "sha":  "37077A6312FD32D0F3242C9841F8CDEF70F3111C9F2A15700D6EE05ED98C04C8"
+                                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\currency.cpython-311.pyc":  {
+                                                                                          "len":  4443,
+                                                                                          "mtime":  "2026-09-08T15:38:46",
+                                                                                          "sha":  "256CB678CB84E4ECE4344E21212719340FEF831DE1BA5E27B8253A16031CF16F"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\tools\\haskell_edit.py":  {
+                                                                    "len":  1327,
+                                                                    "mtime":  "2026-09-07T11:10:11",
+                                                                    "sha":  "0D3C80B772EF97D93A80D0413A6542BF73081E439E62096F506C89801B46AB65"
+                                                                },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\wikipedia_tool.cpython-311.pyc":  {
+                                                                                                "len":  7169,
+                                                                                                "mtime":  "2026-09-08T15:38:53",
+                                                                                                "sha":  "D159F81A645143E4C3C725A5A593D418C68F3F7231C2F05E4242DD4660BA4ED3"
+                                                                                            },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\javascript_edit.cpython-311.pyc":  {
+                                                                                                 "len":  1796,
+                                                                                                 "mtime":  "2026-09-08T15:38:48",
+                                                                                                 "sha":  "EED7A038F1094B6BFAEBF6A29F571332C19CE79EF498078962CDBE8CF3A4A227"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\rag\\document_loader.py":  {
+                                                                     "len":  12426,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "3BF8B13595FB604F898663D25BB89EBDBFBA73D05A28A45AA2A0CAD9F65AB206"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\r_edit.cpython-311.pyc":  {
+                                                                                        "len":  1680,
+                                                                                        "mtime":  "2026-09-08T15:38:51",
+                                                                                        "sha":  "29F1D987AB7CB12E652EDD6662289FF08905E274115CEBF3A46BF3331242D103"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\tools\\r_file.py":  {
+                                                              "len":  770,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "29AFF67B60DF1CC5BAC4CD3DF48026877EB5859A1B0761E855BADF1ABF4163F0"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\rag\\__pycache__\\hf_embeddings.cpython-311.pyc":  {
+                                                                                             "len":  1995,
+                                                                                             "mtime":  "2026-09-07T11:39:31",
+                                                                                             "sha":  "EE8070CB8EB9194592AD7D6DA9A1CD30006A9F9898C0976AE2C91A612E2A1237"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\query_prep.py":  {
+                                                                       "len":  16267,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "AF31B1A0F436CDC50D683D446CADB8A381D6AE4F6FEA1DEA37D6FBC48B9F98AD"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\tools\\memory_tool.py":  {
+                                                                   "len":  12230,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "FB5B0E5F6B17B33327E21DC9D5D0AB70E1CC996FA6C068697484005AB18D3A34"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\tools\\matlab_edit.py":  {
+                                                                   "len":  1312,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "FA88BFB3E7B041102B9A7035546B8AFB8A7FB2E10EF04209CD1C061B7B8BF791"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\tools\\linalg_tool.py":  {
+                                                                   "len":  8121,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "BC02AB387EBD8B342B2892448150EA219375FA90D009218ECA9F5D34AAD6684E"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\memory\\secrets.py":  {
+                                                                "len":  2148,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "59128E3CA457D826992F9E8BF04D2ADB4766232677BA57C5CBDDB6569574E844"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\security\\__pycache__\\identity.cpython-311.pyc":  {
+                                                                                             "len":  5235,
+                                                                                             "mtime":  "2026-09-07T11:39:32",
+                                                                                             "sha":  "CF13D3C8ED89FA0294E892DAEB77B26E0A20A2B808E35BDED4CAEDE2564ECD1D"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\protocol.py":  {
+                                                                     "len":  1267,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "527BBB46261C0E550F5636DB9877FCC70DF66AB87E979CDFBCDCBF29D8DE913A"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\playwright_loader.cpython-311.pyc":  {
+                                                                                                        "len":  4126,
+                                                                                                        "mtime":  "2026-09-07T11:39:31",
+                                                                                                        "sha":  "BFB059073487BE3D6AE8A3409C22871BC41E2E9CE3ADA6B98CC2F42216B84C9B"
+                                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\web_answer.py":  {
+                                                                         "len":  20006,
+                                                                         "mtime":  "2026-09-07T11:10:11",
+                                                                         "sha":  "FA419466F47606AFB715CE953CBC1920A1CBE47C6739EDAB357F0B60ED9BD6C3"
+                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\adapters\\__init__.py":  {
+                                                                   "len":  53,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "80C96C93818BCBF661D64C25102E1C115693D5BEA425AE8825359152115A9533"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\tools\\sql_edit.py":  {
+                                                                "len":  1287,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "6C6AE2B967D53D1C263F87CBA3C7C126A4A5625BECB2016F4A5F6EA092E9F7C4"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\directions.cpython-311.pyc":  {
+                                                                                            "len":  12640,
+                                                                                            "mtime":  "2026-09-08T15:38:46",
+                                                                                            "sha":  "748AEA2C2E834DE820472AB2645BB4D2CC7EDDA4D00EAC8848CB42667B527ECB"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\html_edit.cpython-311.pyc":  {
+                                                                                           "len":  1726,
+                                                                                           "mtime":  "2026-09-08T15:38:47",
+                                                                                           "sha":  "89990ADB4750EAFC02483B5F816D307EB5CCF9C97CAE322448AE68795EE4B89A"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\c_edit.cpython-311.pyc":  {
+                                                                                        "len":  1688,
+                                                                                        "mtime":  "2026-09-08T15:38:46",
+                                                                                        "sha":  "22405FBDA940CD8B644067C4DECA41263CF4AF64C0957EA5EE40EE97F3529972"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\rag\\hf_embeddings.py":  {
+                                                                   "len":  904,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "21736A007AB18106403B92061BEAEF94C71FCAD6234E506C471B26B214DEAF8B"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\graph\\builder.py":  {
+                                                               "len":  23933,
+                                                               "mtime":  "2026-09-07T11:10:11",
+                                                               "sha":  "DD1EE53F71D486E6EEC97A933F13EF008403010461764A4385450778A5E58AD6"
+                                                           },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                                 "len":  2140,
+                                                                                                 "mtime":  "2026-09-07T11:39:31",
+                                                                                                 "sha":  "78E5671067D539108D4C560A2C1F6CB30C306B83FCC577BB23B3A132ED1E5246"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__pycache__\\scheduler.cpython-311.pyc":  {
+                                                                                            "len":  6649,
+                                                                                            "mtime":  "2026-09-07T11:39:32",
+                                                                                            "sha":  "91DB232C2645ED0DC3D2515677CB26CB793F25F3A780C73E55301E12514E554D"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\query_constraints.cpython-311.pyc":  {
+                                                                                                        "len":  13207,
+                                                                                                        "mtime":  "2026-09-07T11:39:26",
+                                                                                                        "sha":  "65150071FC302D6EA22FF1262E91A3BDB49EE96784DEC3A7E6C1AD64F973CB6D"
+                                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\application\\rag_service.py":  {
+                                                                         "len":  8935,
+                                                                         "mtime":  "2026-09-07T11:10:11",
+                                                                         "sha":  "81AFB88D590314DC20A98E1384C52FE6DA29CCBEE204B2AB964C9149FC252CC2"
+                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\evidence.cpython-311.pyc":  {
+                                                                                               "len":  8412,
+                                                                                               "mtime":  "2026-09-07T11:39:26",
+                                                                                               "sha":  "FCBF9BF54C6E705539A305B1157EA2178BEC2FB1936E53E4BB17B21A1F54274B"
+                                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\word_file.cpython-311.pyc":  {
+                                                                                           "len":  7335,
+                                                                                           "mtime":  "2026-09-08T15:38:53",
+                                                                                           "sha":  "B4381DE422B31C24DB3487B195BE3738D1EE0EB6969ED4C12D9E101657AD40C9"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\content_fetcher.py":  {
+                                                                            "len":  29264,
+                                                                            "mtime":  "2026-09-07T11:10:11",
+                                                                            "sha":  "EAF651C7D3600B1E1F82357F48EE7AA0805094DB754A60C4B4DBF1FA2B10DC14"
+                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\models.py":  {
+                                                                 "len":  1361,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "CE688D8266F2F0D50936754B8371E7723CE66328668340F95DD16DA53B3F6BFF"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\_amap.cpython-311.pyc":  {
+                                                                                       "len":  37620,
+                                                                                       "mtime":  "2026-09-08T15:38:53",
+                                                                                       "sha":  "ABEF0B89581358627D2AEF4CF57C013ED55ACCC5E46EB9FD330A17556D11D354"
+                                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\graph\\artifacts.py":  {
+                                                                 "len":  27565,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "DCE03BBED06B52F111FFC409CAD955F571900B79BEDA67459E16857349D8CAFC"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\excel_file.py":  {
+                                                                  "len":  5804,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "5D7E5D08CF0A8E18962541FA3D078271A3773D46312C040AEED89A855ACF3A26"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\linalg_tool.cpython-311.pyc":  {
+                                                                                             "len":  13252,
+                                                                                             "mtime":  "2026-09-08T15:38:49",
+                                                                                             "sha":  "F6E25A1A07532FC32FBBB04526BE3097FDD87E6A1C7232578F08A2179CE8B954"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\matlab_file.cpython-311.pyc":  {
+                                                                                             "len":  1220,
+                                                                                             "mtime":  "2026-09-08T15:38:50",
+                                                                                             "sha":  "C603F6CBF3F45E34C6440F510F06D191B58D992A70C444C5F847755EC95F97AA"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\tools\\word_edit.py":  {
+                                                                 "len":  57148,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "6D69AE1E2313D8288943482109A08AAA526FC05F1E843D3C67202F0CC42362B5"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\text_edit.py":  {
+                                                                 "len":  28385,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "5D0DA6E9ADFE847DA37F9822F9A7DBCA13B85F56D51B622E7A94AB86BBA9F8E5"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\merge.py":  {
+                                                                    "len":  16234,
+                                                                    "mtime":  "2026-09-07T11:10:11",
+                                                                    "sha":  "9F8A0C3E4E754BA811AA13DC8CE82292F84492E0DD16068DFF436B7465400347"
+                                                                },
+    "E:\\langgraph-rag\\src\\backend\\tools\\statistics_tool.py":  {
+                                                                       "len":  4235,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "A2473539779D9D7306AC8F915A8F773D95BD27A9512EE7294121C8EF4A301C11"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\application\\__pycache__\\errors.cpython-311.pyc":  {
+                                                                                              "len":  3490,
+                                                                                              "mtime":  "2026-09-07T11:39:32",
+                                                                                              "sha":  "E5471A025DE972616FFD7B08117B91489404CBBC76AA6D29B39AF45704F199F0"
+                                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\tools\\excel_edit.py":  {
+                                                                  "len":  28701,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "EAB31677876895D43827C0333A4B8B5DEC66DEE357CD62B27C67176DC2B219CB"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\fetch_policy.py":  {
+                                                                         "len":  2952,
+                                                                         "mtime":  "2026-09-07T11:10:11",
+                                                                         "sha":  "9FB96C03D971AA12B91F10E4D45B90AE3E0322F245E14810E6FB7723B8BF3632"
+                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\julia_file.cpython-311.pyc":  {
+                                                                                            "len":  1213,
+                                                                                            "mtime":  "2026-09-08T15:38:49",
+                                                                                            "sha":  "75462C5081F93DAEA94BD80D204F567E2DA39CA347E926048BE9036D041D5CAE"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\tools\\_amap.py":  {
+                                                             "len":  27578,
+                                                             "mtime":  "2026-09-07T11:10:11",
+                                                             "sha":  "7DA178A98F6DB1D3AA4787C4C25319F697F9DFB9AE3C0AAACCA34B73173323CB"
+                                                         },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__pycache__\\models.cpython-311.pyc":  {
+                                                                                         "len":  4675,
+                                                                                         "mtime":  "2026-09-07T11:39:32",
+                                                                                         "sha":  "09E843601692770526B41B5EDB4EE6840E6D0732E9A47E9E53AA58ADF851B165"
+                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\planning.py":  {
+                                                                       "len":  27662,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "495BE6E9864E556815ED18887DC327A923F57BA019417163BB72BA3FA957C8BB"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\rag\\embeddings.py":  {
+                                                                "len":  1485,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "80C9EEA8FEBDA0EE8498AE7FCDA7CC99F23DB663BA88FEC0DF7FD53DA24DE0C7"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\__init__.py":  {
+                                                              "len":  3378,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "05295ED8B0087F087E89A643CAA6FA7C8E2D699EC63BA37B4F6DA7F242D2E8F7"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\tools\\ruby_edit.py":  {
+                                                                 "len":  1291,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "B4C084BC96BDAED6048A5F021D6D394628BD8DEF0E3351678E931F6592434802"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\__pycache__\\models.cpython-311.pyc":  {
+                                                                                           "len":  2351,
+                                                                                           "mtime":  "2026-09-07T11:39:32",
+                                                                                           "sha":  "1989A69BF3B52E0B9D8B8D5BE51F081B59E1FCC0432793A5A4030128C6AF42DF"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\rag\\chroma_retriever.py":  {
+                                                                      "len":  11599,
+                                                                      "mtime":  "2026-09-07T11:10:11",
+                                                                      "sha":  "21B338FAA7CB83646D0685E31A6D117F480CE5BAE4BE294A55BA04241E4104C7"
+                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\datetime_tool.cpython-311.pyc":  {
+                                                                                               "len":  11846,
+                                                                                               "mtime":  "2026-09-08T15:38:46",
+                                                                                               "sha":  "4F1DBFBC7379607453FDE34C7181539AF5D1C247063CB24A98607E39443045F2"
+                                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\adapters\\mcp_client\\config.py":  {
+                                                                             "len":  19638,
+                                                                             "mtime":  "2026-09-07T11:10:11",
+                                                                             "sha":  "8035E4F7D6E518A3F7FB53C33D2FD61AD2D044719FE558206C3E9320535A91C7"
+                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\__pycache__\\catalog_lifecycle.cpython-311.pyc":  {
+                                                                                                 "len":  10069,
+                                                                                                 "mtime":  "2026-09-07T11:39:31",
+                                                                                                 "sha":  "05EC8921227BA5C671C3E8DF9A99D739BA517235068D8E5A29CD4248AF5A4ABA"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\groovy_file.cpython-311.pyc":  {
+                                                                                             "len":  1235,
+                                                                                             "mtime":  "2026-09-08T15:38:47",
+                                                                                             "sha":  "58BC0FB1A7EFF3B2497E780F7BA3295BF3C3E4DCB0B0E759D81369CC8ADFB239"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\__pycache__\\checkpoint.cpython-311.pyc":  {
+                                                                                               "len":  21963,
+                                                                                               "mtime":  "2026-09-07T11:39:32",
+                                                                                               "sha":  "F6B9A0A6ECD38994F42962E7C3556BB33715EC97D27C45C33C312FDA5B1FBF6C"
+                                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\javascript_file.cpython-311.pyc":  {
+                                                                                                 "len":  1283,
+                                                                                                 "mtime":  "2026-09-08T15:38:48",
+                                                                                                 "sha":  "C09338E771745D1C620A167991EE97AF477BB2A352815B6A39994DADEEC7AD16"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\typescript_edit.cpython-311.pyc":  {
+                                                                                                 "len":  38925,
+                                                                                                 "mtime":  "2026-09-08T15:38:52",
+                                                                                                 "sha":  "505CCDDE0AAFF22304BC6892ACD356855380CE688FD06050869E987473172727"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\live_web_search.cpython-311.pyc":  {
+                                                                                                 "len":  6013,
+                                                                                                 "mtime":  "2026-09-08T15:38:49",
+                                                                                                 "sha":  "1E44EC9B52551127217A35A6D2C5A46C0396C9D1EEDE40CA35FE58208FF16A90"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\application\\__pycache__\\rag_service.cpython-311.pyc":  {
+                                                                                                   "len":  11193,
+                                                                                                   "mtime":  "2026-09-07T11:39:32",
+                                                                                                   "sha":  "728F937961B10595A645A2E7F597992E628FDDA22F95D6636FA6662FEC8D4805"
+                                                                                               },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\bing.cpython-311.pyc":  {
+                                                                                           "len":  13265,
+                                                                                           "mtime":  "2026-09-07T11:39:26",
+                                                                                           "sha":  "74E4750E95D6339E43A974830DB31589F25A81A0F19006A738C5A4331A19C579"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\memory\\serialization.py":  {
+                                                                      "len":  7957,
+                                                                      "mtime":  "2026-09-07T11:10:11",
+                                                                      "sha":  "61F7D0F6CF94A7CDF7DD1323023A585B47935A739268942EC787715C5816C349"
+                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\markdown_edit.cpython-311.pyc":  {
+                                                                                               "len":  38350,
+                                                                                               "mtime":  "2026-09-08T15:38:50",
+                                                                                               "sha":  "6EF7BD558AB562224AC9612B4AD12A3DE6E6CD1F1677BEA03F0340C2B9FF967E"
+                                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\summarize_tool.cpython-311.pyc":  {
+                                                                                                "len":  6538,
+                                                                                                "mtime":  "2026-09-08T15:38:52",
+                                                                                                "sha":  "A191CB1F20C2C55B9D967D8B1A827F25C007EC533F463BE0F684145FABE63F21"
+                                                                                            },
+    "E:\\langgraph-rag\\src\\backend\\memory\\watermark.py":  {
+                                                                  "len":  2325,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "E3434F39CA917418DB2BC961BCA9438C13C77BE611D2D2AF6D4FD2FD7793DAAC"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\tools\\log_edit.py":  {
+                                                                "len":  1280,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "C9BCCABA670CA7715B8AF07D1679D972F0F848A4A2191264B0684D4A76747BFB"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\excel_file.cpython-311.pyc":  {
+                                                                                            "len":  9961,
+                                                                                            "mtime":  "2026-09-08T15:38:47",
+                                                                                            "sha":  "F9836FF7D2E588FDCBE68A762D1260CF3137B5ECFEA924E83D6C3FFD475F2780"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\baidu.py":  {
+                                                                  "len":  8469,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "F622C07DFD139CB0D6051516F9C804062D4429020DD12731594809A6773373CF"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\tools\\_http.py":  {
+                                                             "len":  992,
+                                                             "mtime":  "2026-09-07T11:10:11",
+                                                             "sha":  "3D062DC1BC863C2D51B592925AD7A3D40EF99A33D110FDE2BBE62DF054404727"
+                                                         },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__pycache__\\relevance.cpython-311.pyc":  {
+                                                                                            "len":  6175,
+                                                                                            "mtime":  "2026-09-07T11:39:32",
+                                                                                            "sha":  "A517E9532DDB59983ECD9C7C1BC7CD80D7504FD91A424CA97AFDE9D1E838D254"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\core\\embeddings.py":  {
+                                                                 "len":  665,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "B87398C3A914145F08B508AB8F0F5FC4C9CCAD63502C6A69FB5785E054D7CDEF"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\excel_edit.cpython-311.pyc":  {
+                                                                                            "len":  37917,
+                                                                                            "mtime":  "2026-09-08T15:38:47",
+                                                                                            "sha":  "2B32655836408E8A873651F4203E57C36196DE02BD6431DD1C4D7FA770E90AFB"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\discovery.py":  {
+                                                                      "len":  22277,
+                                                                      "mtime":  "2026-09-07T11:10:11",
+                                                                      "sha":  "8EEEDFA0F769B8422F1FD9B4246C77719EE2C00D7FE5DF0592E01D4FF3B8F314"
+                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\prolog_file.cpython-311.pyc":  {
+                                                                                             "len":  1223,
+                                                                                             "mtime":  "2026-09-08T15:38:51",
+                                                                                             "sha":  "456F64BA45A689723FD422E0DF9518B45D6FA8DC286262BA50C8A926A7DAE5E2"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\catalog_lifecycle.py":  {
+                                                                       "len":  6504,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "C48E232933AD0881D83E3A87574EE81A9C010918A022B2218DE08A0DD7D21DC8"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\__pycache__\\condense.cpython-311.pyc":  {
+                                                                                                 "len":  7943,
+                                                                                                 "mtime":  "2026-09-07T11:39:31",
+                                                                                                 "sha":  "675D16113CAD698576FAA93490D50956A70A196D5A9A921031CD78DE0F94E55F"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\groovy_edit.cpython-311.pyc":  {
+                                                                                             "len":  1740,
+                                                                                             "mtime":  "2026-09-08T15:38:47",
+                                                                                             "sha":  "21705229B4488EF6EC7DECC61CDEB660F158BE28B019A5A53881BD1F68F30D32"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\_file_cache.cpython-311.pyc":  {
+                                                                                             "len":  7625,
+                                                                                             "mtime":  "2026-09-08T15:38:53",
+                                                                                             "sha":  "FA64D1BF8DEBE17C9E0212A3614CBBBCF887BD61E0526996313BBFCD1DD687E7"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\haskell_edit.cpython-311.pyc":  {
+                                                                                              "len":  1742,
+                                                                                              "mtime":  "2026-09-08T15:38:47",
+                                                                                              "sha":  "8B6BB456F021ADB8C52264C94FFEEB26AEA37A371A0C87B926D87179192C83FE"
+                                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__pycache__\\transcript.cpython-311.pyc":  {
+                                                                                             "len":  9278,
+                                                                                             "mtime":  "2026-09-07T11:39:32",
+                                                                                             "sha":  "E96C879F5CBCAAB6F5BC942B2AF04AC0176B5416FF5CB6CF9D21B43F1DADDFE9"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\llm\\__init__.py":  {
+                                                              "len":  385,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "EFCE66DD763AC9CDF23ECCF04569188CB5D262317BC2FCC6E4FD21210ABA2E96"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\tools\\javascript_file.py":  {
+                                                                       "len":  903,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "6C7CC83AB3F5BC1BA8D73B34D32871FA7E83272684D1B1801C8E6A78D53BE62A"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\__pycache__\\merge.cpython-311.pyc":  {
+                                                                                              "len":  18402,
+                                                                                              "mtime":  "2026-09-07T11:39:31",
+                                                                                              "sha":  "ADEB16471467D12EC9EA6D69D36DAFE89C3493C0F1906FAECCD699350BC015E4"
+                                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\rag\\__pycache__\\dashscope_embeddings.cpython-311.pyc":  {
+                                                                                                    "len":  5550,
+                                                                                                    "mtime":  "2026-09-07T11:39:31",
+                                                                                                    "sha":  "B92C67DBA55DE0395D981B199488AD93802BE708EAC2DC70F3BF0479D4EDBF6F"
+                                                                                                },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\pdf_loader.py":  {
+                                                                       "len":  4633,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "CC400B0BB3D00FE074F029258B731DB2C94B64FA35E8315C34E5B37F5CB1CBFE"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\ruby_file.cpython-311.pyc":  {
+                                                                                           "len":  1203,
+                                                                                           "mtime":  "2026-09-08T15:38:51",
+                                                                                           "sha":  "F8B25AFFC3BDCE4D60F5D8722EAD13DC5A180852B54C2DDCF25796B0C2089A7C"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\math_tool.cpython-311.pyc":  {
+                                                                                           "len":  11646,
+                                                                                           "mtime":  "2026-09-08T15:38:50",
+                                                                                           "sha":  "74B61D7892586C1D5168DDC4527244B3A3F4CE34EDA6534F3EB22F539F5AFAC2"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\core\\__pycache__\\web_search.cpython-311.pyc":  {
+                                                                                           "len":  5328,
+                                                                                           "mtime":  "2026-09-07T11:39:25",
+                                                                                           "sha":  "BCC5FDE644AA62E87A0698BD044B13326186B0033C0BAFA8E8D24BBA88C7846D"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\prompt_builder.py":  {
+                                                                           "len":  4994,
+                                                                           "mtime":  "2026-09-07T11:10:11",
+                                                                           "sha":  "287627AEEDA92A514B796BF62316CEE57AA18524865B802F551143C2C2A43775"
+                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\llm\\__pycache__\\sanitize.cpython-311.pyc":  {
+                                                                                        "len":  5248,
+                                                                                        "mtime":  "2026-09-07T11:39:31",
+                                                                                        "sha":  "06399D33257B4246543ACABFE69DED098081582F8F2842664B656453FD859EFF"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\core\\retriever.py":  {
+                                                                "len":  947,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "912CFD919536150B101FAA76D1ADA414EE5D339A05D0A2A9CC487EE2056ED7B9"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\latex_edit.cpython-311.pyc":  {
+                                                                                            "len":  1722,
+                                                                                            "mtime":  "2026-09-08T15:38:49",
+                                                                                            "sha":  "DB06B29E32A908AB49D54CBF05D5E79751D80F8F3A2F061434063A3C6BF0615C"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\tools\\groovy_edit.py":  {
+                                                                   "len":  1327,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "74E082E1C5AEC743AFE4CC3798721F6199612C721A16E53020CBF4C99AF9E1D3"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\tools\\java_edit.py":  {
+                                                                 "len":  1297,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "B4FC499C4ED0A2A519104A29CD3BC6AA9F04E1E57EF568B08C53402137C0F525"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\date_extractor.cpython-311.pyc":  {
+                                                                                                     "len":  10340,
+                                                                                                     "mtime":  "2026-09-07T11:39:31",
+                                                                                                     "sha":  "8581F5CDE44AEC6E02EB9E6847F934594569450843112CFC4041F690D49402E5"
+                                                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\__pycache__\\web_answer.cpython-311.pyc":  {
+                                                                                                   "len":  23910,
+                                                                                                   "mtime":  "2026-09-07T11:39:31",
+                                                                                                   "sha":  "161B90E52A894918A773633D826F4314BF90036199AAE75933E38959D120B35C"
+                                                                                               },
+    "E:\\langgraph-rag\\src\\backend\\memory\\extraction.py":  {
+                                                                   "len":  19870,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "3BFE8157EDEA4625D3FDEAE0616EE96D95FC0F1CD29CA51A585B2A230B7C67BC"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__init__.py":  {
+                                                                 "len":  3824,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "14EFA16E2DB8A99A34C9A2DB20F1BDD7A678E9D61AA7C1031B8CFA93C7F6AC3F"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\lua_file.cpython-311.pyc":  {
+                                                                                          "len":  1196,
+                                                                                          "mtime":  "2026-09-08T15:38:50",
+                                                                                          "sha":  "A974848228184CA8EABC19438B135A1C6553F17F57711CEF939519A725085689"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\__pycache__\\catalog.cpython-311.pyc":  {
+                                                                                       "len":  46636,
+                                                                                       "mtime":  "2026-09-07T11:39:31",
+                                                                                       "sha":  "018FF570012115FBCE0BB259E9988D1A36627E348F9C79F0EFF9CEB96EAAEBBA"
+                                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\tools\\csv_edit.py":  {
+                                                                "len":  36317,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "EDB950AA4B11E83B8A830BC96B9CED75E820B0CC36CFD252D569901DA19909EA"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\memory\\scheduler.py":  {
+                                                                  "len":  3832,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "CFA6281A4C8366C23941CD4978F25ABD7ADE7A8ECBD67A03930AB1DF95372578"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\recency.py":  {
+                                                                    "len":  2778,
+                                                                    "mtime":  "2026-09-07T11:10:11",
+                                                                    "sha":  "09F2664C0DD35ABC81B0FFE47E6E2371E784186D2BBDAE14302F18CD72CD99FB"
+                                                                },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\__init__.py":  {
+                                                                   "len":  707,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "92B291EAB5B114426FEF75B563F5D1FC9B9FE95BA4F19ECD35132F6874873F2E"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\latex_file.cpython-311.pyc":  {
+                                                                                            "len":  1214,
+                                                                                            "mtime":  "2026-09-08T15:38:49",
+                                                                                            "sha":  "3F6B8932E7D581C48FE11E75D9175E940935484A7733BE9F46AC93E082737655"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\tools\\directions.py":  {
+                                                                  "len":  9983,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "9F4DBBE17909761017D8A9F1637CF0812D4B749D008E4B4332D8C3FD3386155B"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\adapters\\mcp_client\\__init__.py":  {
+                                                                               "len":  2093,
+                                                                               "mtime":  "2026-09-07T11:10:11",
+                                                                               "sha":  "3306AEECEDA44C470B019D2E15168F01F85400C2DDF84BA8C13EF585ACEA3D3B"
+                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\excel_create.cpython-311.pyc":  {
+                                                                                              "len":  24701,
+                                                                                              "mtime":  "2026-09-08T15:38:46",
+                                                                                              "sha":  "E6BB29BB4282CFF019FCA0E210252D3D5D82F7F955BFEBD9B2F987214CCD829E"
+                                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\core\\__pycache__\\config.cpython-311.pyc":  {
+                                                                                       "len":  1282,
+                                                                                       "mtime":  "2026-09-07T11:39:31",
+                                                                                       "sha":  "02B63142133DEE652C6B33DC8DDC402A9430E6CF6DAF33C13E630FD12BECA695"
+                                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\log_file.cpython-311.pyc":  {
+                                                                                          "len":  1192,
+                                                                                          "mtime":  "2026-09-08T15:38:49",
+                                                                                          "sha":  "E932368D67E691AD2650DB454AA7FA161F04D9D3466BE4B6DC9347DF9BBB3598"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\storage.py":  {
+                                                                  "len":  4111,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "E7D2FDCF0ACBAA855813B7C5CBCF84228CE197F75EBAA819D8703B7377E3190D"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\tools\\json_edit.py":  {
+                                                                 "len":  28456,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "9D9F224240705E5E396A7E347EDD38D806D2A462C63100E40801F0AE602B86B3"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\go_edit.py":  {
+                                                               "len":  1267,
+                                                               "mtime":  "2026-09-07T11:10:11",
+                                                               "sha":  "C0561AB645D187421C110A7C49DF66A5B1258343C618BBCEFEB0940EE2699438"
+                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\shell_file.py":  {
+                                                                  "len":  864,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "030D93F5B16E6DF88D41DFD97C02BC4D43CA2D9E0B7D08576E0E688D7D6DA9FC"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\rag\\retriever.py":  {
+                                                               "len":  664,
+                                                               "mtime":  "2026-09-07T11:10:11",
+                                                               "sha":  "17CEB8DD6726CDB94BA9F4CF4128320CB81DEFAEB71561AAF434EC858CB5ED48"
+                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\python_edit.py":  {
+                                                                   "len":  1315,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "6AF3718C79EB8306165393A492E0C64A46ABA41AFE4ABB6C1A00BD6AAE5E8021"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\memory\\relevance.py":  {
+                                                                  "len":  3499,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "9B8AA34C753E6C45F15570B3C33347EAC4C5663DA7D7C5A3E43A194C445C75EA"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                           "len":  3804,
+                                                                                           "mtime":  "2026-09-07T11:39:32",
+                                                                                           "sha":  "6FE735C32AB39E600D51A3405C3163BFBD4D3A9C56BF7C539A71D0143AD4C4C8"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\protocol.cpython-311.pyc":  {
+                                                                                               "len":  2686,
+                                                                                               "mtime":  "2026-09-07T11:39:31",
+                                                                                               "sha":  "6204E1ADAB12AF7A7F490EDBCBFB76170CC87EE69186712C64C527A835768163"
+                                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\text_file.py":  {
+                                                                 "len":  3265,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "135DC0F570E6B740F003D6E34F337E880D5781FC60F3F010137FFB551165C92E"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\c_file.py":  {
+                                                              "len":  782,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "65B8643404B2BE0C7C8BE225EFC41B1D00C41FFE28CB0CF2949BE9DF1F6C7D77"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\__pycache__\\isolation.cpython-311.pyc":  {
+                                                                                              "len":  1212,
+                                                                                              "mtime":  "2026-09-07T11:39:32",
+                                                                                              "sha":  "0E0C18DBE6B22F66B486ED1DE3BF1974A38BD0C970E31269D07B90D703A6594E"
+                                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\tools\\rust_edit.py":  {
+                                                                 "len":  1289,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "FE73F018ABA9744CE7F84AE2B6BDFF70664BE5072AAE449AABE2A0C8223BDC08"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\checkpoint.py":  {
+                                                                     "len":  13205,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "A0BF80C6C6E064670C71E67411A0F369A47BAA129D3BBA96242F91C803EC0FDA"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\tools\\summarize_tool.py":  {
+                                                                      "len":  4920,
+                                                                      "mtime":  "2026-09-07T11:10:11",
+                                                                      "sha":  "ED267F5FAE80A1D533AB760E41DF366D6AA97ABFFA492CFF16DE2BF9790ED30E"
+                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\tools\\php_edit.py":  {
+                                                                "len":  1282,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "812E3FF4DA28D434E8BEEABB225F62FC13EF3DF1A2402057FAD924E9F6F4854D"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\__pycache__\\registry.cpython-311.pyc":  {
+                                                                                             "len":  19307,
+                                                                                             "mtime":  "2026-09-07T11:39:32",
+                                                                                             "sha":  "954ACAD2E4640F976747E42C52DED74F124895B102854AF92437D254D0CEEA8D"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\adapters\\mcp_client\\runtime.py":  {
+                                                                              "len":  25276,
+                                                                              "mtime":  "2026-09-07T11:10:11",
+                                                                              "sha":  "6769D62D0F230066E4E0058FD55B75D2D80527BE6512913618BAF92DCA56DFDB"
+                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\core\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                         "len":  568,
+                                                                                         "mtime":  "2026-09-07T11:39:25",
+                                                                                         "sha":  "8D1EC08440B57CF5BA403C060B55F676E8AEABA14F4E0293C3A53FFF2F3E1E59"
+                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\providers.py":  {
+                                                               "len":  17550,
+                                                               "mtime":  "2026-09-07T11:10:11",
+                                                               "sha":  "655DA53F49AF7D2823D3EE3D234F15650EE963B1B510CBF6B0595AAB2FD0FFF0"
+                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\php_file.cpython-311.pyc":  {
+                                                                                          "len":  1196,
+                                                                                          "mtime":  "2026-09-08T15:38:50",
+                                                                                          "sha":  "C7DA43A377C4BBBF8F64593B47A2F6B5A028DB74A56769BC38626D333AB2B773"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__pycache__\\serialization.cpython-311.pyc":  {
+                                                                                                "len":  10599,
+                                                                                                "mtime":  "2026-09-07T11:39:32",
+                                                                                                "sha":  "170B28E130A3E788A18502295066C42969F90AFF04A3D64B253DC98B1B6919E6"
+                                                                                            },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__pycache__\\recall.cpython-311.pyc":  {
+                                                                                         "len":  10288,
+                                                                                         "mtime":  "2026-09-07T11:39:32",
+                                                                                         "sha":  "81A26C6F67C66E2C0B464BC1AE02344B54B9454DBE6FAF06954F8C15E3AFEFD7"
+                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\tools\\_file_cache.py":  {
+                                                                   "len":  3436,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "7037581961F4510C58E1A07B85376D750046728B52C5D3439AC9B24D3A4AC0AA"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\factory.cpython-311.pyc":  {
+                                                                                              "len":  5734,
+                                                                                              "mtime":  "2026-09-07T11:39:31",
+                                                                                              "sha":  "09D7EB582917F3C27C3AA4EC4A535FA10EF078D63E62801AABFF1FBE4742349D"
+                                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\rag\\__pycache__\\embeddings.cpython-311.pyc":  {
+                                                                                          "len":  2643,
+                                                                                          "mtime":  "2026-09-07T11:39:31",
+                                                                                          "sha":  "D6E4571AF980BFEFCE1B68F825B8750CF91E863D258E64087A87234431D0B41B"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\shell_file.cpython-311.pyc":  {
+                                                                                            "len":  1254,
+                                                                                            "mtime":  "2026-09-08T15:38:52",
+                                                                                            "sha":  "FE332DD65B570375C4D52758FD59778109BF296053B4DD3EE7190F5BB1F22D02"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\html_file.cpython-311.pyc":  {
+                                                                                           "len":  1225,
+                                                                                           "mtime":  "2026-09-08T15:38:48",
+                                                                                           "sha":  "6F9E9DB266237DE649C89DB589FD801503C7E2C5776D2C220CC472E6B65D1196"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\swift_edit.cpython-311.pyc":  {
+                                                                                            "len":  1728,
+                                                                                            "mtime":  "2026-09-08T15:38:52",
+                                                                                            "sha":  "3F00FAD7B95BF4BC002EFB39041E2C6781E61A0310B72A6AE0C3ADFA838F7890"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\decompose.py":  {
+                                                                        "len":  9563,
+                                                                        "mtime":  "2026-09-07T11:10:11",
+                                                                        "sha":  "AE94AB58F850E56895C76DEDE3E3439F842323F38131FDB9587834326D6E828C"
+                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\catalog.py":  {
+                                                             "len":  33798,
+                                                             "mtime":  "2026-09-07T11:10:11",
+                                                             "sha":  "3F21A0D44891B34C0DDCFABBBCC3E987BA8E650EABD309F27BB1D30A4DB1DF93"
+                                                         },
+    "E:\\langgraph-rag\\src\\backend\\tools\\weather.py":  {
+                                                               "len":  8442,
+                                                               "mtime":  "2026-09-07T11:10:11",
+                                                               "sha":  "00737AFD2E4E80D2A9E4A3C1F7A8CFFEB2D97B37564912EA87069A544E39DEF6"
+                                                           },
+    "E:\\langgraph-rag\\src\\backend\\security\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                             "len":  671,
+                                                                                             "mtime":  "2026-09-07T11:39:32",
+                                                                                             "sha":  "361A8ED97709857BF81E360EA3E599B0B2266E4A5195DCC18509A0BCFE1E5C1D"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\rust_edit.cpython-311.pyc":  {
+                                                                                           "len":  1710,
+                                                                                           "mtime":  "2026-09-08T15:38:51",
+                                                                                           "sha":  "E9938BDDEC17079E09A0550B73012FBBDB3D726711B3C75FDD9DCEE5130192AE"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\log_file.py":  {
+                                                                "len":  798,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "4CF6AF073EDCB4D771970F1A079670148A281B86090F765E2E9EF74D6F44742B"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\tools\\lua_edit.py":  {
+                                                                "len":  1282,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "43E77F8508B9BF4670128D6F47BA8D7CBD606008D675646E198580E302C363E8"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\tools\\html_edit.py":  {
+                                                                 "len":  1308,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "62F2CBD4FC309D41D4B99C33C37627ACF11795D4FBB82BF1A6F2D5BDD4FA6ECD"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\application\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                                "len":  1478,
+                                                                                                "mtime":  "2026-09-07T11:39:32",
+                                                                                                "sha":  "CBF3B08FC3AA4BF639C01A41E4D70D3EB5F53701A5B858232E95B8AEFCF2E50D"
+                                                                                            },
+    "E:\\langgraph-rag\\src\\backend\\security\\identity.py":  {
+                                                                   "len":  3033,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "6FD7CFEA5050186B4350F8B67DC11E3ABE7E3E1CAD0D1E0FAA639AC4FA5F0732"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\__pycache__\\search_queries.cpython-311.pyc":  {
+                                                                                                       "len":  14519,
+                                                                                                       "mtime":  "2026-09-07T11:39:31",
+                                                                                                       "sha":  "6B9B68BDA8E9D445A60D2A17CAC01DB75813EDFDBC8FAB8555945DFE3E4D7A11"
+                                                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\tools\\powerpoint_edit.py":  {
+                                                                       "len":  20985,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "BB220423FF414E0B474202EF924578AB5EF6E67913401CF3D0EC49402DF54240"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\tools\\haskell_file.py":  {
+                                                                    "len":  846,
+                                                                    "mtime":  "2026-09-07T11:10:11",
+                                                                    "sha":  "DC09F423E45BE37022BFA14B96E2AEA8BE4C52E3DC7F16D1EB4A00F5B37D10E3"
+                                                                },
+    "E:\\langgraph-rag\\src\\backend\\tools\\wikipedia_tool.py":  {
+                                                                      "len":  4835,
+                                                                      "mtime":  "2026-09-07T11:10:11",
+                                                                      "sha":  "C4FBEBDBD4753788FBBA4F5E6C7AB133E16130F8E4C475E723EECAE60DF996FD"
+                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\word_edit.cpython-311.pyc":  {
+                                                                                           "len":  78228,
+                                                                                           "mtime":  "2026-09-08T15:38:53",
+                                                                                           "sha":  "F13F87E0C627271FB88509B893D4D53FAC3CE505E10D3FA49F7B5854FF62E6FA"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\observability.py":  {
+                                                                   "len":  18052,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "D55F6CFF58BE8B47DBD4785B58A291D01BB89E8B539FDD2C1D4FCBB3E6C5B4D0"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\application\\models.py":  {
+                                                                    "len":  3001,
+                                                                    "mtime":  "2026-09-07T11:10:11",
+                                                                    "sha":  "CBD1C2C5A2F7F34BBC7231D4019799FB73276DBFAD4A5E090D100A7BB4294F7A"
+                                                                },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\sql_file.cpython-311.pyc":  {
+                                                                                          "len":  1201,
+                                                                                          "mtime":  "2026-09-08T15:38:52",
+                                                                                          "sha":  "E9DA5AEDB6741036432A7D87970709513EBB42274D49BB2ED18A033C7C6ACDED"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\swift_file.cpython-311.pyc":  {
+                                                                                            "len":  1222,
+                                                                                            "mtime":  "2026-09-08T15:38:52",
+                                                                                            "sha":  "B4257E73CEF8811FC4D787CB5C919258BD507B265135A2FB20CA6F866360FA58"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\jsonl_edit.cpython-311.pyc":  {
+                                                                                            "len":  2501,
+                                                                                            "mtime":  "2026-09-08T15:38:48",
+                                                                                            "sha":  "95EE9DAD7C454DA018649C875BD372293CE3622E9B79A566E161F52F23BBB568"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\reputation.py":  {
+                                                                       "len":  7198,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "E131EFC55761DD2B2B47D9F4AA2E4B29A70ACC76D44D0AB4D848D4003071A4E9"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\tools\\r_edit.py":  {
+                                                              "len":  1252,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "5944D31C9C964D4253D21AC602F54176EC209E90122597E5AE62CDA47333BA69"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\tools\\c_edit.py":  {
+                                                              "len":  1261,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "F198A6B3BF850F67EBCDCDCE716B4AAE5387AB1D0132D446F683EEC96C375982"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\__pycache__\\planning.cpython-311.pyc":  {
+                                                                                                 "len":  38411,
+                                                                                                 "mtime":  "2026-09-07T11:39:31",
+                                                                                                 "sha":  "8007FF27089CCC4DD500A8A8D04C0D90C6B15721B0B01FD9D736B9D4A3BCCDF0"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\_source_edit.cpython-311.pyc":  {
+                                                                                              "len":  46752,
+                                                                                              "mtime":  "2026-09-08T15:38:53",
+                                                                                              "sha":  "D6BC56A54D0215C710D85ACDD97E775F94D01AF874E465C597D28358D56C6AC7"
+                                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\ruby_edit.cpython-311.pyc":  {
+                                                                                           "len":  1712,
+                                                                                           "mtime":  "2026-09-08T15:38:51",
+                                                                                           "sha":  "BD0AC65419172FAF7B04AEA2BF6F090B20DBD6894CFBA80B2F98B8AF04D56750"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\prompt_builder.cpython-311.pyc":  {
+                                                                                                     "len":  5209,
+                                                                                                     "mtime":  "2026-09-07T11:39:31",
+                                                                                                     "sha":  "5E0B5BB430E0D4F2FAA295D11A0C9DB00437D6D41F963BE7635C24325E256188"
+                                                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\security\\__init__.py":  {
+                                                                   "len":  491,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "D94EF49B1BD69A2E751F17C6C131899BE6372BAAC270D79DD86EAE324D5FB2EE"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\core\\graph_executor.py":  {
+                                                                     "len":  3721,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "F51ADA2C4E9D6D8A110D14536D655DFBFF187B88AC5696951AA02DA60159DB4A"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\tools\\datetime_tool.py":  {
+                                                                     "len":  8105,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "9ADA55D57F57EDC05BDD7BA2AFF5BBBA3E5A31EE0759835696376A9E4103B902"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\json_file.cpython-311.pyc":  {
+                                                                                           "len":  4716,
+                                                                                           "mtime":  "2026-09-08T15:38:49",
+                                                                                           "sha":  "2379250A3AFE2CCE56DD02F507252C0D5C7DE8058F6EAF051AEE311D71B28770"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\word_file.py":  {
+                                                                 "len":  4534,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "0A32856747815159D0FE85087743035A39198F7042E89367F0812206F8B8D4A1"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\core\\__init__.py":  {
+                                                               "len":  405,
+                                                               "mtime":  "2026-09-08T14:44:04",
+                                                               "sha":  "2ED7448FCD7C5CFF38F9C54B5260587057AB8C194A1E85292802D0B8A09849B1"
+                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\prolog_file.py":  {
+                                                                   "len":  834,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "1DB1FE4BBD272813823119A54410C673E80B7B50F772A0AF3F3448964917D0E3"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\zip_file.cpython-311.pyc":  {
+                                                                                          "len":  12455,
+                                                                                          "mtime":  "2026-09-08T15:38:53",
+                                                                                          "sha":  "5BDF7A268A646B8A1C71CF247FE4A91153F75262FE9ADF0C6C1EA8F52834F7F5"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__pycache__\\store.cpython-311.pyc":  {
+                                                                                        "len":  43485,
+                                                                                        "mtime":  "2026-09-07T11:39:32",
+                                                                                        "sha":  "464B509DC14FEF0E400879811116906280522B9834B0D9B55A6D1D299EC1E42A"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\shell_edit.cpython-311.pyc":  {
+                                                                                            "len":  1749,
+                                                                                            "mtime":  "2026-09-08T15:38:51",
+                                                                                            "sha":  "B950635320327A8982DB293F6A722A4500F2D997BC93B04B0CA4AB63B92AED68"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\rag\\__pycache__\\document_quality.cpython-311.pyc":  {
+                                                                                                "len":  16934,
+                                                                                                "mtime":  "2026-09-07T11:39:31",
+                                                                                                "sha":  "C1814A015007CA8BF345DD35D36480A6D06B47B0DDC5609777A59C61622A2C89"
+                                                                                            },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\statistics_tool.cpython-311.pyc":  {
+                                                                                                 "len":  8129,
+                                                                                                 "mtime":  "2026-09-08T15:38:52",
+                                                                                                 "sha":  "0C0F8EA7D493BF865A8195A8DFB94E2A7D580136DB1D8D4E0FC7268493546212"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\telemetry.py":  {
+                                                               "len":  4031,
+                                                               "mtime":  "2026-09-07T11:10:11",
+                                                               "sha":  "EF1669DB02429AEC3CC7E6E2FE19D05442C293F551EF91184E3424025BC404C9"
+                                                           },
+    "E:\\langgraph-rag\\src\\backend\\core\\state.py":  {
+                                                            "len":  255,
+                                                            "mtime":  "2026-09-07T11:10:11",
+                                                            "sha":  "31F5AADE879E24FD85F58BB56B857EE93F7C771FF283113B184F7117F5D77142"
+                                                        },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\r_file.cpython-311.pyc":  {
+                                                                                        "len":  1170,
+                                                                                        "mtime":  "2026-09-08T15:38:51",
+                                                                                        "sha":  "631BF569F41E7A5A972863EE5F7002DF1B7CECAFC8DE278099290DAE865AE1CC"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\graph\\__pycache__\\executor.cpython-311.pyc":  {
+                                                                                          "len":  30872,
+                                                                                          "mtime":  "2026-09-07T11:39:32",
+                                                                                          "sha":  "A14C632677D663A2CBC54B9A3E5DD0F1A009CF1C78DE09FB4F3988E4DA07BB00"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\fetch_policy.cpython-311.pyc":  {
+                                                                                                   "len":  3999,
+                                                                                                   "mtime":  "2026-09-07T11:39:31",
+                                                                                                   "sha":  "C9B6B0FBE1C75B9F0DE8BD04127A852E0BA9241CE7B22675418EE7428366D01F"
+                                                                                               },
+    "E:\\langgraph-rag\\src\\backend\\tools\\map_tool.py":  {
+                                                                "len":  7966,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "16940BA661524C6BB36EF5F4A1F96CCFC2DF29EA2E4141AD37FB5C85BB12A5F9"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\duckduckgo.py":  {
+                                                                       "len":  7762,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "11BA1C259509455321E6CE8CBDDDE2653D59043CCD3F1C80D7386765721DC367"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\semantic.py":  {
+                                                                     "len":  4997,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "B171B5FE1CA3E9B64369A353EE1370A1D92EC55D99C2C1CCB0274B4928BDB21F"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\adapters\\mcp_client\\lifecycle.py":  {
+                                                                                "len":  3168,
+                                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                                "sha":  "A4864367F842F4D1C3AE1358FC94661F0A11A50DDBE251B76E46B3A55B8CC2D0"
+                                                                            },
+    "E:\\langgraph-rag\\src\\backend\\tools\\latex_edit.py":  {
+                                                                  "len":  1304,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "8C375DC7FF0CBCDED634C5C04294AEA2FE51FC8F4D0911D756AB2FF1F60F7F08"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\tools\\rust_file.py":  {
+                                                                 "len":  808,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "AAD18353CAB524AAA24A71DB8B945CA7D9F7F81E26FF718B9B6B9833935B7FA2"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                          "len":  9432,
+                                                                                          "mtime":  "2026-09-08T15:38:53",
+                                                                                          "sha":  "E4ED4329314BEABE33CA2AAF23759E8C9042F25DE52E0909D56972B9E02F4C2F"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\reputation.cpython-311.pyc":  {
+                                                                                                 "len":  11541,
+                                                                                                 "mtime":  "2026-09-07T11:39:31",
+                                                                                                 "sha":  "1B0BBAAC5BC3289DDA0CB62A586E8D65475D954302715911CD83FE6160F2026F"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\javascript_edit.py":  {
+                                                                       "len":  1388,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "F6884A314BE321A0E8E0F755F4E8C664EEEB581554DF2C3B1B1A321A3945D6BA"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\policy.py":  {
+                                                            "len":  36851,
+                                                            "mtime":  "2026-09-07T11:10:11",
+                                                            "sha":  "BAD1330EFBFDBC9B45455693039535706F27E2C54260D183E913621F8449B904"
+                                                        },
+    "E:\\langgraph-rag\\src\\backend\\memory\\transcript.py":  {
+                                                                   "len":  7140,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "6A0716678F1426ED1AC356BE7C58882173AB6B58FA98E4E0951B01995E7BF102"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\memory\\models.py":  {
+                                                               "len":  3843,
+                                                               "mtime":  "2026-09-07T11:10:11",
+                                                               "sha":  "BF178BC577E4C5432FFCC33CDDCBC15A1C0F09526BC4304AA8FF3E9B3B54BCB3"
+                                                           },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\__pycache__\\expand.cpython-311.pyc":  {
+                                                                                               "len":  7930,
+                                                                                               "mtime":  "2026-09-07T11:39:31",
+                                                                                               "sha":  "338AD5AAF7540CAA0CA8818BA567F73DA87259FDF7E38729C5D9CEFCEF2397A0"
+                                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\rag\\__pycache__\\retriever.cpython-311.pyc":  {
+                                                                                         "len":  1555,
+                                                                                         "mtime":  "2026-09-07T11:39:31",
+                                                                                         "sha":  "E1E538F9FD2BA5CC69BDDC73E9AF5EC606CD0AA421B467DE729760256EAE4E62"
+                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\llm\\__pycache__\\provider.cpython-311.pyc":  {
+                                                                                        "len":  5539,
+                                                                                        "mtime":  "2026-09-07T11:39:31",
+                                                                                        "sha":  "046A538475AB09386BF49F33A615BDF14857E8CD620AF0E1FA786424149D7FBD"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\api_providers.cpython-311.pyc":  {
+                                                                                                    "len":  11257,
+                                                                                                    "mtime":  "2026-09-07T11:39:25",
+                                                                                                    "sha":  "FD656AE3FA897C77168CDEAEE00AE4EACA694BCC66B66ECCFCA03DBB81A1EE4A"
+                                                                                                },
+    "E:\\langgraph-rag\\src\\backend\\tools\\excel_create.mjs":  {
+                                                                     "len":  4917,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "20E3667D2947E3925EE67697DF1324A29C22C4793E80B02098A35624376CAB7D"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\fallback_answer.py":  {
+                                                                              "len":  3269,
+                                                                              "mtime":  "2026-09-07T11:10:11",
+                                                                              "sha":  "252F3B04C2A57560A207CB6BB623DA6FDA49E676FB6013BCD79457709748C66C"
+                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\core\\web_search.py":  {
+                                                                 "len":  4704,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "70E7A59586A8B44A7B6E6D872A96418522B00B74629BE80E3DEED06C51AD74DE"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\swift_file.py":  {
+                                                                  "len":  834,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "AE645652E6FFDA1A4F1C92DCD62A4FCC07AAAEB68433F6B6F24E52C411C46EEE"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\api_providers.py":  {
+                                                                          "len":  6939,
+                                                                          "mtime":  "2026-09-07T11:10:11",
+                                                                          "sha":  "6EB77DD861D53E821B105893C5DA4E75A20ABED167C7E5121A8F19B45A93AF30"
+                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__pycache__\\watermark.cpython-311.pyc":  {
+                                                                                            "len":  4119,
+                                                                                            "mtime":  "2026-09-07T11:39:32",
+                                                                                            "sha":  "C4F1A17F91D01F08354A618FC24A0E3888B8337C864385FF260B19E985C05E79"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\core\\config.py":  {
+                                                             "len":  1148,
+                                                             "mtime":  "2026-09-07T11:10:11",
+                                                             "sha":  "BED33D5FC968FA7F9C1C77D9AFF0E9DC7393DB4909AB664E5299AEA292BD8980"
+                                                         },
+    "E:\\langgraph-rag\\src\\backend\\tools\\julia_file.py":  {
+                                                                  "len":  822,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "3C02809D95354CB9C58C276A04AB37514412E10D77C2666A48245E81A4B3D755"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\php_edit.cpython-311.pyc":  {
+                                                                                          "len":  1704,
+                                                                                          "mtime":  "2026-09-08T15:38:50",
+                                                                                          "sha":  "48C9FD43D67FFF32A40900BC2B2949B0C77F850FF06CCADD14893970274847D0"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\adapters\\mcp_client\\security.py":  {
+                                                                               "len":  22896,
+                                                                               "mtime":  "2026-09-07T11:10:11",
+                                                                               "sha":  "C36C1C36409B269B8031CDABD19C6BD8F28896528850FF3CC1C5BB3EE9672362"
+                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\weather.cpython-311.pyc":  {
+                                                                                         "len":  12433,
+                                                                                         "mtime":  "2026-09-08T15:38:52",
+                                                                                         "sha":  "65381F762E83BAE82DAB93C670F2F196AF9C2FB1A991689CF5E02F04CF00E4EB"
+                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\condense.py":  {
+                                                                       "len":  5693,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "D02167126975B768CF61F5FB0BCBDF4E3562C979826E3F2915E963841DD39B60"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\benchmark.py":  {
+                                                                      "len":  17364,
+                                                                      "mtime":  "2026-09-07T11:10:11",
+                                                                      "sha":  "D23DAFACA5ECB9934F7D69FF3DF1B6E024E8E10DB968CAD11F529DBEFAD35280"
+                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\tools\\latex_file.py":  {
+                                                                  "len":  824,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "13462480B448A45DD4A180E6BB599BEECB74C65C1F22C77C414FF918A21363C9"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\tools\\prolog_edit.py":  {
+                                                                   "len":  1315,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "ED79BA5B785D8C0EE2CF65C862D27EC664AB29B4FB35C8DD776141A7C1A029E0"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\text_file.cpython-311.pyc":  {
+                                                                                           "len":  4571,
+                                                                                           "mtime":  "2026-09-08T15:38:52",
+                                                                                           "sha":  "5DB1E1CC6DDF8F56E5E2ECCA7DFB53EC17921168A8B2F4162D8A903AD9953A22"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\excel_create.py":  {
+                                                                    "len":  15363,
+                                                                    "mtime":  "2026-09-07T11:10:11",
+                                                                    "sha":  "F7DB9AC5E4FD8BF73B244982F2DCC84C4D4044CD4C0F7C40774F1FE1EDBA8A83"
+                                                                },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\java_edit.cpython-311.pyc":  {
+                                                                                           "len":  1716,
+                                                                                           "mtime":  "2026-09-08T15:38:48",
+                                                                                           "sha":  "7CE12477066D0F8E78CEC85DDFAA996B5550288B769379B85465B5CB2EFCBEF3"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\llm\\sanitize.py":  {
+                                                              "len":  4505,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "85F913940DA021FD897192AD4D59188C336218BEA24EE5A4AF5FD61D6143D1D6"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\__pycache__\\telemetry.cpython-311.pyc":  {
+                                                                                         "len":  7790,
+                                                                                         "mtime":  "2026-09-07T11:39:31",
+                                                                                         "sha":  "F5FF74E8635ECACE5C59E29AB9FD98160814BC7A940B90D1526AF3CA2411D449"
+                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\csv_edit.cpython-311.pyc":  {
+                                                                                          "len":  49886,
+                                                                                          "mtime":  "2026-09-08T15:38:46",
+                                                                                          "sha":  "C2FD503CCEEB30AC38C2C7D1EFE446A160D49F11812675A22BD673D81E96F256"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\rag\\document_quality.py":  {
+                                                                      "len":  9763,
+                                                                      "mtime":  "2026-09-07T11:10:11",
+                                                                      "sha":  "AFC0D950BEB7CAA4C579168CA1DB6889A4DD8BB033056A69E009D65C69A05344"
+                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\tools\\ruby_file.py":  {
+                                                                 "len":  810,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "E100C7F2B362362EB5703618FB23532C45DBA17A8270383C7D8F277C4831252E"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__pycache__\\extraction.cpython-311.pyc":  {
+                                                                                             "len":  26021,
+                                                                                             "mtime":  "2026-09-07T11:39:32",
+                                                                                             "sha":  "DBA5396E612217D5E8290C25600ABE5B85711CF1E5B302610F3D376BD99E0DDE"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\playwright_loader.py":  {
+                                                                              "len":  2596,
+                                                                              "mtime":  "2026-09-07T11:10:11",
+                                                                              "sha":  "DC691E96E033FEFD62F4FFE78D9A9EA66154AE3A74114B621B1F2F14CBA266E5"
+                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\web_search.cpython-311.pyc":  {
+                                                                                            "len":  6008,
+                                                                                            "mtime":  "2026-09-07T11:39:56",
+                                                                                            "sha":  "8AC10C5B933CD6C053205515CDFD07093539C5831A4C73982768DE464DF10D47"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\tools\\julia_edit.py":  {
+                                                                  "len":  1303,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "98D830E647378C581D2A1372D6996C0DF871AA9397BD1627FB5785C5CDC1876A"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\graph\\__pycache__\\builder.cpython-311.pyc":  {
+                                                                                         "len":  24161,
+                                                                                         "mtime":  "2026-09-07T11:39:31",
+                                                                                         "sha":  "E4F97145999D4537DF53C2FEC8F84AF24A1C44BA63BE121D0008D6C76A3A3DD0"
+                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\__pycache__\\providers.cpython-311.pyc":  {
+                                                                                         "len":  24148,
+                                                                                         "mtime":  "2026-09-07T11:39:31",
+                                                                                         "sha":  "645479C38BFCEEC4C785DBA5FB9BBB19C07C8D933AD06C0220EA15808AB0ACD9"
+                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\baidu.cpython-311.pyc":  {
+                                                                                            "len":  14043,
+                                                                                            "mtime":  "2026-09-07T11:39:26",
+                                                                                            "sha":  "07DD3A500F4E0E081F1C197E2B85569012E778D1AD7D99372130A1D35592F363"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\secrets.py":  {
+                                                             "len":  5903,
+                                                             "mtime":  "2026-09-07T11:10:11",
+                                                             "sha":  "764C311855CDC245C7CC1402FA9A537B94C454BCF0803CD2FCBF36BD727A6E01"
+                                                         },
+    "E:\\langgraph-rag\\src\\backend\\graph\\__pycache__\\state.cpython-311.pyc":  {
+                                                                                       "len":  4601,
+                                                                                       "mtime":  "2026-09-07T11:39:32",
+                                                                                       "sha":  "29028C9E2109281623070D0BBD6B1C83CE9750027CA70048C88CDA9601240A85"
+                                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\__pycache__\\policy.cpython-311.pyc":  {
+                                                                                      "len":  52173,
+                                                                                      "mtime":  "2026-09-07T11:39:31",
+                                                                                      "sha":  "7726D11F53822B478E5A3BA2A0FAD46C67B500630467F7B9961E39E24A0109BF"
+                                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\evidence.py":  {
+                                                                     "len":  5436,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "D5C1A9BB2AFC932D4A596A4BCDC9A0AEF57D6B065B05A6C840DBA4EDFB707FD1"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\tools\\json_file.py":  {
+                                                                 "len":  3472,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "D579751446253FF3F6929915D888C9EE1FC16F7191C7DF2AAFACC1E34B3D95F4"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\memory\\store.py":  {
+                                                              "len":  30822,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "6DEA1E0512313CC36EC136525AB747DC55C9D3F8DBAB6B973EA6BAAA3F6CC6D1"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\graph\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                          "len":  854,
+                                                                                          "mtime":  "2026-09-07T11:39:31",
+                                                                                          "sha":  "D729DD92BD0D43DB2286A4B85FBA1FFB8F23F9C4ADB999259F72B487D41E657F"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\graph\\edges.py":  {
+                                                             "len":  8198,
+                                                             "mtime":  "2026-09-07T11:10:11",
+                                                             "sha":  "A77E017EB9E7D93F16519941C93C4EA5695C9E207A82734851B2BDE6E3AC4C1A"
+                                                         },
+    "E:\\langgraph-rag\\src\\backend\\tools\\live_web_search.py":  {
+                                                                       "len":  3926,
+                                                                       "mtime":  "2026-09-08T09:33:18",
+                                                                       "sha":  "E6872E5E5A6CB2D9E38639D27B4D318467190D56F86ECADCAA4901308BC3C5AF"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\bing.py":  {
+                                                                 "len":  8004,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "4361E063207113739A08F81EF1E46C996E5E70AC1FB3E9AE1E77938705C80D66"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\application\\__pycache__\\chat_service.cpython-311.pyc":  {
+                                                                                                    "len":  10520,
+                                                                                                    "mtime":  "2026-09-07T11:39:32",
+                                                                                                    "sha":  "5584D5194EEFC45374B4538B27AA5C959D65CD5F6E4EDF4101A7AE6ED88D8383"
+                                                                                                },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\expand.py":  {
+                                                                     "len":  7634,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "7DA10E7C3C0996AE98A5A2D571B190E69676084474A2C71AA39A738CCF958F50"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\common.cpython-311.pyc":  {
+                                                                                             "len":  47166,
+                                                                                             "mtime":  "2026-09-07T11:39:26",
+                                                                                             "sha":  "18DBBE3BAD72F0CFDD698219FEDB1CD605DD2F7BB88E9A09B167EF2A2CD94CF7"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\tools\\python_file.py":  {
+                                                                   "len":  834,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "4A4D13FA25C86DC5485B43AAFD528CB8BF9A97256D267D7D41F67E1657B28A80"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\java_file.cpython-311.pyc":  {
+                                                                                           "len":  1209,
+                                                                                           "mtime":  "2026-09-08T15:38:48",
+                                                                                           "sha":  "9C35DCF98E6482513B075B23EA7CA644C0360629614EE667CC9A4383B3FFFD07"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\number_theory_tool.cpython-311.pyc":  {
+                                                                                                    "len":  7705,
+                                                                                                    "mtime":  "2026-09-08T15:38:50",
+                                                                                                    "sha":  "F85BC15E3124A5591E969E661661141D48099A124EAB30EA676413151C61C0CB"
+                                                                                                },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\_files.cpython-311.pyc":  {
+                                                                                        "len":  4382,
+                                                                                        "mtime":  "2026-09-08T15:38:53",
+                                                                                        "sha":  "F3E1772C0FEA51BFA219BDEDCC13B4B9172221B3395BE93D4D15A4889A64E660"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\__init__.py":  {
+                                                                       "len":  2161,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "E74CF0F8C6F440C4F3AD0CE99929D774B44D6DD247A8DB8BC86C6C4B37878A0F"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\search_queries.py":  {
+                                                                             "len":  10179,
+                                                                             "mtime":  "2026-09-07T11:10:11",
+                                                                             "sha":  "EDD94CD30D6A1185A6026F9349CD1E7EBC51875798B85B89A15CAC46B61A1B86"
+                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\tools\\html_file.py":  {
+                                                                 "len":  835,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "048BDE9D20D6E318AFB7D8803CC73E2F3FADBCD4F37C4B543E29AA462C502965"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\haskell_file.cpython-311.pyc":  {
+                                                                                              "len":  1233,
+                                                                                              "mtime":  "2026-09-08T15:38:47",
+                                                                                              "sha":  "50FE8C258CCF65FEEF1528730152AA06B13F05620E27573C491EF22E5B6D04E4"
+                                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\claim_consensus.py":  {
+                                                                            "len":  4924,
+                                                                            "mtime":  "2026-09-07T11:10:11",
+                                                                            "sha":  "2B2EBDBE08E18C1FB8DC7A6236086396466A0EC7D6DCF19F2A087371C20FBC18"
+                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\graph\\__pycache__\\events.cpython-311.pyc":  {
+                                                                                        "len":  9160,
+                                                                                        "mtime":  "2026-09-07T11:39:31",
+                                                                                        "sha":  "65E0CF78B40C3915B3FCFA7A923FB2BE69C527169E57BDE46BCD1ABD930FD944"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\tools\\groovy_file.py":  {
+                                                                   "len":  850,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "BF1C433CFB1A8D17FD34651F3A56174A72A44CA251339BF2D70A7A1A8CF3A652"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\page_structure.py":  {
+                                                                           "len":  5316,
+                                                                           "mtime":  "2026-09-07T11:10:11",
+                                                                           "sha":  "5F6A7EF6F9DA0C7D6B790EBB402504816C5278CD1DC70029B36AAA45C3E51810"
+                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\swift_edit.py":  {
+                                                                  "len":  1312,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "2A9D3FB527011E0E01399B0C8C918CC2B44429BE22CBE20B5F6A85E7CA47FBA3"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\llm\\provider.py":  {
+                                                              "len":  4007,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "E7079078399F1D6A7D5474321F34FAC4441CFE9EF9917E7345E276244D9CBCAE"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\__pycache__\\common.cpython-311.pyc":  {
+                                                                                               "len":  46216,
+                                                                                               "mtime":  "2026-09-07T11:39:31",
+                                                                                               "sha":  "61B4ABA6366F4A355EE890DAF4A6C489961D4F3DA3AA4BEA02773CEB0A6A1F01"
+                                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\application\\chat_service.py":  {
+                                                                          "len":  6103,
+                                                                          "mtime":  "2026-09-07T11:10:11",
+                                                                          "sha":  "285AC0B5BB26646B4E911EDB00213DE52ADA5378974D14BBF6DAAA234B4E897D"
+                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                        "len":  3185,
+                                                                                        "mtime":  "2026-09-07T11:39:31",
+                                                                                        "sha":  "28B341587C8BD5F1BCE49F193E0D1CA511645C0B27A9141C5D515A3809D2DB84"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\tools\\markdown_file.py":  {
+                                                                     "len":  3474,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "09E6E4D610C7E6CD6B591D4A739F0F447DC58FE0BC2C320DFFD0316211478E00"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\tools\\pdf_file.py":  {
+                                                                "len":  4539,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "C6815067186FD7C3CC8ED86C2BA6CA94B213D5170A479D5B84CC24F81187B90D"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\graph\\__init__.py":  {
+                                                                "len":  677,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "136EBC8D098C0FE3B2B1EBB60CCBD8EF9F8FB357832702858CAE3E65CB303003"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\factory.py":  {
+                                                                    "len":  4759,
+                                                                    "mtime":  "2026-09-07T11:10:11",
+                                                                    "sha":  "25700DF790C276DBB6C0B5EAFA55596567D85358A5C4FFB60AD2C9E47969FF20"
+                                                                },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\query_prep.cpython-311.pyc":  {
+                                                                                                 "len":  21842,
+                                                                                                 "mtime":  "2026-09-07T11:39:31",
+                                                                                                 "sha":  "DE35154717A6A8804CD9ACA5B2E6D13E6AF46C0B983E2A9FDECC932C25316381"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\go_file.py":  {
+                                                               "len":  786,
+                                                               "mtime":  "2026-09-07T11:10:11",
+                                                               "sha":  "2BE09E922970F4882B6A373C9814EE0BC90EE8EB3F4DA87469C2C0146B7B2060"
+                                                           },
+    "E:\\langgraph-rag\\src\\backend\\memory\\__pycache__\\secrets.cpython-311.pyc":  {
+                                                                                          "len":  2736,
+                                                                                          "mtime":  "2026-09-07T11:39:32",
+                                                                                          "sha":  "B8B6C0A41F14BE2936F4A003B73A2017BFCF69BBDA13B8E901AC4A07DCE46C39"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\tools\\sql_file.py":  {
+                                                                "len":  807,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "EAE5FE8B70BBF25677A00E518770828315A9840C7581602EDEFA3F8E5483DA0F"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\registry.py":  {
+                                                                   "len":  11877,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "C13B3CC3E71DE435FA27BE2A2F34C8DF2B8A8E39E847F95F0D44D046E2B8E31D"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\common.py":  {
+                                                                   "len":  39146,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "88FDBC3AE3DA9122A357A3199F55B6137FD33E64C7BA1752AB8224CC98D174B5"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\rag\\dashscope_embeddings.py":  {
+                                                                          "len":  3302,
+                                                                          "mtime":  "2026-09-07T11:10:11",
+                                                                          "sha":  "1475B386F555562C6F8F3FBF76FB4AC7D107EB5F1D353FB3DF8840E816DDF4BB"
+                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                             "len":  900,
+                                                                                             "mtime":  "2026-09-07T11:39:32",
+                                                                                             "sha":  "36041A1FB9348A76D5E25669FFF250D466FFE5E68D82D9B0DE7C3B8194A2584E"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\stock.cpython-311.pyc":  {
+                                                                                       "len":  6726,
+                                                                                       "mtime":  "2026-09-08T15:38:52",
+                                                                                       "sha":  "D9FDD5B3A48E276EB132F0141890D1197737D7298EC471B915B7DDD2869F0F3E"
+                                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\rag\\__init__.py":  {
+                                                              "len":  739,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "EB353735966EABD162EDDC702964DBC4FD4BAAB4D31256A041A5D5B9FCE7AA60"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\__pycache__\\sqlite.cpython-311.pyc":  {
+                                                                                           "len":  14436,
+                                                                                           "mtime":  "2026-09-07T11:39:32",
+                                                                                           "sha":  "E352884556B3BB639D6D8A8AA79F8251DDF7325472E40E28E8D32A069EAE8B70"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\lua_file.py":  {
+                                                                "len":  802,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "DF4D3004A90BBC4182DE4DA5DD1361B41C3393DC6A342ED2CD4245B2AB0954C5"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\semantic.cpython-311.pyc":  {
+                                                                                               "len":  8448,
+                                                                                               "mtime":  "2026-09-07T11:39:31",
+                                                                                               "sha":  "D091545170ED9718E850CF9875DA64130447E86FA590622E8396ADE2E8991A78"
+                                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\typescript_file.cpython-311.pyc":  {
+                                                                                                 "len":  4781,
+                                                                                                 "mtime":  "2026-09-08T15:38:52",
+                                                                                                 "sha":  "30E224B41169D11AF93963E7F5E9DE07236812450A1597CE6B9552DFB96F658D"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\shell_edit.py":  {
+                                                                  "len":  1331,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "D5DFF8C77BE016B43A8C8B85D0B98627B60F43BBCA85938BCB10C5FB47B7E016"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\tools\\typescript_file.py":  {
+                                                                       "len":  3561,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "122142BEAB018A3A3293FCA80E1B1602114FDDD6BF0FAC4328D3C0580979F7FC"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\application\\__pycache__\\models.cpython-311.pyc":  {
+                                                                                              "len":  6761,
+                                                                                              "mtime":  "2026-09-07T11:39:32",
+                                                                                              "sha":  "124BB474FE6226E1F32EC18455CA097C4AF24415AC250849EFED92D9190EE040"
+                                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\tools\\math_tool.py":  {
+                                                                 "len":  8647,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "64CB75BC33DDF92242726B2057FABCEA387ED4D03D9D214CB91A4F13B276FBB2"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\map_tool.cpython-311.pyc":  {
+                                                                                          "len":  11473,
+                                                                                          "mtime":  "2026-09-08T15:38:50",
+                                                                                          "sha":  "408CDA374661531A6EEC5BDA0363911C0F52434B5ABB5A9C78F528FAD8E6BA07"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\__pycache__\\secrets.cpython-311.pyc":  {
+                                                                                       "len":  9966,
+                                                                                       "mtime":  "2026-09-07T11:39:31",
+                                                                                       "sha":  "D148CF50AD0C9978A1B42B8355C9BD43C6924283F4E9603A062D0A7E5ECB6322"
+                                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\sqlite.py":  {
+                                                                 "len":  8061,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "848363CDE82AA74AE5D67DC97AD8D63327549A0DBC08FB391D86B78E08229956"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__init__.py":  {
+                                                                "len":  9677,
+                                                                "mtime":  "2026-09-08T09:33:18",
+                                                                "sha":  "FF36555F7F419258BC5CDE56C12B4C7896138DBA218F198D53B8EA6A89944AE2"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\application\\turn_execution.py":  {
+                                                                            "len":  17082,
+                                                                            "mtime":  "2026-09-07T11:10:11",
+                                                                            "sha":  "08E3186F2827EBD9020C1F105E46C96AE641708BA3E4EE2D95CB81AD1FFBAE9C"
+                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\graph\\__pycache__\\artifacts.cpython-311.pyc":  {
+                                                                                           "len":  35222,
+                                                                                           "mtime":  "2026-09-07T11:39:32",
+                                                                                           "sha":  "1A1BB20C3F7241EAD6CBF08FD346A17B8C362CB49B32B41A5DF83499C75FD406"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\json_edit.cpython-311.pyc":  {
+                                                                                           "len":  34817,
+                                                                                           "mtime":  "2026-09-08T15:38:49",
+                                                                                           "sha":  "DAC5E60AA44D5A89945D46D02E6291869D2A11BE18EE9B21F467D11869B3CD4B"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\log_edit.cpython-311.pyc":  {
+                                                                                          "len":  1702,
+                                                                                          "mtime":  "2026-09-08T15:38:49",
+                                                                                          "sha":  "991859FF7A1DF4BFCA918FECDBC01CCA2AC9B6BA21E5B6E7DA2346421B1F9814"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\tools\\currency.py":  {
+                                                                "len":  2870,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "B7C954AA069A37AD2068B632B25E0D6697C2CB2EBC7E2BBA80F1BEE2D0932877"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\tools\\_source_edit.py":  {
+                                                                    "len":  36312,
+                                                                    "mtime":  "2026-09-07T11:10:11",
+                                                                    "sha":  "C02DDF2CF1A0BD9B6686D4FBEE1D10AF89BDD1A09A663FEB83B559268EC9C50F"
+                                                                },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\_geocoding.cpython-311.pyc":  {
+                                                                                            "len":  13359,
+                                                                                            "mtime":  "2026-09-08T15:38:53",
+                                                                                            "sha":  "FDA425CBAE21A5568C1FFE3219F57BBD0E6BCB39295DEAA23BB13DE38716C889"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\security\\quotas.py":  {
+                                                                 "len":  10242,
+                                                                 "mtime":  "2026-09-07T11:10:11",
+                                                                 "sha":  "589A2F3C713A85402F8ED32B602F0208D81F6C117F8FF375417736850A2D0B21"
+                                                             },
+    "E:\\langgraph-rag\\src\\backend\\graph\\__pycache__\\metrics.cpython-311.pyc":  {
+                                                                                         "len":  8928,
+                                                                                         "mtime":  "2026-09-07T11:39:32",
+                                                                                         "sha":  "2B23E16B1743FBCFEF28FC26934AE2A44B324B6383CCBA25654BE4E7122E9B04"
+                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\sql_edit.cpython-311.pyc":  {
+                                                                                          "len":  1709,
+                                                                                          "mtime":  "2026-09-08T15:38:52",
+                                                                                          "sha":  "FF7F3460533939AA57D8884B2B7D989E5376C4D6EF300690E82DB8A477A01DD7"
+                                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\python_edit.cpython-311.pyc":  {
+                                                                                             "len":  1732,
+                                                                                             "mtime":  "2026-09-08T15:38:51",
+                                                                                             "sha":  "18D85BC61523EB2655328555117AE5DC73D54901C8B9DF4B7DA6A8C02C11FAD0"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\__pycache__\\decompose.cpython-311.pyc":  {
+                                                                                                  "len":  10857,
+                                                                                                  "mtime":  "2026-09-07T11:39:31",
+                                                                                                  "sha":  "0C7AB609A7B0E3D41E1AA453CBA46AB652E1222644FA1B7BABA6A868F605B909"
+                                                                                              },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\query_constraints.py":  {
+                                                                              "len":  9282,
+                                                                              "mtime":  "2026-09-07T11:10:11",
+                                                                              "sha":  "601AE4EEC86CB53EA6412229568D34483D94711AA534A01B2EFF81D847E3DC0F"
+                                                                          },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\prolog_edit.cpython-311.pyc":  {
+                                                                                             "len":  1732,
+                                                                                             "mtime":  "2026-09-08T15:38:51",
+                                                                                             "sha":  "50DC89DD7080A34967E418396178578FB19A1F22EC71C7D76F55CB6E35EC0F5B"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                               "len":  2519,
+                                                                                               "mtime":  "2026-09-08T10:02:01",
+                                                                                               "sha":  "5DF157BD5467C9AF9E3266FBD226AF0F4ADE072EA6F2B61F2DB0079824B9DA03"
+                                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\_http.cpython-311.pyc":  {
+                                                                                       "len":  1544,
+                                                                                       "mtime":  "2026-09-08T15:38:53",
+                                                                                       "sha":  "A27078C6C988826B309C05BCA8596DAF9B4939A84591CBB58B0E2D79F8BA4422"
+                                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\rag\\__pycache__\\document_loader.cpython-311.pyc":  {
+                                                                                               "len":  18355,
+                                                                                               "mtime":  "2026-09-07T11:39:31",
+                                                                                               "sha":  "146CAD7E090A0226DD8FE296D64CAEE13F27FED87BED36DA0A3EC4154F2D3D6D"
+                                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\markdown_edit.py":  {
+                                                                     "len":  29208,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "DD52D35BC4DD3C9C5ECC698CAC3D61EB8A6CA892084F3412FDBDEB4B0A3DCDCD"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\matlab_edit.cpython-311.pyc":  {
+                                                                                             "len":  1730,
+                                                                                             "mtime":  "2026-09-08T15:38:50",
+                                                                                             "sha":  "CD3504EBDB4245B9ECDAF96EA257B10DEDA97F9CF9672F9D559FD342E8DD77B3"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\graph\\executor.py":  {
+                                                                "len":  23584,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "A11F93695E235812AD8A8F2A938850710C7FF9B8D28557DBFA1F72598F8F4FD5"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\application\\session_lifecycle.py":  {
+                                                                               "len":  18824,
+                                                                               "mtime":  "2026-09-07T11:10:11",
+                                                                               "sha":  "C046000D7E5A1D19DF25EFADF629B7B98F9A19BD48C56713AE34F69DF8EE71C1"
+                                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\go_edit.cpython-311.pyc":  {
+                                                                                         "len":  1692,
+                                                                                         "mtime":  "2026-09-08T15:38:47",
+                                                                                         "sha":  "D1BDF111E54644DE4DD2BCDD33AC0FDC01FB599A5BB94B664A5F9F409983AF21"
+                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\application\\errors.py":  {
+                                                                    "len":  2005,
+                                                                    "mtime":  "2026-09-07T11:10:11",
+                                                                    "sha":  "00ECB25760DC921E847DE1F7D5CF0274C19B967A4FCA47C6C5DAE42B45AC9332"
+                                                                },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\isolation.py":  {
+                                                                    "len":  819,
+                                                                    "mtime":  "2026-09-07T11:10:11",
+                                                                    "sha":  "DC2478336F6DC837149ACE71BF5C78A44C7DA3F3E6B60E7C9AD0787D53B6BCE2"
+                                                                },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\julia_edit.cpython-311.pyc":  {
+                                                                                            "len":  1722,
+                                                                                            "mtime":  "2026-09-08T15:38:49",
+                                                                                            "sha":  "413338B4F657C4B80F8513A9B100C5E892D1FA679D15CBC6190677FA38FB963A"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\tools\\typescript_edit.py":  {
+                                                                       "len":  30226,
+                                                                       "mtime":  "2026-09-07T11:10:11",
+                                                                       "sha":  "FBCE4D6EBC5122BC82DBF938C9EF8CBDA6C9CFD712D24D95665641D4DDF85499"
+                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\__pycache__\\models.cpython-311.pyc":  {
+                                                                                      "len":  16395,
+                                                                                      "mtime":  "2026-09-07T11:39:31",
+                                                                                      "sha":  "61FED4F562AF684C6C173C9C1D9E0C7FA0E93FB174642028AC55D29B41E7DFE8"
+                                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\application\\__init__.py":  {
+                                                                      "len":  1381,
+                                                                      "mtime":  "2026-09-07T11:10:11",
+                                                                      "sha":  "5C0C6C246635BEAC8EC718D75E27E4EEA58DCA5ABB29075CC03C6319CBEBA533"
+                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\page_structure.cpython-311.pyc":  {
+                                                                                                     "len":  6935,
+                                                                                                     "mtime":  "2026-09-07T11:39:31",
+                                                                                                     "sha":  "92CA1FFB9CF942AE9F694FFD7A2CAD61161EC7BA2EB9CB3F69261E1C5064A936"
+                                                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\security\\__pycache__\\quotas.cpython-311.pyc":  {
+                                                                                           "len":  16488,
+                                                                                           "mtime":  "2026-09-07T11:39:32",
+                                                                                           "sha":  "061AA47610332FF000B320647284C2FDE68E55C333F2F6D9984E7684711144C5"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\graph\\state.py":  {
+                                                             "len":  4162,
+                                                             "mtime":  "2026-09-07T11:10:11",
+                                                             "sha":  "A82B2682CD1FC28EFCBCBD553560C8D07D158B950859D3196FE1A438FC4FFC29"
+                                                         },
+    "E:\\langgraph-rag\\src\\backend\\sessions\\__pycache__\\storage.cpython-311.pyc":  {
+                                                                                            "len":  7832,
+                                                                                            "mtime":  "2026-09-07T11:39:32",
+                                                                                            "sha":  "5098D01D40B69C5338B90AC4EA63D5C9C700F372C1D014AC99C64D01C0D42479"
+                                                                                        },
+    "E:\\langgraph-rag\\src\\backend\\graph\\events.py":  {
+                                                              "len":  4213,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "BA489CA1168BC0EBDB31745D889415EA5C2AFF1D8DF7C145BAB0D484D1E513F8"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\tools\\stock.py":  {
+                                                             "len":  4482,
+                                                             "mtime":  "2026-09-07T11:10:11",
+                                                             "sha":  "B4DFA120B3ED3F46AEA95CAA05D4A51D66178F686AE6DD3ED37372B649929EEB"
+                                                         },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\__pycache__\\observability.cpython-311.pyc":  {
+                                                                                             "len":  25400,
+                                                                                             "mtime":  "2026-09-07T11:39:31",
+                                                                                             "sha":  "7B18E94CC476D94535DC3F17F1A74D0F655128505992B763CF88FD0BD809F079"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\duckduckgo.cpython-311.pyc":  {
+                                                                                                 "len":  11509,
+                                                                                                 "mtime":  "2026-09-07T11:39:31",
+                                                                                                 "sha":  "2D17F4800DEB8E25FFAD81A3BDE98FFFB4BF26CE1458A20B10E4798BD9A6EB0F"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__pycache__\\content_fetcher.cpython-311.pyc":  {
+                                                                                                      "len":  33663,
+                                                                                                      "mtime":  "2026-09-07T11:39:26",
+                                                                                                      "sha":  "FEEB63BE35F031F487CFB472AEC20A23AE22CBAB48BE5373E433A288204E43E4"
+                                                                                                  },
+    "E:\\langgraph-rag\\src\\backend\\tools\\jsonl_edit.py":  {
+                                                                  "len":  1790,
+                                                                  "mtime":  "2026-09-07T11:10:11",
+                                                                  "sha":  "FFCD6E7709F6CD35AD87AC28C055F5F1467C9617AF60ABBF266B368FD5C822CD"
+                                                              },
+    "E:\\langgraph-rag\\src\\backend\\llm\\prompts.py":  {
+                                                             "len":  17518,
+                                                             "mtime":  "2026-09-07T11:10:11",
+                                                             "sha":  "5D87F008EA30CA5DCAB353CF8FDB81131AE80FC917A36D57E186814BD1A56A03"
+                                                         },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\common.py":  {
+                                                                     "len":  29207,
+                                                                     "mtime":  "2026-09-07T11:10:11",
+                                                                     "sha":  "1A9982151DDCDDFEE72B2EE19540E52F4586C7892F62D7D7DFD488004D5D48F7"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\__init__.py":  {
+                                                                     "len":  2291,
+                                                                     "mtime":  "2026-09-08T09:33:18",
+                                                                     "sha":  "D9037BA1835C775ADCDB1BDB3E270920B97B2BB670DD0D6A2B229B23BB080A42"
+                                                                 },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\go_file.cpython-311.pyc":  {
+                                                                                         "len":  1183,
+                                                                                         "mtime":  "2026-09-08T15:38:47",
+                                                                                         "sha":  "3D58884647B30EF7B809E2C5975A171E8198D9E588B064F8848297C1848C709B"
+                                                                                     },
+    "E:\\langgraph-rag\\src\\backend\\web_search\\date_extractor.py":  {
+                                                                           "len":  6649,
+                                                                           "mtime":  "2026-09-07T11:10:11",
+                                                                           "sha":  "50732AFD77C16C8B654DECD76991B9343985334DC294AE7B2672B92A02B4170C"
+                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\llm\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                        "len":  543,
+                                                                                        "mtime":  "2026-09-07T11:39:31",
+                                                                                        "sha":  "5CAEC1AB85B6BD3B8AB0B862F1EB44DBFAA07CC2F601062FB940BD613F110F72"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\tools\\php_file.py":  {
+                                                                "len":  802,
+                                                                "mtime":  "2026-09-07T11:10:11",
+                                                                "sha":  "6F954A6ED65984B7CC07848979E7AE0A35AF6BCFBCB344056FE57D62B9BDE849"
+                                                            },
+    "E:\\langgraph-rag\\src\\backend\\llm\\__pycache__\\prompts.cpython-311.pyc":  {
+                                                                                       "len":  15759,
+                                                                                       "mtime":  "2026-09-07T11:39:31",
+                                                                                       "sha":  "96E1AF4951321000E0A482A5933895F78CDCF4CA09B38404DBB47C462D8B593E"
+                                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\graph\\__pycache__\\edges.cpython-311.pyc":  {
+                                                                                       "len":  9363,
+                                                                                       "mtime":  "2026-09-07T11:39:31",
+                                                                                       "sha":  "D0F3C5793A7D1FB1662B2E52CBB991257ACCECF195CAFD97E8B0B14D27F37BBE"
+                                                                                   },
+    "E:\\langgraph-rag\\src\\backend\\rag\\__pycache__\\__init__.cpython-311.pyc":  {
+                                                                                        "len":  894,
+                                                                                        "mtime":  "2026-09-07T11:39:27",
+                                                                                        "sha":  "B8D7AE457DC52059DFA7E86625953BE1807C38767902BB6755366CBCACD033F7"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\python_file.cpython-311.pyc":  {
+                                                                                             "len":  1223,
+                                                                                             "mtime":  "2026-09-08T15:38:51",
+                                                                                             "sha":  "5A3A48BB16D6658E3312F566749E512F74E74238BA7E73B762ADDFF6CE2ED954"
+                                                                                         },
+    "E:\\langgraph-rag\\src\\backend\\memory\\recall.py":  {
+                                                               "len":  7538,
+                                                               "mtime":  "2026-09-07T11:10:11",
+                                                               "sha":  "123659BB78E26511277F66956FEAE8D56B66692D1A3617B64E0F562709EACB61"
+                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\_files.py":  {
+                                                              "len":  3049,
+                                                              "mtime":  "2026-09-07T11:10:11",
+                                                              "sha":  "EF9975A37B48C6B78EDFFBA2B73C169441B86A4B2B654C842F17743076FBC32C"
+                                                          },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\c_file.cpython-311.pyc":  {
+                                                                                        "len":  1181,
+                                                                                        "mtime":  "2026-09-08T15:38:46",
+                                                                                        "sha":  "DDFBB5AC37678AB71AD0796492B45B8881AA87397DEACB6F8D775080F0DEEBCF"
+                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\tools\\number_theory_tool.py":  {
+                                                                          "len":  4898,
+                                                                          "mtime":  "2026-09-07T11:10:11",
+                                                                          "sha":  "F0F92B52E1BC72087A1E195E11041943B68D48113FC2503E04D9FF16059B1680"
+                                                                      },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\text_edit.cpython-311.pyc":  {
+                                                                                           "len":  37828,
+                                                                                           "mtime":  "2026-09-08T15:38:52",
+                                                                                           "sha":  "EE7BEE71B5AB3D304F506FFB28B33BC82E0BE4ACF760B9EC46CADE607B5045B1"
+                                                                                       },
+    "E:\\langgraph-rag\\src\\backend\\graph\\nodes\\__pycache__\\fallback_answer.cpython-311.pyc":  {
+                                                                                                        "len":  4522,
+                                                                                                        "mtime":  "2026-09-07T11:39:31",
+                                                                                                        "sha":  "B125B2EADFFB9139714B8FA07193C9DD1CA124776A258B783F87B39AA948B9EE"
+                                                                                                    },
+    "E:\\langgraph-rag\\src\\backend\\rag\\__pycache__\\chroma_retriever.cpython-311.pyc":  {
+                                                                                                "len":  17397,
+                                                                                                "mtime":  "2026-09-07T11:39:27",
+                                                                                                "sha":  "A4C99F0E7A1AEBD9A667B628DFD7380FD9F9A1F417447B71D1DDB798DA4CFBCA"
+                                                                                            },
+    "E:\\langgraph-rag\\src\\backend\\graph\\metrics.py":  {
+                                                               "len":  5871,
+                                                               "mtime":  "2026-09-07T11:10:11",
+                                                               "sha":  "D3609CFB0E642131FB9FB5560A1A341B432D1D83D471EB5E0D2112A76773EDE2"
+                                                           },
+    "E:\\langgraph-rag\\src\\backend\\tools\\__pycache__\\powerpoint_edit.cpython-311.pyc":  {
+                                                                                                 "len":  31142,
+                                                                                                 "mtime":  "2026-09-08T15:38:51",
+                                                                                                 "sha":  "70B64947158514519582DA5E8E5FA96BE5A0E448D22C40C5B0C97AB11B6D701F"
+                                                                                             },
+    "E:\\langgraph-rag\\src\\backend\\tools\\matlab_file.py":  {
+                                                                   "len":  830,
+                                                                   "mtime":  "2026-09-07T11:10:11",
+                                                                   "sha":  "C0C10DD61F996EC48E3442B9EFA6F7755A9A50B2E861E0ECF66408176B9F4CF2"
+                                                               },
+    "E:\\langgraph-rag\\src\\backend\\mcp\\models.py":  {
+                                                            "len":  9747,
+                                                            "mtime":  "2026-09-07T11:10:11",
+                                                            "sha":  "848BDE7CE406B9777841E86B6E75C6BD7A9B154F3A06954ECC299467A552C72C"
+                                                        }
+}

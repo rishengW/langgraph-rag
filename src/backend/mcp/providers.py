@@ -190,6 +190,7 @@ class DocumentToolProvider(FactoryToolProvider):
                 tools.build_markdown_file_tool(settings),
                 tools.build_typescript_file_tool(settings),
                 tools.build_json_file_tool(settings),
+                tools.build_yaml_file_tool(settings),
                 tools.build_r_file_tool(settings),
                 tools.build_rust_file_tool(settings),
                 tools.build_go_file_tool(settings),
@@ -250,6 +251,9 @@ class SessionEditingToolProvider(FactoryToolProvider):
                     settings, session_root=session_root, thread_id=thread_id
                 ),
                 *tools.build_jsonl_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_yaml_edit_tools(
                     settings, session_root=session_root, thread_id=thread_id
                 ),
                 *tools.build_r_edit_tools(settings, session_root=session_root, thread_id=thread_id),

@@ -20,7 +20,7 @@ from src.config import Settings
 # Suffixes accepted for upload — the union of what the file tools read.
 ALLOWED_UPLOAD_SUFFIXES = (
     ".txt", ".md", ".log", ".csv", ".docx", ".xlsx", ".pptx", ".pdf",
-    ".ts", ".tsx", ".json", ".jsonl", ".r", ".rs", ".go", ".sql", ".php",
+    ".ts", ".tsx", ".json", ".jsonl", ".yaml", ".yml", ".r", ".rs", ".go", ".sql", ".php",
     ".rb", ".tex", ".pl", ".hs", ".lua", ".jl", ".sh", ".bash", ".m",
     ".groovy", ".swift", ".zip",
 )
@@ -167,6 +167,7 @@ def build_upload_context_note(
     typescript_edit_enabled: bool = False,
     json_edit_enabled: bool = False,
     jsonl_edit_enabled: bool = False,
+    yaml_edit_enabled: bool = False,
     r_edit_enabled: bool = False,
     rust_edit_enabled: bool = False,
     go_edit_enabled: bool = False,
@@ -260,6 +261,17 @@ def build_upload_context_note(
             "user explicitly asks; always inspect before editing and pass the "
             "exact current text as expected_text. Writes create a new file "
             "and never overwrite an existing file."
+        )
+    if yaml_edit_enabled:
+        edit_notes.append(
+            "For .yaml and .yml files you may call create_yaml_file to "
+            "create a new YAML file, inspect_yaml_file to list its "
+            "documented paths, and edit_yaml_file to apply path-based "
+            "set/delete/append edits. Only create or edit when the user "
+            "explicitly asks; always inspect before editing and pass the "
+            "exact current value as expected_value (or expected_missing=true "
+            "to create a path). Writes create a new file and never overwrite "
+            "an existing file."
         )
     if r_edit_enabled:
         edit_notes.append(

@@ -55,6 +55,15 @@ from .json_edit import (
 )
 from .json_file import JsonFileInput, build_json_file_tool
 from .jsonl_edit import build_jsonl_edit_tools
+from .yaml_edit import (
+    YamlCreateInput,
+    YamlEditInput,
+    YamlEditOperation,
+    YamlInspectInput,
+    build_yaml_edit_tools,
+    create_yaml_file,
+)
+from .yaml_file import YamlFileInput, build_yaml_file_tool
 from .julia_edit import build_julia_edit_tools
 from .julia_file import build_julia_file_tool
 from .latex_edit import build_latex_edit_tools
@@ -203,6 +212,11 @@ __all__ = [
     "TypeScriptEditResult",
     "TypeScriptFileInput",
     "TypeScriptInspectInput",
+    "YamlCreateInput",
+    "YamlEditInput",
+    "YamlEditOperation",
+    "YamlFileInput",
+    "YamlInspectInput",
     "MarkdownFileInput",
     "MarkdownCreateInput",
     "MarkdownEditInput",
@@ -246,6 +260,8 @@ __all__ = [
     "build_json_edit_tools",
     "build_json_file_tool",
     "build_jsonl_edit_tools",
+    "build_yaml_edit_tools",
+    "build_yaml_file_tool",
     "build_julia_edit_tools",
     "build_julia_file_tool",
     "build_latex_edit_tools",
@@ -288,6 +304,7 @@ __all__ = [
     "create_text_file",
     "create_markdown_file",
     "create_json_file",
+    "create_yaml_file",
     "create_csv_file",
     "create_excel_spreadsheet",
     "edit_excel",

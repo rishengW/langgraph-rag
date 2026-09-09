@@ -191,6 +191,7 @@ Key settings:
 | `TYPESCRIPT_EDIT_ENABLED` | `false` | TypeScript .ts/.tsx creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `JSON_EDIT_ENABLED` | `false` | JSON .json creation and structured path-based editing; needs FILE_READ_ENABLED too |
 | `JSONL_EDIT_ENABLED` | `false` | JSONL .jsonl creation/editing (every line must parse as JSON); needs FILE_READ_ENABLED too |
+| `YAML_EDIT_ENABLED` | `false` | YAML .yaml/.yml creation and structured path-based editing; needs FILE_READ_ENABLED too |
 | `R_EDIT_ENABLED` | `false` | R .r creation/editing; needs FILE_READ_ENABLED too |
 | `RUST_EDIT_ENABLED` | `false` | Rust .rs creation/editing; needs FILE_READ_ENABLED too |
 | `GO_EDIT_ENABLED` | `false` | Go .go creation/editing; needs FILE_READ_ENABLED too |
@@ -325,6 +326,7 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `read_markdown_file` | `src/backend/tools/markdown_file.py` | `FILE_READ_ENABLED=true` | Read a Markdown .md from `FILE_READ_ROOT` (including session uploads) |
 | `read_typescript_file` | `src/backend/tools/typescript_file.py` | `FILE_READ_ENABLED=true` | Read a TypeScript .ts/.tsx from `FILE_READ_ROOT` (including session uploads) |
 | `read_json_file` | `src/backend/tools/json_file.py` | `FILE_READ_ENABLED=true` | Read a .json or .jsonl from `FILE_READ_ROOT` (including session uploads) |
+| `read_yaml_file` | `src/backend/tools/yaml_file.py` | `FILE_READ_ENABLED=true` | Read a .yaml or .yml from `FILE_READ_ROOT` (including session uploads) |
 | `read_c_file` | `src/backend/tools/c_file.py` | `FILE_READ_ENABLED=true` | Read a C .c/.h file from `FILE_READ_ROOT` (including session uploads) |
 | `read_python_file` | `src/backend/tools/python_file.py` | `FILE_READ_ENABLED=true` | Read a Python .py file from `FILE_READ_ROOT` (including session uploads) |
 | `read_java_file` | `src/backend/tools/java_file.py` | `FILE_READ_ENABLED=true` | Read a Java .java file from `FILE_READ_ROOT` (including session uploads) |
@@ -374,6 +376,9 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `inspect_jsonl_file` | `src/backend/tools/jsonl_edit.py` | `FILE_READ_ENABLED=true` and `JSONL_EDIT_ENABLED=true` | List numbered lines of a session-uploaded .jsonl; every line is validated JSON |
 | `edit_jsonl_file` | `src/backend/tools/jsonl_edit.py` | `FILE_READ_ENABLED=true` and `JSONL_EDIT_ENABLED=true` | Apply structured line edits to a session-uploaded .jsonl; written lines must parse as JSON; creates a new file |
 | `create_jsonl_file` | `src/backend/tools/jsonl_edit.py` | `FILE_READ_ENABLED=true` and `JSONL_EDIT_ENABLED=true` | Create a new UTF-8 .jsonl in the current chat session (every line must parse as JSON) |
+| `inspect_yaml_file` | `src/backend/tools/yaml_edit.py` | `FILE_READ_ENABLED=true` and `YAML_EDIT_ENABLED=true` | List documented paths and values of a session-uploaded .yaml/.yml |
+| `edit_yaml_file` | `src/backend/tools/yaml_edit.py` | `FILE_READ_ENABLED=true` and `YAML_EDIT_ENABLED=true` | Apply expected-checked path-based set/delete/append edits to a session-uploaded .yaml/.yml; creates a new file |
+| `create_yaml_file` | `src/backend/tools/yaml_edit.py` | `FILE_READ_ENABLED=true` and `YAML_EDIT_ENABLED=true` | Create a new UTF-8 .yaml/.yml (must parse as valid YAML) in the current chat session |
 | `inspect_r_file` / `edit_r_file` / `create_r_file` | `src/backend/tools/r_edit.py` | `FILE_READ_ENABLED=true` and `R_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .r files; creates a new file |
 | `inspect_rust_file` / `edit_rust_file` / `create_rust_file` | `src/backend/tools/rust_edit.py` | `FILE_READ_ENABLED=true` and `RUST_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .rs files; creates a new file |
 | `inspect_go_file` / `edit_go_file` / `create_go_file` | `src/backend/tools/go_edit.py` | `FILE_READ_ENABLED=true` and `GO_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .go files; creates a new file |
@@ -483,7 +488,7 @@ Chat sessions survive app restarts. Sessions with explicit URLs use isolated per
 
 ## File Uploads and Reading
 
-Chat mode can read local files through the file-reading agent tools — plain text, Markdown, Word, Excel, and PDF readers, plus per-language source readers (TypeScript, JSON/JSONL, C, Python, Java, JavaScript, HTML, R, Rust, Go, Groovy, SQL, Swift, PHP, Ruby, LaTeX, Prolog, Haskell, Lua, Julia, shell, MATLAB, log) and zip archives. When PowerPoint editing is enabled, the chat UI can also upload `.pptx` files for the `inspect_powerpoint` and `edit_powerpoint` tools. File uploads are gated by `FILE_READ_ENABLED` (default `false`), and `.pptx` uploads additionally require `POWERPOINT_EDIT_ENABLED=true`.
+Chat mode can read local files through the file-reading agent tools — plain text, Markdown, Word, Excel, and PDF readers, plus per-language source readers (TypeScript, JSON/JSONL, YAML, C, Python, Java, JavaScript, HTML, R, Rust, Go, Groovy, SQL, Swift, PHP, Ruby, LaTeX, Prolog, Haskell, Lua, Julia, shell, MATLAB, log) and zip archives. When PowerPoint editing is enabled, the chat UI can also upload `.pptx` files for the `inspect_powerpoint` and `edit_powerpoint` tools. File uploads are gated by `FILE_READ_ENABLED` (default `false`), and `.pptx` uploads additionally require `POWERPOINT_EDIT_ENABLED=true`.
 
 ### Enabling
 
@@ -501,6 +506,7 @@ MARKDOWN_EDIT_ENABLED=true      # optional session-scoped .md creation/editing
 TYPESCRIPT_EDIT_ENABLED=true    # optional session-scoped .ts/.tsx creation/editing
 JSON_EDIT_ENABLED=true          # optional session-scoped .json creation/editing
 JSONL_EDIT_ENABLED=true         # optional session-scoped .jsonl creation/editing
+YAML_EDIT_ENABLED=true           # optional session-scoped .yaml/.yml creation/editing
 R_EDIT_ENABLED=true             # optional session-scoped .r creation/editing
 RUST_EDIT_ENABLED=true          # optional session-scoped .rs creation/editing
 GO_EDIT_ENABLED=true            # optional session-scoped .go creation/editing
@@ -552,7 +558,7 @@ Shape locations are zero-based paths. A top-level shape is addressed as `shape_p
 ### Security model
 
 - Uploads and reads require `FILE_READ_ENABLED=true`; otherwise both are refused.
-- Word creation and edits additionally require `WORD_EDIT_ENABLED=true`; PowerPoint uploads and edits require `POWERPOINT_EDIT_ENABLED=true`; Excel creation requires `EXCEL_CREATE_ENABLED=true`; text creation and edits require `TEXT_EDIT_ENABLED=true`; Markdown creation and edits require `MARKDOWN_EDIT_ENABLED=true`; TypeScript creation and edits require `TYPESCRIPT_EDIT_ENABLED=true`; JSON requires `JSON_EDIT_ENABLED=true`, JSONL `JSONL_EDIT_ENABLED=true`, and R/Rust/Go/SQL `R_EDIT_ENABLED=true` / `RUST_EDIT_ENABLED=true` / `GO_EDIT_ENABLED=true` / `SQL_EDIT_ENABLED=true`; PHP `PHP_EDIT_ENABLED=true`; Ruby `RUBY_EDIT_ENABLED=true`; LaTeX `LATEX_EDIT_ENABLED=true`; Prolog `PROLOG_EDIT_ENABLED=true`; Haskell `HASKELL_EDIT_ENABLED=true`; Lua `LUA_EDIT_ENABLED=true`; Julia `JULIA_EDIT_ENABLED=true`; shell scripts `SHELL_EDIT_ENABLED=true`; MATLAB `MATLAB_EDIT_ENABLED=true`; Groovy `GROOVY_EDIT_ENABLED=true`; Swift `SWIFT_EDIT_ENABLED=true`; log files `LOG_EDIT_ENABLED=true`. All writes are confined to the current thread and never overwrite an existing file.
+- Word creation and edits additionally require `WORD_EDIT_ENABLED=true`; PowerPoint uploads and edits require `POWERPOINT_EDIT_ENABLED=true`; Excel creation requires `EXCEL_CREATE_ENABLED=true`; text creation and edits require `TEXT_EDIT_ENABLED=true`; Markdown creation and edits require `MARKDOWN_EDIT_ENABLED=true`; TypeScript creation and edits require `TYPESCRIPT_EDIT_ENABLED=true`; JSON requires `JSON_EDIT_ENABLED=true`, JSONL `JSONL_EDIT_ENABLED=true`, YAML `YAML_EDIT_ENABLED=true`, and R/Rust/Go/SQL `R_EDIT_ENABLED=true` / `RUST_EDIT_ENABLED=true` / `GO_EDIT_ENABLED=true` / `SQL_EDIT_ENABLED=true`; PHP `PHP_EDIT_ENABLED=true`; Ruby `RUBY_EDIT_ENABLED=true`; LaTeX `LATEX_EDIT_ENABLED=true`; Prolog `PROLOG_EDIT_ENABLED=true`; Haskell `HASKELL_EDIT_ENABLED=true`; Lua `LUA_EDIT_ENABLED=true`; Julia `JULIA_EDIT_ENABLED=true`; shell scripts `SHELL_EDIT_ENABLED=true`; MATLAB `MATLAB_EDIT_ENABLED=true`; Groovy `GROOVY_EDIT_ENABLED=true`; Swift `SWIFT_EDIT_ENABLED=true`; log files `LOG_EDIT_ENABLED=true`. All writes are confined to the current thread and never overwrite an existing file.
 - Excel creation uses `@oai/artifact-tool` from the loader-provided Node runtime. Set `EXCEL_NODE_EXECUTABLE` and `EXCEL_NODE_MODULES_PATH` to those loader paths; the tool creates a task-local dependency junction, validates the exported workbook, scans formula errors, and renders every worksheet before publication. The Node adapter script ships as `src/backend/tools/excel_create.mjs` and is read at runtime from next to `excel_create.py`, so it must stay in the package.
 - All paths resolve under `FILE_READ_ROOT`; `../` traversal outside the root is denied.
 - Sensitive files (`.env`, private keys, `credentials`, etc.) are always refused even inside the root.

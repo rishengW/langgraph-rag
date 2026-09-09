@@ -133,6 +133,9 @@ json_edit_enabled: false
 # JSONL .jsonl creation and editing; every written line must parse as JSON.
 # Needs file_read_enabled too; same session-scoped never-overwrite model.
 jsonl_edit_enabled: false
+# YAML .yaml/.yml creation and structured path-based editing. Needs
+# file_read_enabled too; session-scoped, never overwrites an existing file.
+yaml_edit_enabled: false
 # R / Rust / Go / SQL / PHP / Ruby / LaTeX source creation and editing.
 # Needs file_read_enabled too; same session-scoped, never-overwrite model as
 # the .txt editor.

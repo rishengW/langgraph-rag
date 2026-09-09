@@ -276,6 +276,7 @@ def test_typescript_edit_defaults_environment_and_documentation(tmp_path, monkey
     [
         ("json_edit_enabled", "JSON_EDIT_ENABLED"),
         ("jsonl_edit_enabled", "JSONL_EDIT_ENABLED"),
+        ("yaml_edit_enabled", "YAML_EDIT_ENABLED"),
         ("r_edit_enabled", "R_EDIT_ENABLED"),
         ("rust_edit_enabled", "RUST_EDIT_ENABLED"),
         ("go_edit_enabled", "GO_EDIT_ENABLED"),

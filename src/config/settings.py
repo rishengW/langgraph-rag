@@ -181,6 +181,10 @@ class Settings:
     # JSONL .jsonl creation and editing; every written line must parse as JSON.
     # Same session-scoped, never-overwrite model as the .txt editor.
     jsonl_edit_enabled: bool = False
+    # YAML .yaml/.yml creation and structured editing (path-based
+    # set/delete/append with expected-value guards), layered on top of
+    # file_read_enabled. Parsing uses yaml.safe_load exclusively.
+    yaml_edit_enabled: bool = False
     c_edit_enabled: bool = False
     # Per-language source creation and editing (R, Rust, Go, SQL, PHP, Ruby,
     # LaTeX, Prolog, Haskell, Lua, Julia, ...). Same session-scoped,

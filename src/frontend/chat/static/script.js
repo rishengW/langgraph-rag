@@ -1240,6 +1240,15 @@ startBtn.addEventListener("click", async () => {
     }
 });
 
+// Enter starts the chat from the seed box (Shift+Enter inserts a newline),
+// mirroring the composer's Enter-to-send behavior.
+seedField.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        startBtn.click();
+    }
+});
+
 // ---- restore session on reload -----------------------------------------
 
 async function restoreSession() {

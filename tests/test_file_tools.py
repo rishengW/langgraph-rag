@@ -13,6 +13,7 @@ from src.backend.tools import (
     build_haskell_file_tool,
     build_json_file_tool,
     build_julia_file_tool,
+    build_yaml_file_tool,
     build_latex_file_tool,
     build_log_file_tool,
     build_lua_file_tool,
@@ -160,6 +161,29 @@ def test_json_tool_rejects_other_suffixes(tmp_path):
     result = tool.invoke({"path": "data.yaml"})
 
     assert "Could not read JSON file" in result
+    assert "unsupported file type" in result
+
+
+def test_yaml_tool_reads_yaml_and_yml_files(tmp_path):
+    yaml_target = tmp_path / "data.yaml"
+    yaml_target.write_text("name: app\nport: 8080\n", encoding="utf-8")
+    yml_target = tmp_path / "data.yml"
+    yml_target.write_text("ok: true\n", encoding="utf-8")
+
+    tool = build_yaml_file_tool(_settings(tmp_path))
+
+    assert "name: app" in tool.invoke({"path": "data.yaml"})
+    assert "ok: true" in tool.invoke({"path": "data.yml"})
+
+
+def test_yaml_tool_rejects_other_suffixes(tmp_path):
+    target = tmp_path / "data.json"
+    target.write_text('{"nope": true}', encoding="utf-8")
+
+    tool = build_yaml_file_tool(_settings(tmp_path))
+    result = tool.invoke({"path": "data.json"})
+
+    assert "Could not read YAML file" in result
     assert "unsupported file type" in result
 
 

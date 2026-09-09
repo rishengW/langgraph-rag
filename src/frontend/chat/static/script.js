@@ -349,6 +349,36 @@ function buildTurnAttachments(files) {
     return strip;
 }
 
+// Photo avatar shown beside every assistant bubble. Decorative only, so
+// hidden from assistive tech.
+function createAssistantAvatar() {
+    const avatar = document.createElement("div");
+    avatar.className = "avatar avatar--assistant";
+    avatar.setAttribute("aria-hidden", "true");
+    const img = document.createElement("img");
+    img.src = "/static/trump.png";
+    img.alt = "";
+    img.loading = "lazy";
+    avatar.appendChild(img);
+    return avatar;
+}
+
+// Person-silhouette avatar shown beside every user bubble. Decorative only,
+// so hidden from assistive tech.
+function createUserAvatar() {
+    const avatar = document.createElement("div");
+    avatar.className = "avatar avatar--user";
+    avatar.setAttribute("aria-hidden", "true");
+    // Static trusted markup; no user data is interpolated here.
+    avatar.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+            fill="currentColor" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="8" r="3.6"/>
+            <path d="M4 20.5a8 8 0 0 1 16 0z"/>
+        </svg>`;
+    return avatar;
+}
+
 function appendTurn(role, content, opts = {}) {
     const div = document.createElement("div");
     div.className = `turn ${role}` + (opts.thinking ? " thinking" : "");
@@ -371,7 +401,23 @@ function appendTurn(role, content, opts = {}) {
         bubble.setAttribute("role", "status");
         bubble.setAttribute("aria-live", "polite");
     }
-    div.appendChild(bubble);
+    if (role === "assistant") {
+        // Avatar and bubble share a row wrapper so they stay side-by-side
+        // even when an artifact stack flips the turn to column layout.
+        const row = document.createElement("div");
+        row.className = "turn-row";
+        row.appendChild(createAssistantAvatar());
+        row.appendChild(bubble);
+        div.appendChild(row);
+    } else {
+        // User avatar sits to the right of the bubble, mirroring the
+        // assistant avatar on the left.
+        const row = document.createElement("div");
+        row.className = "turn-row";
+        row.appendChild(bubble);
+        row.appendChild(createUserAvatar());
+        div.appendChild(row);
+    }
     if (role === "assistant" && !opts.thinking) {
         renderArtifactStack(div, opts.artifacts);
     }

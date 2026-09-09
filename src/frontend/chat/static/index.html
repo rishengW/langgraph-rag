@@ -263,6 +263,55 @@
             font-style: italic;
         }
 
+        /* Assistant turns pair the bubble with a photo avatar. The row
+           wrapper keeps them side-by-side when artifacts flip the turn to
+           column layout (.turn.has-artifacts). */
+        .turn-row {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            min-width: 0;
+        }
+        .turn-row .bubble { min-width: 0; }
+        .avatar--assistant {
+            width: 34px;
+            height: 34px;
+            flex: none;
+            overflow: hidden;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 2px 6px rgba(102, 126, 234, 0.35);
+        }
+        .avatar--assistant img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .avatar--user {
+            width: 34px;
+            height: 34px;
+            flex: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+            color: #fff;
+            box-shadow: 0 2px 6px rgba(100, 116, 139, 0.35);
+        }
+        .avatar--user svg { width: 19px; height: 19px; display: block; }
+        .turn.thinking .avatar--assistant {
+            animation: avatar-pulse 1.2s ease-in-out infinite;
+        }
+        @keyframes avatar-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .turn.thinking .avatar--assistant { animation: none; }
+        }
+
         .input-shell {
             margin: 4px 24px 10px;
             background: #fff;
@@ -671,6 +720,6 @@
         </section>
     </div>
 
-    <script src="/static/script.js?v=20"></script>
+    <script src="/static/script.js?v=25"></script>
 </body>
 </html>

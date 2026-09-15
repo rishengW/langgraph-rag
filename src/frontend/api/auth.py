@@ -24,28 +24,45 @@ def _configured_principal(request: Request) -> Principal:
     return Principal(principal_id=str(principal_id or "api-key-client"), tenant_id=tenant_id)
 
 
+_PROTECTED_ENVIRONMENTS = frozenset({"production", "staging"})
+
+
+def _active_environment() -> str:
+    return os.getenv("RAG_ENV", "development").strip().lower()
+
+
 def require_principal(request: Request) -> Principal:
     """Authenticate the request and return only server-configured identity.
 
     Caller-provided request fields and arbitrary identity headers are never
     consulted, so they cannot override the trusted authentication boundary.
+
+    Fail closed when no API key is configured in a protected environment
+    (production or staging): an unauthenticated deployment is a server
+    misconfiguration, not a reason to serve anonymous traffic.
     """
 
     expected_key = _configured_api_key(request)
-    if expected_key:
-        header = request.headers.get("Authorization", "")
-        scheme, _, supplied_key = header.partition(" ")
-        is_valid = (
-            scheme.lower() == "bearer"
-            and bool(supplied_key)
-            and hmac.compare_digest(supplied_key.strip(), expected_key)
-        )
-        if not is_valid:
+    if not expected_key:
+        if _active_environment() in _PROTECTED_ENVIRONMENTS:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing or invalid API key.",
-                headers={"WWW-Authenticate": "Bearer"},
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="API key authentication is required but not configured.",
             )
+        return _configured_principal(request)
+    header = request.headers.get("Authorization", "")
+    scheme, _, supplied_key = header.partition(" ")
+    is_valid = (
+        scheme.lower() == "bearer"
+        and bool(supplied_key)
+        and hmac.compare_digest(supplied_key.strip(), expected_key)
+    )
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid API key.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return _configured_principal(request)
 
 

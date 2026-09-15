@@ -591,13 +591,15 @@ def _parse_document_text(document: _SourceDocument, name: str) -> Any:
 def _serialize_yaml(data: Any, *, indent: int) -> str:
     """Re-serialize the edited document as canonical block YAML text."""
 
-    text = yaml.safe_dump(
-        data,
-        allow_unicode=True,
-        sort_keys=False,
-        default_flow_style=False,
-        indent=max(1, indent),
-        width=4096,
+    text = str(
+        yaml.safe_dump(
+            data,
+            allow_unicode=True,
+            sort_keys=False,
+            default_flow_style=False,
+            indent=max(1, indent),
+            width=4096,
+        )
     )
     # safe_dump always ends with a trailing newline; drop it so line
     # splitting is clean and the document's preserved newline re-adds it.

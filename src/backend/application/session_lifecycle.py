@@ -109,7 +109,10 @@ class SessionLifecycleService:
             seed = (request.seed_question or "").strip()
             if seed:
                 try:
-                    found = self._dependencies.discover_urls(seed, self._settings)
+                    # Network fan-out: keep off the event loop.
+                    found = await asyncio.to_thread(
+                        self._dependencies.discover_urls, seed, self._settings
+                    )
                     if found:
                         urls = found
                         discovered = True
@@ -215,7 +218,10 @@ class SessionLifecycleService:
             return session
         search_query = await self._condense_query(session, query)
         try:
-            urls = self._dependencies.discover_urls(search_query, self._settings)
+            # Network fan-out: keep off the event loop.
+            urls = await asyncio.to_thread(
+                self._dependencies.discover_urls, search_query, self._settings
+            )
         except Exception as exc:
             logger.warning(
                 "Web search failed during chat turn for %s (cause=%s)",

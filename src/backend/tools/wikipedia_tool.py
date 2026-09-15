@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
 
+
 class WikipediaInput(BaseModel):
     """Input schema for Wikipedia search."""
 
@@ -144,9 +145,7 @@ def _page_url(title: str) -> str:
 
 
 def _wikipedia_headers(user_agent: str) -> dict[str, str]:
-    agent = user_agent.strip() or (
-        "langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)"
-    )
+    agent = user_agent.strip() or ("langgraph-rag/1.0 (contact: configure WIKIPEDIA_USER_AGENT)")
     return {"User-Agent": agent, "Api-User-Agent": agent}
 
 

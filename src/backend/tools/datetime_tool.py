@@ -36,9 +36,7 @@ class DateTimeInput(BaseModel):
     )
     days: int = Field(default=0, description="Days to add (can be negative) for 'add'.")
     hours: int = Field(default=0, description="Hours to add (can be negative) for 'add'.")
-    minutes: int = Field(
-        default=0, description="Minutes to add (can be negative) for 'add'."
-    )
+    minutes: int = Field(default=0, description="Minutes to add (can be negative) for 'add'.")
     timezone_name: str | None = Field(
         default=None,
         description="IANA timezone, e.g. 'Asia/Tokyo'. Source zone for "
@@ -199,8 +197,7 @@ def _do_convert(
     to_zone = _zone(to_timezone)
     if from_zone is None or to_zone is None:
         raise _DateError(
-            "convert_timezone requires both timezone_name (source) and "
-            "to_timezone (target)."
+            "convert_timezone requires both timezone_name (source) and to_timezone (target)."
         )
     assert timezone_name is not None
     assert to_timezone is not None

@@ -132,11 +132,7 @@ def _extract_docx_paragraphs(path: Path) -> list[str]:
 
     paragraphs: list[str] = []
     for paragraph in tree.iter(f"{{{_W_NS}}}p"):
-        texts = [
-            node.text
-            for node in paragraph.iter(f"{{{_W_NS}}}t")
-            if node.text
-        ]
+        texts = [node.text for node in paragraph.iter(f"{{{_W_NS}}}t") if node.text]
         line = "".join(texts).strip()
         if line:
             paragraphs.append(line)

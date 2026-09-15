@@ -23,10 +23,7 @@ class PdfFileInput(BaseModel):
     path: str = Field(
         ...,
         min_length=1,
-        description=(
-            "Path to a .pdf file, relative to the configured file-read root "
-            "directory."
-        ),
+        description=("Path to a .pdf file, relative to the configured file-read root directory."),
     )
     max_chars: int = Field(
         default=_MAX_CHARS,
@@ -132,9 +129,7 @@ def read_pdf(
             f"{len(full_text):,} chars, read {read_pages} of {total_pages} pages):"
         )
     else:
-        header = (
-            f"Text of {resolved.name} (read {read_pages} of {total_pages} pages):"
-        )
+        header = f"Text of {resolved.name} (read {read_pages} of {total_pages} pages):"
     return f"{header}\n\n{body}"
 
 

@@ -22,8 +22,7 @@ class StatisticsInput(BaseModel):
         ...,
         min_length=1,
         description=(
-            "A list of numbers separated by commas or spaces, e.g. "
-            "'4, 8, 15, 16, 23, 42'."
+            "A list of numbers separated by commas or spaces, e.g. '4, 8, 15, 16, 23, 42'."
         ),
     )
 

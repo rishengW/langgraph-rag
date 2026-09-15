@@ -98,8 +98,7 @@ class MarkdownEditOperation(BaseModel):
         default=None,
         max_length=_MAX_LINE_CHARS,
         description=(
-            "The new single line. Required for replace_line, "
-            "insert_before_line, and append_line."
+            "The new single line. Required for replace_line, insert_before_line, and append_line."
         ),
     )
 
@@ -172,8 +171,7 @@ class MarkdownEditInput(BaseModel):
         ...,
         min_length=1,
         description=(
-            "Path to a .md file uploaded to this chat session. The source is "
-            "never modified."
+            "Path to a .md file uploaded to this chat session. The source is never modified."
         ),
     )
     operations: list[MarkdownEditOperation] = Field(
@@ -181,8 +179,7 @@ class MarkdownEditInput(BaseModel):
         min_length=1,
         max_length=_MAX_OPERATIONS,
         description=(
-            "Line edits to validate against the original file and then apply "
-            "as one transaction."
+            "Line edits to validate against the original file and then apply as one transaction."
         ),
     )
     output_name: str | None = Field(
@@ -338,8 +335,7 @@ def create_markdown_file(
     )
     return MarkdownEditResult(
         content=(
-            f"Created {published.name} in this chat session. "
-            "The file is available to download."
+            f"Created {published.name} in this chat session. The file is available to download."
         ),
         artifact=_build_file_artifact(
             thread_id=thread_id,
@@ -521,7 +517,12 @@ def _read_markdown_document(path: Path) -> _MarkdownDocument:
 def _decode_markdown(data: bytes, *, name: str) -> _MarkdownDocument:
     """Strictly decode UTF-8 and reject binary or ambiguous line formats."""
 
-    unsupported_boms = (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE, codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)
+    unsupported_boms = (
+        codecs.BOM_UTF16_LE,
+        codecs.BOM_UTF16_BE,
+        codecs.BOM_UTF32_LE,
+        codecs.BOM_UTF32_BE,
+    )
     if any(data.startswith(bom) for bom in unsupported_boms):
         raise MarkdownEditError(
             f"{name!r} uses an unsupported encoding; only UTF-8 text is supported."
@@ -595,9 +596,7 @@ def _plan_operations(
             )
             continue
         if document.lines[index] != operation.expected_text:
-            problems.append(
-                f"{label}: expected_text does not exactly match line {index}."
-            )
+            problems.append(f"{label}: expected_text does not exactly match line {index}.")
 
     if problems:
         raise MarkdownEditError(
@@ -813,9 +812,7 @@ def _output_stem(*, source_path: Path, output_name: str | None) -> str:
     return f"{source_path.stem}.edited"
 
 
-def _build_file_artifact(
-    *, thread_id: str, filename: str, size_bytes: int
-) -> dict[str, object]:
+def _build_file_artifact(*, thread_id: str, filename: str, size_bytes: int) -> dict[str, object]:
     return {
         "type": FILE_ARTIFACT_TYPE,
         "version": FILE_ARTIFACT_VERSION,

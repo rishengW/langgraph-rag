@@ -148,9 +148,7 @@ def test_zip_tools_block_traversal_wrong_suffix_and_protected_files(tmp_path):
     malicious = root / "traversal.zip"
     with zipfile.ZipFile(malicious, "w") as archive:
         archive.writestr("../../../etc/escape.txt", "escaped?")
-    result = read.invoke(
-        {"path": "traversal.zip", "entry": "../../../etc/escape.txt"}
-    )
+    result = read.invoke({"path": "traversal.zip", "entry": "../../../etc/escape.txt"})
     assert "escape.txt" in result
     assert not (tmp_path / "etc").exists()
     assert not (root / "etc").exists()

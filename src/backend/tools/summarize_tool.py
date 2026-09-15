@@ -92,7 +92,7 @@ def summarize_url(
         min_chars=settings.web_search_min_page_chars,
         min_tokens=settings.web_search_min_page_tokens,
     ):
-        detail = (page.error if page and page.error else "no readable content")
+        detail = page.error if page and page.error else "no readable content"
         return f"Could not read content from {target}: {detail}."
 
     prompt = _build_prompt(page.title or target, page.url, page.text, focus)

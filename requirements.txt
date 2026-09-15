@@ -3,6 +3,10 @@
 #   python -m pip check
 #   python -m pytest -q
 #
+# This file is the deployment lock used by the Dockerfile and CI; the same
+# pins are declared in pyproject.toml [project].dependencies for
+# `pip install .`. Dev/quality-gate dependencies live in requirements-dev.txt.
+#
 # If a package index reports no LangChain matches, retry with:
 #   python -m pip install --index-url https://pypi.org/simple -r requirements.txt
 
@@ -45,6 +49,3 @@ requests==2.34.2
 sympy==1.14.0
 typing-extensions==4.15.0
 yfinance==1.4.1
-
-# Local test runner. CI/dev quality tools live in requirements-dev.txt.
-pytest==8.4.2

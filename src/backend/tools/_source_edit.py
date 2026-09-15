@@ -124,8 +124,7 @@ class SourceEditOperation(BaseModel):
         default=None,
         max_length=_MAX_LINE_CHARS,
         description=(
-            "The new single line. Required for replace_line, "
-            "insert_before_line, and append_line."
+            "The new single line. Required for replace_line, insert_before_line, and append_line."
         ),
     )
 
@@ -157,8 +156,7 @@ class SourceInspectInput(BaseModel):
         ...,
         min_length=1,
         description=(
-            "Path to a file uploaded to this chat session, exactly as listed "
-            "in the upload note."
+            "Path to a file uploaded to this chat session, exactly as listed in the upload note."
         ),
     )
     max_chars: int = Field(
@@ -390,9 +388,7 @@ def create_source_file(
             output_name,
             type(exc).__name__,
         )
-        return SourceEditResult(
-            content=f"Could not create {config.label} file: {exc}"
-        )
+        return SourceEditResult(content=f"Could not create {config.label} file: {exc}")
 
     logger.info(
         "%s_create succeeded: thread=%s output=%s bytes=%d",
@@ -403,8 +399,7 @@ def create_source_file(
     )
     return SourceEditResult(
         content=(
-            f"Created {published.name} in this chat session. "
-            "The file is available to download."
+            f"Created {published.name} in this chat session. The file is available to download."
         ),
         artifact=_build_file_artifact(
             config,
@@ -546,8 +541,7 @@ def _validate_document_lines(
             problems.append(reason)
     if problems:
         raise SourceEditError(
-            f"{len(problems)} line(s) failed {config.label} validation: "
-            f"{' '.join(problems[:5])}"
+            f"{len(problems)} line(s) failed {config.label} validation: {' '.join(problems[:5])}"
         )
 
 
@@ -568,9 +562,7 @@ def _resolve_session_source(
     try:
         session_resolved = session_root.expanduser().resolve()
     except OSError as exc:
-        raise SourceEditError(
-            f"could not resolve the session directory: {exc}"
-        ) from exc
+        raise SourceEditError(f"could not resolve the session directory: {exc}") from exc
 
     candidate = Path(text).expanduser()
     candidates = (
@@ -708,9 +700,7 @@ def _plan_operations(
             )
             continue
         if document.lines[index] != operation.expected_text:
-            problems.append(
-                f"{label}: expected_text does not exactly match line {index}."
-            )
+            problems.append(f"{label}: expected_text does not exactly match line {index}.")
 
     if problems:
         raise SourceEditError(
@@ -780,19 +770,13 @@ def _prepare_session_directory(*, session_root: Path, file_root: Path) -> Path:
         root = file_root.expanduser().resolve()
         directory = session_root.expanduser().resolve()
     except OSError as exc:
-        raise SourceEditError(
-            f"could not resolve the session directory: {exc}"
-        ) from exc
+        raise SourceEditError(f"could not resolve the session directory: {exc}") from exc
     if directory == root or not _is_within(directory, root):
-        raise SourceEditError(
-            "the output directory is outside the configured file root."
-        )
+        raise SourceEditError("the output directory is outside the configured file root.")
     try:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise SourceEditError(
-            f"could not create the session directory: {exc}"
-        ) from exc
+        raise SourceEditError(f"could not create the session directory: {exc}") from exc
     if not directory.is_dir():
         raise SourceEditError("the session output path is not a directory.")
     return directory
@@ -834,9 +818,7 @@ def _reserve_created_output_path(
         except FileExistsError:
             continue
         except OSError as exc:
-            raise SourceEditError(
-                f"could not create the output file: {exc}"
-            ) from exc
+            raise SourceEditError(f"could not create the output file: {exc}") from exc
     raise SourceEditError(
         f"too many files named {stem!r} already exist in this session; "
         "download or remove some before creating another."
@@ -861,9 +843,7 @@ def _write_source_atomically(
         )
     except OSError as exc:
         target.unlink(missing_ok=True)
-        raise SourceEditError(
-            f"could not create a temporary file: {exc}"
-        ) from exc
+        raise SourceEditError(f"could not create a temporary file: {exc}") from exc
 
     temp_path = Path(temp_name)
     try:
@@ -881,9 +861,7 @@ def _write_source_atomically(
             os.fsync(stream.fileno())
         validated = _read_source_document(temp_path)
         if validated != document:
-            raise SourceEditError(
-                f"the saved {config.label} file did not pass validation."
-            )
+            raise SourceEditError(f"the saved {config.label} file did not pass validation.")
         os.replace(temp_path, target)
     except SourceEditError:
         if handle >= 0:
@@ -896,9 +874,7 @@ def _write_source_atomically(
             os.close(handle)
         temp_path.unlink(missing_ok=True)
         target.unlink(missing_ok=True)
-        raise SourceEditError(
-            f"could not save the {config.label} file: {exc}"
-        ) from exc
+        raise SourceEditError(f"could not save the {config.label} file: {exc}") from exc
     return target
 
 
@@ -914,13 +890,9 @@ def _reserve_output_path(
         directory = session_root.expanduser().resolve()
         resolved_source = source_path.resolve()
     except OSError as exc:
-        raise SourceEditError(
-            f"could not resolve the output directory: {exc}"
-        ) from exc
+        raise SourceEditError(f"could not resolve the output directory: {exc}") from exc
     if not directory.is_dir() or not _is_within(resolved_source, directory):
-        raise SourceEditError(
-            "the output directory is outside this chat session."
-        )
+        raise SourceEditError("the output directory is outside this chat session.")
 
     for variant in range(1, _MAX_OUTPUT_VARIANTS + 1):
         name = f"{stem}{suffix}" if variant == 1 else f"{stem}-{variant}{suffix}"
@@ -933,9 +905,7 @@ def _reserve_output_path(
         except FileExistsError:
             continue
         except OSError as exc:
-            raise SourceEditError(
-                f"could not create the output file: {exc}"
-            ) from exc
+            raise SourceEditError(f"could not create the output file: {exc}") from exc
     raise SourceEditError(
         f"too many edited copies of {source_path.name!r} already exist in this "
         "session; download or remove some before editing again."
@@ -1090,8 +1060,5 @@ def read_source_file(
     body = text[:limit]
     header = f"Contents of {resolved.name} ({len(text):,} chars):"
     if truncated:
-        header = (
-            f"Contents of {resolved.name} (showing first {limit:,} of "
-            f"{len(text):,} chars):"
-        )
+        header = f"Contents of {resolved.name} (showing first {limit:,} of {len(text):,} chars):"
     return f"{header}\n\n{body}"

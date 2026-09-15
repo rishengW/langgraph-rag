@@ -112,8 +112,7 @@ def read_excel_spreadsheet(
             if worksheet is None:
                 available = ", ".join(sheet_names)
                 return (
-                    f"Sheet {sheet!r} not found in {resolved.name}. "
-                    f"Available sheets: {available}."
+                    f"Sheet {sheet!r} not found in {resolved.name}. Available sheets: {available}."
                 )
             return _format_sheet(resolved.name, sheet_names, worksheet, row_limit)
         finally:
@@ -155,8 +154,7 @@ def _format_sheet(
         rows.append(["" if value is None else str(value) for value in cells])
 
     header = (
-        f"Spreadsheet {file_name} | sheets: {', '.join(sheet_names)} | "
-        f"reading '{worksheet.title}':"
+        f"Spreadsheet {file_name} | sheets: {', '.join(sheet_names)} | reading '{worksheet.title}':"
     )
     if not rows:
         return f"{header}\n\n(the sheet is empty)"

@@ -599,7 +599,7 @@ def test_full_and_lightweight_catalog_composition_differs_only_at_required_path(
     monkeypatch,
     isolated_settings,
 ):
-    import src.backend.core.retriever as retriever_module
+    import src.backend.rag.chroma_retriever as retriever_module
     import src.backend.tools as tools_module
     from src.backend.graph.builder import _resolve_lightweight_tools, _resolve_tools
 

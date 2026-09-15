@@ -55,7 +55,9 @@ class PowerPointEditResult:
 
 class PowerPointEditOperation(BaseModel):
     action: Literal["replace_text", "append_text", "delete_text", "replace_table_cell"]
-    slide_index: int = Field(..., ge=0, description="Zero-based slide number from inspect_powerpoint.")
+    slide_index: int = Field(
+        ..., ge=0, description="Zero-based slide number from inspect_powerpoint."
+    )
     shape_path: list[int] = Field(
         ...,
         min_length=1,
@@ -84,20 +86,29 @@ class PowerPointEditOperation(BaseModel):
             raise ValueError("shape_path indexes must be non-negative.")
         if self.expected_text is None:
             raise ValueError("expected_text is required for every PowerPoint edit.")
-        if self.action in ("replace_text", "append_text", "replace_table_cell") and self.new_text is None:
+        if (
+            self.action in ("replace_text", "append_text", "replace_table_cell")
+            and self.new_text is None
+        ):
             raise ValueError(f"{self.action} requires new_text.")
-        if self.action == "replace_table_cell" and (self.row_index is None or self.column_index is None):
+        if self.action == "replace_table_cell" and (
+            self.row_index is None or self.column_index is None
+        ):
             raise ValueError("replace_table_cell requires row_index and column_index.")
         return self
 
 
 class PowerPointInspectInput(BaseModel):
-    path: str = Field(..., min_length=1, description="Path to a .pptx uploaded to this chat session.")
+    path: str = Field(
+        ..., min_length=1, description="Path to a .pptx uploaded to this chat session."
+    )
     max_chars: int = Field(default=_MAX_INSPECT_CHARS, ge=1, le=200_000)
 
 
 class PowerPointEditInput(BaseModel):
-    path: str = Field(..., min_length=1, description="Path to a .pptx uploaded to this chat session.")
+    path: str = Field(
+        ..., min_length=1, description="Path to a .pptx uploaded to this chat session."
+    )
     operations: list[PowerPointEditOperation] = Field(..., min_length=1, max_length=_MAX_OPERATIONS)
     output_name: str | None = Field(default=None, max_length=200)
 
@@ -112,36 +123,64 @@ def build_powerpoint_edit_tools(
     file_root = Path(settings.file_read_root)
 
     def _inspect(path: str, max_chars: int = _MAX_INSPECT_CHARS) -> str:
-        return inspect_powerpoint(path, session_root=session_root, file_root=file_root,
-                                  max_bytes=settings.file_read_max_bytes, max_chars=max_chars)
+        return inspect_powerpoint(
+            path,
+            session_root=session_root,
+            file_root=file_root,
+            max_bytes=settings.file_read_max_bytes,
+            max_chars=max_chars,
+        )
 
-    def _edit(path: str, operations: list[PowerPointEditOperation], output_name: str | None = None) -> tuple[str, dict[str, object] | None]:
-        result = edit_powerpoint(path, operations=operations, session_root=session_root,
-                                 file_root=file_root, max_bytes=settings.file_read_max_bytes,
-                                 thread_id=thread_id, output_name=output_name)
+    def _edit(
+        path: str, operations: list[PowerPointEditOperation], output_name: str | None = None
+    ) -> tuple[str, dict[str, object] | None]:
+        result = edit_powerpoint(
+            path,
+            operations=operations,
+            session_root=session_root,
+            file_root=file_root,
+            max_bytes=settings.file_read_max_bytes,
+            thread_id=thread_id,
+            output_name=output_name,
+        )
         return result.content, result.artifact
 
     return [
         StructuredTool.from_function(
-            func=_inspect, name="inspect_powerpoint",
-            description=("List slides, shapes, text, and table cells in an uploaded .pptx. "
-                         "Call this before edit_powerpoint to obtain exact indexes and expected_text."),
+            func=_inspect,
+            name="inspect_powerpoint",
+            description=(
+                "List slides, shapes, text, and table cells in an uploaded .pptx. "
+                "Call this before edit_powerpoint to obtain exact indexes and expected_text."
+            ),
             args_schema=PowerPointInspectInput,
         ),
         StructuredTool.from_function(
-            func=_edit, name="edit_powerpoint",
-            description=("Apply structured text or table-cell edits to an uploaded .pptx and "
-                         "save a new downloadable copy. The original is never changed. "
-                         "Always call inspect_powerpoint first and pass its exact expected_text."),
-            args_schema=PowerPointEditInput, response_format="content_and_artifact",
+            func=_edit,
+            name="edit_powerpoint",
+            description=(
+                "Apply structured text or table-cell edits to an uploaded .pptx and "
+                "save a new downloadable copy. The original is never changed. "
+                "Always call inspect_powerpoint first and pass its exact expected_text."
+            ),
+            args_schema=PowerPointEditInput,
+            response_format="content_and_artifact",
         ),
     ]
 
 
-def inspect_powerpoint(path: str, *, session_root: Path, file_root: Path, max_bytes: int,
-                       max_chars: int = _MAX_INSPECT_CHARS) -> str:
+def inspect_powerpoint(
+    path: str,
+    *,
+    session_root: Path,
+    file_root: Path,
+    max_bytes: int,
+    max_chars: int = _MAX_INSPECT_CHARS,
+) -> str:
     try:
-        resolved = _resolve_session_pptx(path, session_root=session_root, file_root=file_root, max_bytes=max_bytes)
+        resolved = _resolve_session_pptx(
+            path, session_root=session_root, file_root=file_root, max_bytes=max_bytes
+        )
         presentation = _load_presentation(resolved)
     except PowerPointEditError as exc:
         return f"Could not inspect PowerPoint presentation: {exc}"
@@ -174,19 +213,38 @@ def inspect_powerpoint(path: str, *, session_root: Path, file_root: Path, max_by
     return f"Structure of {resolved.name}:\n\n{body}"
 
 
-def edit_powerpoint(path: str, *, operations: list[PowerPointEditOperation], session_root: Path,
-                    file_root: Path, max_bytes: int, thread_id: str = "",
-                    output_name: str | None = None) -> PowerPointEditResult:
+def edit_powerpoint(
+    path: str,
+    *,
+    operations: list[PowerPointEditOperation],
+    session_root: Path,
+    file_root: Path,
+    max_bytes: int,
+    thread_id: str = "",
+    output_name: str | None = None,
+) -> PowerPointEditResult:
     source_name = "(unresolved)"
     try:
-        resolved = _resolve_session_pptx(path, session_root=session_root, file_root=file_root, max_bytes=max_bytes)
+        resolved = _resolve_session_pptx(
+            path, session_root=session_root, file_root=file_root, max_bytes=max_bytes
+        )
         source_name = resolved.name
         presentation = _load_presentation(resolved)
         _apply_operations(presentation, operations)
-        published = _publish(presentation, session_root=session_root, source_path=resolved,
-                             output_name=output_name, max_bytes=max_bytes)
+        published = _publish(
+            presentation,
+            session_root=session_root,
+            source_path=resolved,
+            output_name=output_name,
+            max_bytes=max_bytes,
+        )
     except PowerPointEditError as exc:
-        logger.info("powerpoint_edit failed: thread=%s source=%s reason=%s", thread_id or "(none)", source_name, type(exc).__name__)
+        logger.info(
+            "powerpoint_edit failed: thread=%s source=%s reason=%s",
+            thread_id or "(none)",
+            source_name,
+            type(exc).__name__,
+        )
         return PowerPointEditResult(f"Could not edit PowerPoint presentation: {exc}")
     summary = ", ".join(op.action for op in operations)
     size = published.stat().st_size
@@ -202,7 +260,9 @@ def _apply_operations(presentation: Any, operations: list[PowerPointEditOperatio
             slide = presentation.slides[operation.slide_index]
             shape = _resolve_shape(slide, operation.shape_path)
         except (IndexError, TypeError) as exc:
-            raise PowerPointEditError(f"invalid slide or shape path in {operation.action}.") from exc
+            raise PowerPointEditError(
+                f"invalid slide or shape path in {operation.action}."
+            ) from exc
         actual = _shape_text(shape, operation)
         if _normalize(actual) != _normalize(operation.expected_text or ""):
             raise PowerPointEditError(
@@ -312,7 +372,9 @@ def _append_text_preserving_format(text_frame: Any, text: str) -> None:
         run._r.insert(0, deepcopy(template.runs[0]._r.rPr))
 
 
-def _resolve_session_pptx(raw_path: str, *, session_root: Path, file_root: Path, max_bytes: int) -> Path:
+def _resolve_session_pptx(
+    raw_path: str, *, session_root: Path, file_root: Path, max_bytes: int
+) -> Path:
     text = (raw_path or "").strip().strip('"').strip("'")
     if not text:
         raise PowerPointEditError("a non-empty file path is required.")
@@ -321,7 +383,9 @@ def _resolve_session_pptx(raw_path: str, *, session_root: Path, file_root: Path,
     except OSError as exc:
         raise PowerPointEditError(f"could not resolve the session directory: {exc}") from exc
     candidate = Path(text).expanduser()
-    candidates = [candidate] if candidate.is_absolute() else [session / candidate, file_root / candidate]
+    candidates = (
+        [candidate] if candidate.is_absolute() else [session / candidate, file_root / candidate]
+    )
     access_errors: list[FileAccessError] = []
     found_in_scope = False
     for option in candidates:
@@ -349,9 +413,12 @@ def _load_presentation(path: Path) -> Any:
     try:
         _guard_archive(path)
         from pptx import Presentation
+
         return Presentation(str(path))
     except ImportError as exc:
-        raise PowerPointEditError("python-pptx is not installed; install python-pptx to enable PowerPoint editing.") from exc
+        raise PowerPointEditError(
+            "python-pptx is not installed; install python-pptx to enable PowerPoint editing."
+        ) from exc
     except PowerPointEditError:
         raise
     except Exception as exc:
@@ -369,11 +436,17 @@ def _guard_archive(path: Path) -> None:
                 total += info.file_size
                 if info.file_size and not info.compress_size:
                     raise PowerPointEditError("presentation has an unsafe compression ratio.")
-                if info.compress_size and info.file_size / info.compress_size > _MAX_COMPRESSION_RATIO:
+                if (
+                    info.compress_size
+                    and info.file_size / info.compress_size > _MAX_COMPRESSION_RATIO
+                ):
                     raise PowerPointEditError("presentation has an unsafe compression ratio.")
             if total > _MAX_UNCOMPRESSED_BYTES:
                 raise PowerPointEditError("presentation expands beyond the safety limit.")
-            if "[Content_Types].xml" not in archive.namelist() or "ppt/presentation.xml" not in archive.namelist():
+            if (
+                "[Content_Types].xml" not in archive.namelist()
+                or "ppt/presentation.xml" not in archive.namelist()
+            ):
                 raise PowerPointEditError("file is missing required PowerPoint parts.")
     except PowerPointEditError:
         raise
@@ -381,14 +454,21 @@ def _guard_archive(path: Path) -> None:
         raise PowerPointEditError(f"file is not a readable PowerPoint archive: {exc}") from exc
 
 
-def _publish(presentation: Any, *, session_root: Path, source_path: Path, output_name: str | None, max_bytes: int) -> Path:
+def _publish(
+    presentation: Any,
+    *,
+    session_root: Path,
+    source_path: Path,
+    output_name: str | None,
+    max_bytes: int,
+) -> Path:
     directory = session_root.expanduser().resolve()
     source = source_path.resolve()
     if not directory.is_dir() or not _is_within(source, directory):
         raise PowerPointEditError("the output directory is outside this chat session.")
     requested = Path(output_name or f"{source.stem}.edited").name
     if requested.lower().endswith(".pptx"):
-        requested = requested[:-len(".pptx")]
+        requested = requested[: -len(".pptx")]
     portable_stem_limit = _MAX_PORTABLE_PATH_CHARS - len(str(directory)) - len("-100.pptx") - 1
     if portable_stem_limit < 1:
         raise PowerPointEditError("the session directory path is too long for a safe output file.")
@@ -443,9 +523,17 @@ def _publish(presentation: Any, *, session_root: Path, source_path: Path, output
 
 
 def build_file_artifact(*, thread_id: str, filename: str, size_bytes: int) -> dict[str, object]:
-    return {"type": "file", "version": 1, "kind": "download", "provider": "chat_upload",
-            "threadId": thread_id, "filename": filename, "mimeType": PPTX_MIME_TYPE,
-            "sizeBytes": size_bytes, "url": f"/chat/{quote(thread_id, safe='')}/files/{quote(filename, safe='')}"}
+    return {
+        "type": "file",
+        "version": 1,
+        "kind": "download",
+        "provider": "chat_upload",
+        "threadId": thread_id,
+        "filename": filename,
+        "mimeType": PPTX_MIME_TYPE,
+        "sizeBytes": size_bytes,
+        "url": f"/chat/{quote(thread_id, safe='')}/files/{quote(filename, safe='')}",
+    }
 
 
 def _normalize(value: str) -> str:
@@ -460,5 +548,13 @@ def _is_within(path: Path, root: Path) -> bool:
         return False
 
 
-__all__ = ["PPTX_MIME_TYPE", "PowerPointEditInput", "PowerPointEditOperation", "PowerPointInspectInput",
-           "PowerPointEditResult", "build_powerpoint_edit_tools", "edit_powerpoint", "inspect_powerpoint"]
+__all__ = [
+    "PPTX_MIME_TYPE",
+    "PowerPointEditInput",
+    "PowerPointEditOperation",
+    "PowerPointInspectInput",
+    "PowerPointEditResult",
+    "build_powerpoint_edit_tools",
+    "edit_powerpoint",
+    "inspect_powerpoint",
+]

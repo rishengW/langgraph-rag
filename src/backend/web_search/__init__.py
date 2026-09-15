@@ -45,6 +45,7 @@ def __getattr__(name: str) -> Any:
         return getattr(tool_module, name)
     raise AttributeError(name)
 
+
 __all__ = [
     "BaiduWebSearch",
     "BaiduVerificationError",

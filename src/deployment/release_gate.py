@@ -269,9 +269,7 @@ def _validate_drills(
     for raw_drill in raw_drills:
         document = _closed_object(
             raw_drill,
-            expected_fields=frozenset(
-                {"scenario", "passed", "evidence_ref", "completed_at"}
-            ),
+            expected_fields=frozenset({"scenario", "passed", "evidence_ref", "completed_at"}),
             label="drill evidence",
         )
         raw_scenario = document["scenario"]
@@ -289,7 +287,9 @@ def _validate_drills(
         _validate_rehearsal_window(completed_at, now=now, max_age=max_age)
         drills_by_scenario[scenario] = DrillEvidence(
             scenario=scenario,
-            evidence_ref=_safe_reference(document["evidence_ref"], label="drill evidence reference"),
+            evidence_ref=_safe_reference(
+                document["evidence_ref"], label="drill evidence reference"
+            ),
             completed_at=completed_at,
         )
 

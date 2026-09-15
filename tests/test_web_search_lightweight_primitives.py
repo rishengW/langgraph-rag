@@ -233,9 +233,7 @@ def test_fetch_pages_force_js_domain_skips_http_loader(monkeypatch):
                     page_content=(
                         '<script type="application/ld+json">'
                         '{"@type":"Article","datePublished":"2026-07-18"}'
-                        "</script><main>"
-                        + " ".join(["forced render"] * 40)
-                        + "</main>"
+                        "</script><main>" + " ".join(["forced render"] * 40) + "</main>"
                     ),
                     metadata={"title": "JS"},
                 )

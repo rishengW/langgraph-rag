@@ -302,7 +302,9 @@ def validate_amap_envelope(payload: dict[str, Any], *, context: str) -> dict[str
     status = str(payload.get("status") or "")
     if status == "1":
         return payload
-    if not status and any(key in payload for key in ("pois", "geocodes", "districts", "route", "data")):
+    if not status and any(
+        key in payload for key in ("pois", "geocodes", "districts", "route", "data")
+    ):
         return payload
 
     message = _safe_text(payload.get("info") or payload.get("message") or "error")

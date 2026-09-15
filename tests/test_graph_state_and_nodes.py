@@ -6,7 +6,6 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableLambda
 
-from src.backend.core.state import AgentState
 from src.backend.graph.nodes import (
     chat_question_resolver,
     condense_question_factory,
@@ -20,12 +19,11 @@ from src.frontend.chat.state import ChatState
 
 
 def test_state_aliases_preserve_old_import_paths():
-    assert AgentState is RAGState
     assert ChatState is RAGState
 
 
 def test_core_node_helpers_preserve_old_import_paths():
-    from src.backend.core.nodes import _question_tokens, _split_context_sentences
+    from src.backend.graph.nodes.common import _question_tokens, _split_context_sentences
 
     assert _question_tokens("What about reinforcement learning?") == {
         "reinforcement",
@@ -100,9 +98,7 @@ def test_condense_followup_question_uses_history(monkeypatch, mock_settings):
     # Stub the chat model with a RunnableLambda so the prompt|model|parser
     # chain composes and yields our standalone question without a network call.
     fake_model = RunnableLambda(
-        lambda _prompt: AIMessage(
-            content="Argentina vs Jordan World Cup 2026 match result"
-        )
+        lambda _prompt: AIMessage(content="Argentina vs Jordan World Cup 2026 match result")
     )
     monkeypatch.setattr(condense_module, "new_chat_model", lambda _s: fake_model)
 
@@ -246,9 +242,7 @@ def test_chat_agent_receives_bounded_projection(monkeypatch, isolated_settings):
     )({"messages": state_messages})
 
     assert captured_messages[0].type == "system"
-    assert [message.content for message in captured_messages[1:]] == [
-        "latest question"
-    ]
+    assert [message.content for message in captured_messages[1:]] == ["latest question"]
     assert [message.content for message in state_messages] == [
         "old question",
         "old answer",
@@ -493,4 +487,3 @@ def test_low_relevance_generate_requires_at_least_one_keyword_match(
     )
 
     assert route == "rewrite"
-

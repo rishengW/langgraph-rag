@@ -104,7 +104,9 @@ def find_on_map_result(
     if not term:
         return MapLookupResult("Map lookup requires a non-empty place name.")
 
-    service_key = api_key if api_key is not None else str(getattr(settings, "amap_web_service_key", ""))
+    service_key = (
+        api_key if api_key is not None else str(getattr(settings, "amap_web_service_key", ""))
+    )
     timeout = timeout_seconds
     if timeout is None:
         timeout = int(getattr(settings, "amap_api_timeout_seconds", 10) or 10)

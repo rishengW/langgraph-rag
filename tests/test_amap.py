@@ -254,9 +254,7 @@ def test_navigation_uri_removes_commas_from_endpoint_labels():
 
     query = parse_qs(urlsplit(url).query)
 
-    assert query["from"] == [
-        "121.320081,31.193964,Shanghai Hongqiao Station Minhang Shanghai"
-    ]
+    assert query["from"] == ["121.320081,31.193964,Shanghai Hongqiao Station Minhang Shanghai"]
     assert query["to"] == ["121.497253,31.238235,The Bund Huangpu Shanghai"]
     assert query["from"][0].count(",") == 2
     assert query["to"][0].count(",") == 2

@@ -237,9 +237,7 @@ def test_upload_injects_context_into_next_turn(monkeypatch, isolated_settings, t
         session = registry.get(thread_id)
         graph = session.graph
 
-        message = client.post(
-            f"/chat/{thread_id}/message", json={"message": "summarize notes.txt"}
-        )
+        message = client.post(f"/chat/{thread_id}/message", json={"message": "summarize notes.txt"})
         assert message.status_code == 200
 
         system_texts = [
@@ -247,9 +245,7 @@ def test_upload_injects_context_into_next_turn(monkeypatch, isolated_settings, t
             for m in graph.messages
             if m.__class__.__name__ == "SystemMessage"
         ]
-        assert any(
-            f"chat_uploads/{thread_id}/notes.txt" in text for text in system_texts
-        )
+        assert any(f"chat_uploads/{thread_id}/notes.txt" in text for text in system_texts)
 
         # The injected system note must not leak into the user-facing history.
         history = client.get(f"/chat/{thread_id}/history")
@@ -271,9 +267,7 @@ def test_upload_context_not_repeated_on_later_turns(monkeypatch, isolated_settin
         client.post(f"/chat/{thread_id}/message", json={"message": "first"})
         client.post(f"/chat/{thread_id}/message", json={"message": "second"})
 
-        system_count = sum(
-            1 for m in graph.messages if m.__class__.__name__ == "SystemMessage"
-        )
+        system_count = sum(1 for m in graph.messages if m.__class__.__name__ == "SystemMessage")
         # Announced once on the first turn after upload, not again on the second.
         assert system_count == 1
 
@@ -468,10 +462,7 @@ def test_upload_edit_artifact_download_and_cleanup(
         assert downloaded.paragraphs[0].text == "Updated title"
 
         second_thread = _start_thread(client)
-        assert (
-            client.get(f"/chat/{second_thread}/files/{artifact['filename']}").status_code
-            == 404
-        )
+        assert client.get(f"/chat/{second_thread}/files/{artifact['filename']}").status_code == 404
         assert client.get(f"/chat/{thread_id}/files/missing.docx").status_code == 404
         assert client.get(f"/chat/unknown/files/{artifact['filename']}").status_code == 404
 
@@ -660,9 +651,7 @@ def test_upload_returns_all_session_files_after_sequential_uploads(
         ]
 
 
-def test_delete_upload_removes_file_and_returns_remaining(
-    monkeypatch, isolated_settings, tmp_path
-):
+def test_delete_upload_removes_file_and_returns_remaining(monkeypatch, isolated_settings, tmp_path):
     client, settings = _client(monkeypatch, isolated_settings, tmp_path)
     with client:
         thread_id = _start_thread(client)
@@ -704,9 +693,7 @@ def test_delete_upload_404_for_unknown_thread(monkeypatch, isolated_settings, tm
         assert response.status_code == 404
 
 
-def test_delete_upload_re_announces_remaining(
-    monkeypatch, isolated_settings, tmp_path
-):
+def test_delete_upload_re_announces_remaining(monkeypatch, isolated_settings, tmp_path):
     client, settings = _client(monkeypatch, isolated_settings, tmp_path)
     with client:
         thread_id = _start_thread(client)

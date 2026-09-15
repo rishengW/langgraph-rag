@@ -216,7 +216,6 @@ def normalize_file_artifact(value: Any, *, tool_call_id: str = "") -> dict[str, 
     return {"id": artifact_id, "tool_call_id": safe_tool_call_id, **body}
 
 
-
 def extract_artifacts_from_messages(messages: Any) -> list[dict[str, Any]]:
     """Extract safe artifacts from ``ToolMessage.artifact`` values in order."""
 
@@ -392,10 +391,7 @@ def _markers_from_envelope(value: Mapping[str, Any]) -> list[dict[str, Any]]:
 
     positions = _normalize_positions(value.get("positions"))
     if positions:
-        return [
-            {"position": position, "role": "marker"}
-            for position in positions[:MAX_MARKERS]
-        ]
+        return [{"position": position, "role": "marker"} for position in positions[:MAX_MARKERS]]
 
     marker = _normalize_marker(value, fallback_role="marker")
     return [marker] if marker is not None else []
@@ -422,22 +418,25 @@ def _route_markers_from_envelope(value: Mapping[str, Any]) -> list[dict[str, Any
 
     positions = _normalize_positions(value.get("positions"))
     if len(positions) >= 2:
-        origin_title = _first_bounded_string(
-            value,
-            ("originLabel", "origin_label"),
-            MAX_TITLE_CHARS,
-        ) or "Origin"
-        destination_title = _first_bounded_string(
-            value,
-            ("destinationLabel", "destination_label"),
-            MAX_TITLE_CHARS,
-        ) or "Destination"
+        origin_title = (
+            _first_bounded_string(
+                value,
+                ("originLabel", "origin_label"),
+                MAX_TITLE_CHARS,
+            )
+            or "Origin"
+        )
+        destination_title = (
+            _first_bounded_string(
+                value,
+                ("destinationLabel", "destination_label"),
+                MAX_TITLE_CHARS,
+            )
+            or "Destination"
+        )
         return [
             {"position": positions[0], "role": "origin", "title": origin_title},
-            *[
-                {"position": position, "role": "waypoint"}
-                for position in positions[1:-1]
-            ],
+            *[{"position": position, "role": "waypoint"} for position in positions[1:-1]],
             {
                 "position": positions[-1],
                 "role": "destination",
@@ -706,7 +705,9 @@ def _iter_artifact_candidates(value: Any) -> Iterable[Any]:
             yield value
             return
         nested = value.get("artifacts")
-        if isinstance(nested, Iterable) and not isinstance(nested, (bytes, bytearray, str, Mapping)):
+        if isinstance(nested, Iterable) and not isinstance(
+            nested, (bytes, bytearray, str, Mapping)
+        ):
             yield from _iter_artifact_candidates(nested)
         return
 
@@ -720,7 +721,9 @@ def _iter_messages(messages: Any) -> Iterable[Any]:
         return ()
     if _is_tool_message(messages):
         return (messages,)
-    if isinstance(messages, Iterable) and not isinstance(messages, (bytes, bytearray, str, Mapping)):
+    if isinstance(messages, Iterable) and not isinstance(
+        messages, (bytes, bytearray, str, Mapping)
+    ):
         return messages
     return (messages,)
 
@@ -751,7 +754,9 @@ def _bounded_string(value: Any, max_chars: int) -> str:
     return text
 
 
-def _first_nonnegative_number(values: Mapping[str, Any], keys: tuple[str, ...]) -> int | float | None:
+def _first_nonnegative_number(
+    values: Mapping[str, Any], keys: tuple[str, ...]
+) -> int | float | None:
     for key in keys:
         number = _finite_number(values.get(key))
         if number is None or number < 0:
@@ -790,7 +795,11 @@ def _token(value: Any) -> str:
 def _is_coordinate_pair_sequence(value: Any) -> bool:
     if not isinstance(value, Sequence) or isinstance(value, (bytes, bytearray, str)):
         return False
-    return len(value) >= 2 and _finite_number(value[0]) is not None and _finite_number(value[1]) is not None
+    return (
+        len(value) >= 2
+        and _finite_number(value[0]) is not None
+        and _finite_number(value[1]) is not None
+    )
 
 
 def _is_bool(value: Any) -> bool:

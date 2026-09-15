@@ -129,8 +129,7 @@ class BingWebSearch:
         if not raw_results:
             title = soup.title.string.strip() if soup.title and soup.title.string else ""
             logger.warning(
-                "Bing returned no parseable result links "
-                "(final_url=%s, title=%r, html_bytes=%s)",
+                "Bing returned no parseable result links (final_url=%s, title=%r, html_bytes=%s)",
                 final_url,
                 title[:120],
                 len(html),

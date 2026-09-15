@@ -56,9 +56,7 @@ def test_note_respects_the_character_budget(store):
     for index in range(10):
         store.save(content=f"metric memory number {index} with some extra text")
 
-    note = build_memory_note(
-        store, message="metric", thread_id=None, top_k=10, max_chars=200
-    )
+    note = build_memory_note(store, message="metric", thread_id=None, top_k=10, max_chars=200)
 
     assert note is not None
     assert len(note) <= 200
@@ -79,9 +77,7 @@ def test_note_is_none_when_nothing_matches(store):
 
 def test_note_is_none_when_the_store_is_empty(store):
     assert (
-        build_memory_note(
-            store, message="anything at all", thread_id=None, top_k=5, max_chars=2000
-        )
+        build_memory_note(store, message="anything at all", thread_id=None, top_k=5, max_chars=2000)
         is None
     )
 
@@ -90,8 +86,7 @@ def test_note_is_none_for_a_message_with_no_usable_terms(store):
     store.save(content="Prefers metric units")
 
     assert (
-        build_memory_note(store, message="a b c", thread_id=None, top_k=5, max_chars=2000)
-        is None
+        build_memory_note(store, message="a b c", thread_id=None, top_k=5, max_chars=2000) is None
     )
 
 
@@ -99,12 +94,8 @@ def test_note_only_includes_in_scope_records(store):
     store.save(content="global metric note")
     store.save(content="session metric note", scope="session", thread_id="mine")
 
-    mine = build_memory_note(
-        store, message="metric", thread_id="mine", top_k=5, max_chars=2000
-    )
-    theirs = build_memory_note(
-        store, message="metric", thread_id="other", top_k=5, max_chars=2000
-    )
+    mine = build_memory_note(store, message="metric", thread_id="mine", top_k=5, max_chars=2000)
+    theirs = build_memory_note(store, message="metric", thread_id="other", top_k=5, max_chars=2000)
 
     assert mine is not None and theirs is not None
     assert "session metric note" in mine
@@ -116,10 +107,7 @@ def test_note_scores_against_the_first_500_characters(store):
 
     padded = ("x" * 600) + " metric"
     assert (
-        build_memory_note(
-            store, message=padded, thread_id=None, top_k=5, max_chars=2000
-        )
-        is None
+        build_memory_note(store, message=padded, thread_id=None, top_k=5, max_chars=2000) is None
     ), "terms beyond the 500-character window are not considered"
 
 
@@ -132,9 +120,7 @@ def test_note_building_does_not_write_to_the_store(store):
     before_mtime = store.path.stat().st_mtime_ns
     time.sleep(0.01)
 
-    note = build_memory_note(
-        store, message="metric", thread_id=None, top_k=5, max_chars=2000
-    )
+    note = build_memory_note(store, message="metric", thread_id=None, top_k=5, max_chars=2000)
 
     assert note is not None
     assert store.path.read_text(encoding="utf-8") == before_text
@@ -145,9 +131,7 @@ def test_note_building_leaves_last_recalled_at_untouched(store):
     store.save(content="Prefers metric units")
     assert store.read()[0].last_recalled_at is None
 
-    build_memory_note(
-        store, message="metric", thread_id=None, top_k=5, max_chars=2000
-    )
+    build_memory_note(store, message="metric", thread_id=None, top_k=5, max_chars=2000)
 
     assert store.read()[0].last_recalled_at is None, (
         "only an explicit recall_memory call may update recency"
@@ -158,12 +142,8 @@ def test_note_selection_is_stable_across_turns(store):
     for index in range(4):
         store.save(content=f"metric memory {index}")
 
-    first = build_memory_note(
-        store, message="metric", thread_id=None, top_k=3, max_chars=2000
-    )
-    second = build_memory_note(
-        store, message="metric", thread_id=None, top_k=3, max_chars=2000
-    )
+    first = build_memory_note(store, message="metric", thread_id=None, top_k=3, max_chars=2000)
+    second = build_memory_note(store, message="metric", thread_id=None, top_k=3, max_chars=2000)
 
     assert first == second
 
@@ -286,9 +266,7 @@ def test_turn_messages_omit_the_note_when_nothing_matches(tmp_path, store):
     reset_store_cache()
     store.save(content="Prefers metric units")
 
-    messages = build_turn_messages(
-        make_settings(tmp_path), thread_id=None, message="bicycles"
-    )
+    messages = build_turn_messages(make_settings(tmp_path), thread_id=None, message="bicycles")
 
     assert roles(messages) == ["HumanMessage"]
     reset_store_cache()
@@ -332,9 +310,7 @@ def test_turn_messages_survive_a_rejected_store_path(tmp_path, caplog):
     )
 
     with caplog.at_level("WARNING"):
-        messages = build_turn_messages(
-            settings, thread_id=None, message="which units do I prefer?"
-        )
+        messages = build_turn_messages(settings, thread_id=None, message="which units do I prefer?")
 
     assert roles(messages) == ["HumanMessage"]
     assert any("unavailable" in message for message in caplog.messages)

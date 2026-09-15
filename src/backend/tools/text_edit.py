@@ -98,8 +98,7 @@ class TextEditOperation(BaseModel):
         default=None,
         max_length=_MAX_LINE_CHARS,
         description=(
-            "The new single line. Required for replace_line, "
-            "insert_before_line, and append_line."
+            "The new single line. Required for replace_line, insert_before_line, and append_line."
         ),
     )
 
@@ -171,8 +170,7 @@ class TextEditInput(BaseModel):
         ...,
         min_length=1,
         description=(
-            "Path to a .txt file uploaded to this chat session. The source is "
-            "never modified."
+            "Path to a .txt file uploaded to this chat session. The source is never modified."
         ),
     )
     operations: list[TextEditOperation] = Field(
@@ -180,8 +178,7 @@ class TextEditInput(BaseModel):
         min_length=1,
         max_length=_MAX_OPERATIONS,
         description=(
-            "Line edits to validate against the original file and then apply "
-            "as one transaction."
+            "Line edits to validate against the original file and then apply as one transaction."
         ),
     )
     output_name: str | None = Field(
@@ -334,8 +331,7 @@ def create_text_file(
     )
     return TextEditResult(
         content=(
-            f"Created {published.name} in this chat session. "
-            "The file is available to download."
+            f"Created {published.name} in this chat session. The file is available to download."
         ),
         artifact=_build_file_artifact(
             thread_id=thread_id,
@@ -517,11 +513,14 @@ def _read_text_document(path: Path) -> _TextDocument:
 def _decode_text(data: bytes, *, name: str) -> _TextDocument:
     """Strictly decode UTF-8 and reject binary or ambiguous line formats."""
 
-    unsupported_boms = (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE, codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)
+    unsupported_boms = (
+        codecs.BOM_UTF16_LE,
+        codecs.BOM_UTF16_BE,
+        codecs.BOM_UTF32_LE,
+        codecs.BOM_UTF32_BE,
+    )
     if any(data.startswith(bom) for bom in unsupported_boms):
-        raise TextEditError(
-            f"{name!r} uses an unsupported encoding; only UTF-8 text is supported."
-        )
+        raise TextEditError(f"{name!r} uses an unsupported encoding; only UTF-8 text is supported.")
 
     has_bom = data.startswith(codecs.BOM_UTF8)
     payload = data[len(codecs.BOM_UTF8) :] if has_bom else data
@@ -591,9 +590,7 @@ def _plan_operations(
             )
             continue
         if document.lines[index] != operation.expected_text:
-            problems.append(
-                f"{label}: expected_text does not exactly match line {index}."
-            )
+            problems.append(f"{label}: expected_text does not exactly match line {index}.")
 
     if problems:
         raise TextEditError(
@@ -807,9 +804,7 @@ def _output_stem(*, source_path: Path, output_name: str | None) -> str:
     return f"{source_path.stem}.edited"
 
 
-def _build_file_artifact(
-    *, thread_id: str, filename: str, size_bytes: int
-) -> dict[str, object]:
+def _build_file_artifact(*, thread_id: str, filename: str, size_bytes: int) -> dict[str, object]:
     return {
         "type": FILE_ARTIFACT_TYPE,
         "version": FILE_ARTIFACT_VERSION,

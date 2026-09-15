@@ -45,7 +45,6 @@ from src.backend.application import (
     TurnRequest,
     serialize_history,
 )
-from src.backend.core.web_search import discover_urls_from_web
 from src.backend.graph.builder import build_lightweight_graph
 from src.backend.graph.metrics import MetricsCollector, MetricsSnapshot
 from src.backend.graph.nodes.condense import condense_followup_question
@@ -59,11 +58,15 @@ from src.backend.sessions import (
     SQLiteStorage,
     _settings_for_session,
 )
+from src.backend.web_search import discover_urls_from_web
 from src.config import Settings, load_cors_allow_origins, load_settings
 from src.errors import ResourceNotFoundError
 
 from ..api.amap_proxy import (
+    AMAP_PROXY_RATE_LIMIT,
+    AMAP_PROXY_RATE_WINDOW_SECONDS,
     AMapProxyError,
+    ClientRateLimiter,
     build_amap_client_config,
     fetch_amap_proxy_response,
 )
@@ -704,14 +707,33 @@ def create_app(
             headers={"Cache-Control": "no-store"},
         )
 
+    # Per-app limiter: the AMap proxy is unauthenticated by design (the
+    # browser JS SDK cannot send Authorization headers), so abuse is bounded
+    # per client IP instead of per principal.
+    amap_rate_limiter = ClientRateLimiter(
+        max_requests=AMAP_PROXY_RATE_LIMIT,
+        window_seconds=AMAP_PROXY_RATE_WINDOW_SECONDS,
+    )
+
     @app.get("/_AMapService/{proxied_path:path}", response_model=None)
     async def amap_service_proxy(
         proxied_path: str,
         request: Request,
         settings: SettingsDep,
     ) -> Response:
-        """Forward one bounded request to AMap's fixed JS API service hosts."""
+        """Forward one bounded request to AMap's fixed JS API service hosts.
 
+        The browser JS SDK cannot authenticate, so each client IP is bounded
+        by a sliding-window rate budget instead of an API key.
+        """
+
+        client_host = request.client.host if request.client else "unknown"
+        if not amap_rate_limiter.allow(client_host):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many AMap service requests."},
+                headers={"Cache-Control": "no-store", "Retry-After": "60"},
+            )
         try:
             result = await asyncio.to_thread(
                 fetch_amap_proxy_response,
@@ -1101,9 +1123,9 @@ def create_app(
         result = await service.delete(thread_id, principal)
         return {"status": result.status, "thread_id": result.thread_id}
 
-    @app.get("/metrics")
+    @app.get("/metrics", dependencies=[Depends(require_admin_api_key)])
     async def metrics(metrics: MetricsDep) -> MetricsSnapshot:
-        """Return in-process graph metrics."""
+        """Return in-process graph metrics to authenticated operators."""
 
         return metrics.snapshot()
 

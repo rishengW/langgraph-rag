@@ -34,10 +34,28 @@ LANGUAGES = [
     # Note: the roundtrip sample avoids backslashes because the inspector
     # JSON-quotes lines (so \section would display as \\section).
     (build_latex_edit_tools, "latex_edit_enabled", "paper.tex", "% preamble", "% main"),
-    (build_prolog_edit_tools, "prolog_edit_enabled", "family.pl", "parent(tom, bob).", "parent(tom, mary)."),
-    (build_haskell_edit_tools, "haskell_edit_enabled", "math.hs", "factorial n = product [1 .. n]", "factorial n = product [2 .. n]"),
+    (
+        build_prolog_edit_tools,
+        "prolog_edit_enabled",
+        "family.pl",
+        "parent(tom, bob).",
+        "parent(tom, mary).",
+    ),
+    (
+        build_haskell_edit_tools,
+        "haskell_edit_enabled",
+        "math.hs",
+        "factorial n = product [1 .. n]",
+        "factorial n = product [2 .. n]",
+    ),
     (build_lua_edit_tools, "lua_edit_enabled", "script.lua", "local x = 1", "local x = 2"),
-    (build_julia_edit_tools, "julia_edit_enabled", "analyze.jl", "x = [1, 2, 3]", "x = [1, 2, 3, 4]"),
+    (
+        build_julia_edit_tools,
+        "julia_edit_enabled",
+        "analyze.jl",
+        "x = [1, 2, 3]",
+        "x = [1, 2, 3, 4]",
+    ),
     (build_shell_edit_tools, "shell_edit_enabled", "deploy.sh", "echo hello", "echo goodbye"),
     (build_matlab_edit_tools, "matlab_edit_enabled", "analysis.m", "a = 1;", "a = 2;"),
     (build_groovy_edit_tools, "groovy_edit_enabled", "script.groovy", "def x = 1", "def x = 2"),
@@ -79,8 +97,7 @@ def test_registration_requires_flags_scope_and_exposes_names(
     assert builder(enabled, session_root=None, thread_id=thread_id) == []
     assert builder(enabled, session_root=session_root, thread_id="") == []
     assert [
-        tool.name
-        for tool in builder(enabled, session_root=session_root, thread_id=thread_id)
+        tool.name for tool in builder(enabled, session_root=session_root, thread_id=thread_id)
     ] == expected_names
 
 
@@ -139,9 +156,7 @@ def test_create_inspect_edit_roundtrip_preserves_suffix(
     assert (session_root / filename).read_bytes() == f"{line}\nprint()\n".encode()
 
 
-def test_cross_session_and_traversal_access_are_denied(
-    isolated_settings, tmp_path
-):
+def test_cross_session_and_traversal_access_are_denied(isolated_settings, tmp_path):
     file_root, session_root, thread_id = _session(tmp_path)
     other_root = file_root / "chat_uploads" / "thread-b"
     other_root.mkdir(parents=True)
@@ -180,9 +195,7 @@ def test_jsonl_create_and_edit_reject_non_json_lines(isolated_settings, tmp_path
         jsonl_edit_enabled=True,
         file_read_root=str(tmp_path / "files"),
     )
-    (session_root / "events.jsonl").write_bytes(
-        b'{"id": 1}\n{"id": 2}\n'
-    )
+    (session_root / "events.jsonl").write_bytes(b'{"id": 1}\n{"id": 2}\n')
     create_tool, _inspect, edit_tool = build_jsonl_edit_tools(
         enabled, session_root=session_root, thread_id=thread_id
     )
@@ -239,6 +252,4 @@ def test_jsonl_create_and_edit_reject_non_json_lines(isolated_settings, tmp_path
     )
     assert valid_edit.artifact is not None
     assert valid_edit.artifact["filename"] == "events.edited.jsonl"
-    assert (session_root / "events.edited.jsonl").read_bytes() == (
-        b'{"id": 1}\n{"id": 3}\n'
-    )
+    assert (session_root / "events.edited.jsonl").read_bytes() == (b'{"id": 1}\n{"id": 3}\n')

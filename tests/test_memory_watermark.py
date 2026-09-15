@@ -12,20 +12,23 @@ from src.backend.memory.watermark import (
 )
 
 
-@pytest.mark.parametrize("raw,expected", [
-    (0, 0),
-    (7, 7),
-    (MAX_WATERMARK, MAX_WATERMARK),
-    (MAX_WATERMARK + 1, 0),
-    (-1, 0),
-    (True, 0),
-    (False, 0),
-    ("3", 0),
-    (3.0, 0),
-    (None, 0),
-    ({}, 0),
-    ([], 0),
-])
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (0, 0),
+        (7, 7),
+        (MAX_WATERMARK, MAX_WATERMARK),
+        (MAX_WATERMARK + 1, 0),
+        (-1, 0),
+        (True, 0),
+        (False, 0),
+        ("3", 0),
+        (3.0, 0),
+        (None, 0),
+        ({}, 0),
+        ([], 0),
+    ],
+)
 def test_coerce_watermark(raw, expected):
     assert coerce_watermark(raw) == expected
 

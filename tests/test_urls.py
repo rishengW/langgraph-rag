@@ -20,4 +20,3 @@ def test_parse_url_input_accepts_csv_and_lists():
         "https://b.test",
         "https://c.test",
     ]
-

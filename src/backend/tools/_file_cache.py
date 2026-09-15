@@ -56,6 +56,7 @@ class ParsedFileCache:
                 while len(self._values) > self._max_entries:
                     self._values.popitem(last=False)
             return value
+
     def _content_digest(self, path: Path) -> str:
         """Hash a file once per stable size/mtime pair."""
 

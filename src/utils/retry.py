@@ -243,11 +243,15 @@ def remove_tree_with_retry(
                 if remove_tree_manually(str(path)):
                     log.info("Manual removal succeeded")
                     return
-                log.error("Failed to remove %s after %d attempts and manual removal", path, max_retries)
+                log.error(
+                    "Failed to remove %s after %d attempts and manual removal", path, max_retries
+                )
                 raise
 
     if path.exists():
-        log.warning("Standard removal did not delete %s; attempting manual file-by-file removal", path)
+        log.warning(
+            "Standard removal did not delete %s; attempting manual file-by-file removal", path
+        )
         if remove_tree_manually(str(path)):
             log.info("Manual removal succeeded")
             return

@@ -63,11 +63,14 @@ def tools(settings, store):
 # ---- input schemas ---------------------------------------------------------
 
 
-@pytest.mark.parametrize("payload", [
-    {"content": ""},
-    {"content": "x" * 10_001},
-    {},
-])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"content": ""},
+        {"content": "x" * 10_001},
+        {},
+    ],
+)
 def test_save_schema_rejects_bad_content(payload):
     with pytest.raises(pydantic.ValidationError):
         SaveMemoryInput(**payload)
@@ -139,15 +142,18 @@ def test_expected_argument_sets(tools):
 # ---- thread id injection ---------------------------------------------------
 
 
-@pytest.mark.parametrize("config,expected", [
-    (None, None),
-    ({}, None),
-    ({"configurable": {}}, None),
-    ({"configurable": {"thread_id": None}}, None),
-    ({"configurable": {"thread_id": "  "}}, None),
-    ({"configurable": {"thread_id": " thread-9 "}}, "thread-9"),
-    ({"configurable": "not-a-dict"}, None),
-])
+@pytest.mark.parametrize(
+    "config,expected",
+    [
+        (None, None),
+        ({}, None),
+        ({"configurable": {}}, None),
+        ({"configurable": {"thread_id": None}}, None),
+        ({"configurable": {"thread_id": "  "}}, None),
+        ({"configurable": {"thread_id": " thread-9 "}}, "thread-9"),
+        ({"configurable": "not-a-dict"}, None),
+    ],
+)
 def test_thread_id_from_config(config, expected):
     assert thread_id_from_config(config) == expected
 
@@ -160,9 +166,7 @@ def test_injected_thread_id_reaches_the_store(settings):
             seen.append(kwargs["thread_id"])
             return SaveOutcome(ok=True, message="ok", record_count=1)
 
-    tool = build_save_memory_tool(
-        settings, store=Recording(), budget=MemoryCallBudget()
-    )
+    tool = build_save_memory_tool(settings, store=Recording(), budget=MemoryCallBudget())
 
     tool.invoke({"content": "x"}, config=CONFIG)
 
@@ -184,9 +188,7 @@ def test_session_records_are_invisible_to_another_thread(tools, store):
     save.invoke({"content": "local note", "scope": "session"}, config=CONFIG)
 
     mine = recall.invoke({"query": "local"}, config=CONFIG)
-    theirs = recall.invoke(
-        {"query": "local"}, config={"configurable": {"thread_id": "other"}}
-    )
+    theirs = recall.invoke({"query": "local"}, config={"configurable": {"thread_id": "other"}})
 
     assert "local note" in mine
     assert "No matching memory" in theirs
@@ -243,9 +245,7 @@ def test_unexpected_exception_type_is_converted_to_a_string(settings):
         def save(self, **kwargs):
             raise ZeroDivisionError("nonsense from deep inside")
 
-    tool = build_save_memory_tool(
-        settings, store=Exploding(), budget=MemoryCallBudget()
-    )
+    tool = build_save_memory_tool(settings, store=Exploding(), budget=MemoryCallBudget())
 
     result = tool.invoke({"content": "x"}, config=CONFIG)
 
@@ -258,9 +258,7 @@ def test_base_exception_is_also_converted(settings):
         def recall(self, **kwargs):
             raise MemoryError("out of memory, ironically")
 
-    tool = build_recall_memory_tool(
-        settings, store=Exploding(), budget=MemoryCallBudget()
-    )
+    tool = build_recall_memory_tool(settings, store=Exploding(), budget=MemoryCallBudget())
 
     result = tool.invoke({"query": "x"}, config=CONFIG)
 
@@ -286,9 +284,7 @@ def test_failure_string_is_bounded(settings):
         def save(self, **kwargs):
             raise RuntimeError("y" * 2000)
 
-    tool = build_save_memory_tool(
-        settings, store=Exploding(), budget=MemoryCallBudget()
-    )
+    tool = build_save_memory_tool(settings, store=Exploding(), budget=MemoryCallBudget())
 
     result = tool.invoke({"content": "x"}, config=CONFIG)
 
@@ -356,9 +352,7 @@ def test_long_success_payload_is_truncated_with_a_marker(tmp_path, store):
     budget = MemoryCallBudget()
     save, recall, _ = build_memory_tools(settings, store=store, budget=budget)
     for index in range(8):
-        save.invoke(
-            {"content": f"metric memory number {index} with padding"}, config=CONFIG
-        )
+        save.invoke({"content": f"metric memory number {index} with padding"}, config=CONFIG)
 
     result = recall.invoke({"query": "metric"}, config=CONFIG)
 

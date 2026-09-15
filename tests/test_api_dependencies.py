@@ -317,7 +317,11 @@ def test_session_registry_keeps_storage_backed_instance_and_persists(
             return SimpleNamespace(values={"messages": []})
 
     monkeypatch.setattr(chat_api, "load_settings", lambda: settings)
-    monkeypatch.setattr(chat_api, "build_chat_graph", lambda session_settings, rebuild_vectorstore=False: FakeGraph())
+    monkeypatch.setattr(
+        chat_api,
+        "build_chat_graph",
+        lambda session_settings, rebuild_vectorstore=False: FakeGraph(),
+    )
 
     app = chat_api.create_app()
     with TestClient(app) as client:

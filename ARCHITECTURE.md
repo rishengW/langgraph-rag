@@ -1,7 +1,7 @@
 # Architecture Reference
 
-This is the short architecture reference for contributors. The full historical
-plan remains in `REFACTORING_PLAN.md`.
+This is the short architecture reference for contributors. Historical
+refactoring plans are archived under `docs/archive/`.
 
 ## Runtime Shape
 
@@ -126,14 +126,17 @@ managed by Chroma.
 | Chat | `POST /chat/{thread_id}/message/stream` | SSE graph event stream. |
 | Chat | `GET /chat/{thread_id}/history` | Current persisted checkpoint transcript. |
 | Chat | `DELETE /chat/{thread_id}` | Delete a session. |
-| Chat | `GET /metrics` | In-process graph metrics snapshot. |
+| Chat | `GET /metrics` | Admin-authenticated in-process graph metrics snapshot. |
 
 ## Known Readiness Gaps
 
-The following remain open and are tracked in `COMPANY_READINESS_GAPS.md`:
+The following remain open:
 
 - Automated multi-version SQLite migrations beyond schema version 1.
-- Dependency scanning.
 - Structured JSON logging and request/session correlation IDs.
 - API versioning under `/api/v1/`.
 - Deployment-specific infrastructure.
+
+Dependency scanning is covered by the advisory `pip audit` step in CI.
+Authentication fails closed in `production`/`staging` environments when no
+API key is configured.

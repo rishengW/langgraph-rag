@@ -7,7 +7,6 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from src.backend.core.web_search import discover_urls_from_web as core_discover_urls_from_web
 from src.backend.web_search import (
     BaiduWebSearch,
     BingWebSearch,
@@ -23,6 +22,7 @@ from src.backend.web_search import (
 )
 from src.backend.web_search import baidu as baidu_module
 from src.backend.web_search import bing as bing_module
+from src.backend.web_search import discover_urls_from_web as core_discover_urls_from_web
 from src.backend.web_search import discovery as discovery_module
 from src.backend.web_search import duckduckgo as duckduckgo_module
 from src.backend.web_search.common import is_noise_url, select_top_urls, url_quality_score

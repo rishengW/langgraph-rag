@@ -7,16 +7,27 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+.coverage
+.coverage.*
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Logs and local install output
+*.log
+install_log.txt
 
 # Vector database
 .chroma/
 
-# Benchmark scratch
-benchmarks/
+# Benchmark run outputs (queries.json and docs stay tracked)
+benchmarks/**/runs.jsonl
+benchmarks/**/judgments.jsonl
+benchmarks/**/runs/
 
-# Chat agent long-term memory store (runtime state, not documentation)
-memory/long_term_memory.json
-memory/long_term_memory.json.corrupt-*
+# Chat agent long-term memory store (runtime state, recreated on demand)
+memory/
 
 # User-uploaded chat files (runtime artifacts)
 chat_uploads/
@@ -31,6 +42,9 @@ chat_uploads/
 
 # Generated artifacts
 graph.png
+# Unquoted "pkg>=X" in a Bash command: ">" is a redirect, so the shell creates a
+# file literally named "=X" in the cwd. Never meaningful, so ignore everywhere.
+=*
 
 # Local project notes
 COMPANY_READINESS_GAPS.md
@@ -45,6 +59,12 @@ collect.txt
 
 # Local skill notes at any directory depth
 SKILL.md
+# ...except the tracked web-search provider registry doc
+!src/backend/web_search/SKILL.md
+
+# Local agent scratch (keep .claude/agents/ tracked)
+.claude/*
+!.claude/agents/
 
 # Workbench scratch
 advanced_phase1_workbench/

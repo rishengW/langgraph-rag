@@ -35,10 +35,7 @@ class LinearAlgebraInput(BaseModel):
     matrix: str = Field(
         ...,
         min_length=1,
-        description=(
-            "Matrix as nested lists, e.g. '[[1, 2], [3, 4]]'. Rows are inner "
-            "lists."
-        ),
+        description=("Matrix as nested lists, e.g. '[[1, 2], [3, 4]]'. Rows are inner lists."),
     )
     matrix_b: str | None = Field(
         default=None,
@@ -104,9 +101,7 @@ def linear_algebra(
     try:
         primary = _parse_matrix(sympy, matrix, "matrix")
         if op == "determinant":
-            return _require_square(primary, "determinant") or (
-                f"determinant = {primary.det()}"
-            )
+            return _require_square(primary, "determinant") or (f"determinant = {primary.det()}")
         if op == "inverse":
             squared = _require_square(primary, "inverse")
             if squared:
@@ -146,13 +141,10 @@ def _parse_matrix(sympy: Any, raw: str, field: str) -> Any:
         data = ast.literal_eval(text)
     except (ValueError, SyntaxError) as exc:
         raise _LinAlgError(
-            f"could not parse {field}={raw!r}; use nested lists like "
-            "'[[1, 2], [3, 4]]'."
+            f"could not parse {field}={raw!r}; use nested lists like '[[1, 2], [3, 4]]'."
         ) from exc
     # Accept a flat list as a column vector.
-    if isinstance(data, (list, tuple)) and data and not isinstance(
-        data[0], (list, tuple)
-    ):
+    if isinstance(data, (list, tuple)) and data and not isinstance(data[0], (list, tuple)):
         data = [[item] for item in data]
     if not isinstance(data, (list, tuple)) or not data:
         raise _LinAlgError(f"{field} must be a non-empty list of rows.")
@@ -195,9 +187,7 @@ def _do_add(sympy: Any, primary: Any, matrix_b: str | None) -> str:
         raise _LinAlgError("add requires matrix_b.")
     other = _parse_matrix(sympy, matrix_b, "matrix_b")
     if primary.shape != other.shape:
-        raise _LinAlgError(
-            f"incompatible shapes for add: {primary.shape} and {other.shape}."
-        )
+        raise _LinAlgError(f"incompatible shapes for add: {primary.shape} and {other.shape}.")
     return f"sum =\n{_render(primary + other)}"
 
 
@@ -224,9 +214,7 @@ def _do_solve(sympy: Any, primary: Any, vector: str | None) -> str:
 
 def _format_eigenvalues(matrix: Any) -> str:
     eig = matrix.eigenvals()
-    parts = [
-        f"{value} (multiplicity {mult})" for value, mult in eig.items()
-    ]
+    parts = [f"{value} (multiplicity {mult})" for value, mult in eig.items()]
     return "eigenvalues: " + ", ".join(parts)
 
 

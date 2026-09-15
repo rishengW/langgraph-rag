@@ -39,8 +39,7 @@ def _persisted_chroma_exists(chroma_dir: Path) -> bool:
     if (chroma_dir / "chroma.sqlite3").exists():
         return True
     return any(
-        child.name not in RESERVED_CHROMA_CHILD_DIRS
-        and child.name != EMBEDDING_CONFIG_FILENAME
+        child.name not in RESERVED_CHROMA_CHILD_DIRS and child.name != EMBEDDING_CONFIG_FILENAME
         for child in chroma_dir.iterdir()
     )
 
@@ -190,9 +189,17 @@ class ChromaRetriever:
         self.settings = settings
         self._embeddings = embeddings
         self._chroma_cls = chroma_cls or Chroma
+        self._vectorstore: Any | None = None
         self._retriever = self._build_langchain_retriever(rebuild=rebuild)
 
     def retrieve(self, query: str, k: int = 4) -> list[Document]:
+        # Prefer the vectorstore directly: mutating the shared retriever's
+        # ``search_kwargs`` races with concurrent tool calls on the same
+        # graph (parallel tool calls, planning Send branches).
+        vectorstore = self._vectorstore
+        if vectorstore is not None and hasattr(vectorstore, "similarity_search"):
+            return list(vectorstore.similarity_search(query, k=k))
+
         retriever = self._retriever
         original_search_kwargs: dict[str, Any] | None = None
 
@@ -258,6 +265,7 @@ class ChromaRetriever:
                     persist_directory=str(settings.chroma_dir),
                     embedding_function=embeddings,
                 )
+                self._vectorstore = vectorstore
                 return vectorstore.as_retriever()
             except Exception as exc:
                 logger.warning(
@@ -296,6 +304,7 @@ class ChromaRetriever:
         )
         _write_embedding_config(settings)
 
+        self._vectorstore = vectorstore
         return vectorstore.as_retriever()
 
 

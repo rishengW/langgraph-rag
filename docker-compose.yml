@@ -11,6 +11,11 @@ services:
       - "8001:8001"
     environment:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      # The container listens on 0.0.0.0, so it runs with the production
+      # overlay: require_principal fails closed unless API_KEY is set.
+      RAG_ENV: ${RAG_ENV:-production}
+      API_KEY: ${API_KEY:-}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
       CHROMA_DIR: /app/.chroma
       CHAT_API_HOST: 0.0.0.0
       CHAT_API_PORT: "8001"

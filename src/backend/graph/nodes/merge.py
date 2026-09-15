@@ -101,28 +101,6 @@ def merge_factory(
     return merge
 
 
-def _combine_and_rank(first_attempt: list[str], expanded: list[str], top_k: int) -> list[str]:
-    """Combine first-attempt and expanded URLs, then rank and clamp.
-
-    Ranking uses semantic relevance, overall quality, overlap, provider rank,
-    then insertion order:
-    - ``relevance_score`` prevents an off-topic URL repeated by several weak
-      queries from outranking one strongly relevant result.
-    - ``quality_score`` preserves the provider result's complete URL + text
-      score as a secondary relevance signal.
-    - ``hit_count`` rewards URLs returned by multiple queries
-      (overlap across the pre-graph refresh AND the in-graph search =
-      stronger evidence) and is the dominant signal.
-    - ``best_provider_rank`` is each URL's own position within whichever
-      search returned it. The two sets are NOT offset against each other,
-      so position 0 of the in-graph contextualized search ties with
-      position 0 of the pre-graph refresh rather than always losing to it.
-    - ``first_seen`` preserves insertion order as a final tie-breaker.
-    """
-
-    return _combine_and_rank_sets(first_attempt, [expanded], top_k=top_k)
-
-
 def _combine_and_rank_sets(
     first_attempt: list[str],
     result_sets: list[list[str]],
@@ -282,10 +260,6 @@ def _select_domain_diverse(
 
     selected.extend(deferred[: max(0, top_k - len(selected))])
     return selected[:top_k]
-
-
-def _urls_from_tool_messages(messages: Any) -> list[str]:
-    return [url for result_set in _url_sets_from_tool_messages(messages) for url in result_set]
 
 
 def _url_sets_from_tool_messages(messages: Any) -> list[list[str]]:

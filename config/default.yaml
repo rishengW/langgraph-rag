@@ -193,6 +193,8 @@ document_quality_min_similarity: 0.5
 document_quality_recency_bias_days: 365
 # REFACTOR: Post-retrieval reranking strategy: lexical, embedding, or hybrid.
 rerank_strategy: lexical
+# Style-only persona for the agent/RAG prompts: trump or none.
+agent_persona_style: trump
 dashscope_request_timeout: 120
 dashscope_max_retries: 3
 dashscope_http_base_url: ""

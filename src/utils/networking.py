@@ -31,8 +31,7 @@ def parse_dashscope_base_url(raw_value: str | None) -> str:
         return ""
     if not value.startswith(("http://", "https://")):
         raise RuntimeError(
-            "DASHSCOPE_HTTP_BASE_URL must start with http:// or https://. "
-            f"Got: {value!r}"
+            f"DASHSCOPE_HTTP_BASE_URL must start with http:// or https://. Got: {value!r}"
         )
     return value
 
@@ -57,4 +56,3 @@ def configure_dashscope_base_url(base_url: str) -> None:
 
 def ensure_user_agent() -> None:
     os.environ.setdefault("USER_AGENT", DEFAULT_USER_AGENT)
-

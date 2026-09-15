@@ -65,10 +65,7 @@ class ZipEntryInput(BaseModel):
     entry: str = Field(
         ...,
         min_length=1,
-        description=(
-            "Exact member name as shown by inspect_zip_file, e.g. "
-            "'docs/readme.txt'."
-        ),
+        description=("Exact member name as shown by inspect_zip_file, e.g. 'docs/readme.txt'."),
     )
     max_chars: int = Field(
         default=_MAX_CHARS,
@@ -176,15 +173,15 @@ def inspect_zip_file(
         lines.append(f"- {name}{flags}")
     if len(infos) > _MAX_LISTED_ENTRIES:
         truncated = True
-        lines.append(
-            f"[… showing {_MAX_LISTED_ENTRIES} of {len(infos):,} entries]"
-        )
+        lines.append(f"[… showing {_MAX_LISTED_ENTRIES} of {len(infos):,} entries]")
 
     body = "\n".join(lines)
     limit = max(1, int(max_chars))
     if len(body) > limit or truncated:
-        suffix = "" if len(body) <= limit else (
-            f"\n\n[listing truncated to {limit:,} of {len(body):,} chars]"
+        suffix = (
+            ""
+            if len(body) <= limit
+            else (f"\n\n[listing truncated to {limit:,} of {len(body):,} chars]")
         )
         return body[:limit] + suffix
     return body

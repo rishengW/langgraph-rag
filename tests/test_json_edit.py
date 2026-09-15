@@ -261,7 +261,5 @@ def test_tool_registration_requires_flags_session_root_and_thread_id(
     assert build_json_edit_tools(enabled, session_root=session_root, thread_id="") == []
     assert [
         tool.name
-        for tool in build_json_edit_tools(
-            enabled, session_root=session_root, thread_id="thread-a"
-        )
+        for tool in build_json_edit_tools(enabled, session_root=session_root, thread_id="thread-a")
     ] == ["create_json_file", "inspect_json_file", "edit_json_file"]

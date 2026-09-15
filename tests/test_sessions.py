@@ -6,6 +6,7 @@ from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from src.backend.sessions import (
+    TOUCH_PERSIST_INTERVAL_SECONDS,
     ChatSession,
     ChatSessionRegistry,
     InMemoryStorage,
@@ -92,7 +93,9 @@ def test_cleanup_expired_removes_only_stale_sessions(mock_settings):
 
     registry = ChatSessionRegistry(ttl_seconds=10, time_func=clock)
 
-    old_settings = settings_for_session(mock_settings, ["https://example.com/old"], "old", isolated=True)
+    old_settings = settings_for_session(
+        mock_settings, ["https://example.com/old"], "old", isolated=True
+    )
     old_settings.chroma_dir.mkdir(parents=True)
     registry.create(
         graph=object(),
@@ -103,7 +106,9 @@ def test_cleanup_expired_removes_only_stale_sessions(mock_settings):
     )
 
     now = 105.0
-    fresh_settings = settings_for_session(mock_settings, ["https://example.com/fresh"], "fresh", isolated=True)
+    fresh_settings = settings_for_session(
+        mock_settings, ["https://example.com/fresh"], "fresh", isolated=True
+    )
     fresh_settings.chroma_dir.mkdir(parents=True)
     registry.create(
         graph=object(),
@@ -272,11 +277,12 @@ def test_registry_optionally_persists_session_metadata(mock_settings):
     assert saved.source_urls == ["https://example.com/session"]
     assert saved.last_accessed_at == 10.0
 
-    now = 12.0
+    # Touch persistence is throttled: advance past the interval.
+    now = 10.0 + TOUCH_PERSIST_INTERVAL_SECONDS + 1.0
     assert registry.get("stored-thread") is not None
     touched = storage.load("stored-thread")
     assert touched is not None
-    assert touched.last_accessed_at == 12.0
+    assert touched.last_accessed_at == now
 
     assert registry.delete("stored-thread") is True
     assert storage.load("stored-thread") is None
@@ -550,24 +556,24 @@ def test_sqlite_memory_saver_serializes_writes_under_lock(tmp_path, monkeypatch)
 
 def test_sqlite_memory_saver_concurrent_writers_do_not_corrupt_state(tmp_path):
     # Behavioral smoke test for the production crash: spin up several
-    # threads that each call ``put`` and ``put_writes`` in a tight loop
-    # against the same saver. The exact ``RuntimeError`` is timing-
-    # dependent and hard to reproduce in a unit test, but this test
-    # catches the broader class of "concurrent access corrupts the
-    # saver" failures and ensures the fix is not silently regressed.
+    # threads that each call ``put_writes`` in a tight loop against the
+    # same saver. The exact ``RuntimeError`` is timing-dependent and hard
+    # to reproduce in a unit test, but this test catches the broader
+    # class of "concurrent access corrupts the saver" failures and
+    # ensures the fix is not silently regressed. Bounded iterations keep
+    # the runtime deterministic (no wall-clock busy wait).
     import threading
 
     db_path = tmp_path / "checkpoints.sqlite3"
     saver = SQLiteMemorySaver(db_path)
     thread_id = "concurrent-thread"
+    iterations = 30
 
     errors: list[BaseException] = []
-    stop = threading.Event()
 
     def runner(index: int) -> None:
         try:
-            iteration = 0
-            while not stop.is_set():
+            for iteration in range(iterations):
                 config = {
                     "configurable": {
                         "thread_id": thread_id,
@@ -580,19 +586,136 @@ def test_sqlite_memory_saver_concurrent_writers_do_not_corrupt_state(tmp_path):
                     [(("value",), iteration)],
                     task_id=f"task-{index}-{iteration}",
                 )
-                iteration += 1
         except BaseException as exc:  # pragma: no cover - assertion below
             errors.append(exc)
 
     threads = [threading.Thread(target=runner, args=(i,)) for i in range(6)]
     for thread in threads:
         thread.start()
-
-    import time
-
-    time.sleep(0.3)
-    stop.set()
     for thread in threads:
         thread.join()
 
     assert errors == [], f"concurrent put_writes raised: {errors!r}"
+
+
+def test_sqlite_memory_saver_persists_one_row_per_thread(tmp_path):
+    builder = StateGraph(CounterState)
+    builder.add_node("increment", lambda state: {"value": state["value"] + 1})
+    builder.add_edge(START, "increment")
+    builder.add_edge("increment", END)
+
+    db_path = tmp_path / "checkpoints.sqlite3"
+    saver = SQLiteMemorySaver(db_path)
+    graph = builder.compile(checkpointer=saver)
+
+    for thread in ("thread-a", "thread-b"):
+        graph.invoke({"value": 1}, {"configurable": {"thread_id": thread}})
+
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            "SELECT thread_id FROM thread_state ORDER BY thread_id"
+        ).fetchall()
+    assert [row[0] for row in rows] == ["thread-a", "thread-b"]
+
+    saver.delete_thread("thread-a")
+
+    with sqlite3.connect(db_path) as connection:
+        remaining = connection.execute("SELECT thread_id FROM thread_state").fetchall()
+    assert [row[0] for row in remaining] == ["thread-b"]
+    assert graph.get_state({"configurable": {"thread_id": "thread-b"}}).values == {"value": 2}
+
+
+def test_sqlite_memory_saver_migrates_legacy_whole_store_row(tmp_path):
+    db_path = tmp_path / "checkpoints.sqlite3"
+    legacy_storage = {
+        "legacy-a": {"": {"cp-a": {"v": 1, "id": "cp-a", "channel_values": {}}}},
+        "legacy-b": {"": {"cp-b": {"v": 1, "id": "cp-b", "channel_values": {}}}},
+    }
+    legacy_writes = {("legacy-a", "", "task-1"): {0: ("value", 1)}}
+    legacy_state = {
+        "storage": legacy_storage,
+        "writes": legacy_writes,
+        "blobs": {},
+    }
+    import pickle
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE checkpoint_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                payload BLOB NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO checkpoint_state (id, payload) VALUES (1, ?)",
+            (pickle.dumps(legacy_state, protocol=pickle.HIGHEST_PROTOCOL),),
+        )
+
+    saver = SQLiteMemorySaver(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        rows = connection.execute(
+            "SELECT thread_id FROM thread_state ORDER BY thread_id"
+        ).fetchall()
+
+    assert "checkpoint_state" not in tables
+    assert [row[0] for row in rows] == ["legacy-a", "legacy-b"]
+
+    restored = pickle.loads(saver.snapshot_thread("legacy-a"))
+    assert restored["storage"] == legacy_storage["legacy-a"]
+    assert restored["writes"] == legacy_writes
+
+
+def test_get_touch_persists_metadata_at_most_once_per_interval(tmp_path, mock_settings):
+    now = 1000.0
+
+    def clock() -> float:
+        return now
+
+    saved: list[float] = []
+
+    class RecordingStorage:
+        def save(self, metadata):
+            saved.append(metadata.last_accessed_at)
+
+        def load(self, thread_id):
+            return None
+
+        def delete(self, thread_id):
+            return False
+
+        def list_all(self):
+            return []
+
+    registry = ChatSessionRegistry(
+        ttl_seconds=None,
+        cleanup=lambda session: None,
+        storage=RecordingStorage(),
+        time_func=clock,
+    )
+    registry.create(
+        graph=object(),
+        settings=mock_settings,
+        source_urls=mock_settings.source_urls,
+        source_mode="defaults",
+        thread_id="throttled",
+    )
+    initial_saves = len(saved)
+
+    now = 1010.0
+    registry.get("throttled")
+    registry.get("throttled")
+    assert len(saved) == initial_saves, "touch within the interval must not persist"
+
+    now = 1000.0 + 31.0
+    registry.get("throttled")
+    assert len(saved) == initial_saves + 1, "touch after the interval must persist"
+    assert saved[-1] == 1031.0

@@ -5,7 +5,17 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
+      - production
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   quality:
@@ -33,20 +43,17 @@ jobs:
       - name: Run Ruff
         run: ruff check .
 
-      - name: Check production-refactor formatting
-        # The legacy repository is not yet uniformly Ruff-formatted (108 files
-        # at Phase 0 baseline). Scope this gate to the refactor-owned Python
-        # paths to avoid a noisy repository-wide rewrite.
-        run: >-
-          ruff format --check
-          src/backend/application
-          src/backend/mcp
-          src/backend/graph/builder.py
-          src/backend/graph/events.py
-          src/backend/graph/executor.py
-          src/backend/graph/metrics.py
-          tests/test_rag_application_service.py
-          tests/test_tool_catalog_policy.py
+      - name: Check Ruff formatting
+        run: ruff format --check .
 
       - name: Run mypy
         run: mypy src/
+
+      - name: Audit dependencies
+        # Known-vulnerable pins in the locked runtime stack are tracked
+        # separately; keep this advisory until the pins are upgraded so the
+        # gate does not mask test/lint failures.
+        continue-on-error: true
+        run: |
+          python -m pip install pip-audit
+          python -m pip audit -r requirements.txt -r requirements-dev.txt --progress-off

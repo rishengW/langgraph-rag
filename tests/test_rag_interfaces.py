@@ -90,8 +90,7 @@ def test_load_and_split_documents_skips_failed_sources():
     class FakeSplitter:
         def split_documents(self, documents: list[Document]) -> list[Document]:
             return [
-                Document(page_content=f"chunk:{document.page_content}")
-                for document in documents
+                Document(page_content=f"chunk:{document.page_content}") for document in documents
             ]
 
     def loader_factory(url: str, timeout: int) -> FakeLoader:

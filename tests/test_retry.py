@@ -34,4 +34,3 @@ def test_call_with_retry_does_not_retry_non_retryable():
     with pytest.raises(ValueError):
         call_with_retry(operation, max_retries=3)
     assert attempts["count"] == 1
-

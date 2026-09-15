@@ -427,9 +427,7 @@ def test_http_responses_do_not_wait_for_extraction_worker(
     monkeypatch.setattr(
         chat_api,
         "after_turn",
-        lambda runtime, *, thread_id: runtime.scheduler.submit(
-            "round_complete", thread_id
-        ),
+        lambda runtime, *, thread_id: runtime.scheduler.submit("round_complete", thread_id),
     )
 
     try:

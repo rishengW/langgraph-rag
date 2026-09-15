@@ -128,8 +128,7 @@ def _do_factorize(sympy: Any, n: int) -> str:
         return f"{n} has no prime factorization."
     factors = sympy.factorint(n)
     parts = [
-        f"{prime}^{power}" if power > 1 else f"{prime}"
-        for prime, power in sorted(factors.items())
+        f"{prime}^{power}" if power > 1 else f"{prime}" for prime, power in sorted(factors.items())
     ]
     return f"{n} = {' * '.join(parts)}"
 

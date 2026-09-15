@@ -94,7 +94,12 @@ class SpreadsheetSheet(BaseModel):
 
     @model_validator(mode="after")
     def validate_sheet(self) -> SpreadsheetSheet:
-        if not self.name.strip() or _SHEET_BAD_CHARS.search(self.name) or self.name.startswith("'") or self.name.endswith("'"):
+        if (
+            not self.name.strip()
+            or _SHEET_BAD_CHARS.search(self.name)
+            or self.name.startswith("'")
+            or self.name.endswith("'")
+        ):
             raise ValueError("sheet name is invalid for Excel.")
         if _CONTROL_CHARS.search(self.name):
             raise ValueError("sheet name contains unsupported control characters.")
@@ -148,13 +153,17 @@ class SpreadsheetCreateError(Exception):
     """Raised when an XLSX workbook cannot be created safely."""
 
 
-def build_excel_create_tools(settings: Settings, *, session_root: Path | None = None, thread_id: str = "") -> list[BaseTool]:
+def build_excel_create_tools(
+    settings: Settings, *, session_root: Path | None = None, thread_id: str = ""
+) -> list[BaseTool]:
     if not (settings.file_read_enabled and settings.excel_create_enabled):
         return []
     if session_root is None or not _THREAD_ID_PATTERN.fullmatch(thread_id):
         return []
 
-    def _run_create(filename: str, sheets: list[SpreadsheetSheet]) -> tuple[str, dict[str, object] | None]:
+    def _run_create(
+        filename: str, sheets: list[SpreadsheetSheet]
+    ) -> tuple[str, dict[str, object] | None]:
         result = create_excel_spreadsheet(
             filename,
             sheets=sheets,
@@ -210,9 +219,13 @@ def create_excel_spreadsheet(
         output_temp = work_dir / "output.xlsx"
         inspect_path = work_dir / "inspect.ndjson"
         render_dir = work_dir / "renders"
-        input_path.write_text(json.dumps(request.model_dump(mode="json"), ensure_ascii=False), encoding="utf-8")
+        input_path.write_text(
+            json.dumps(request.model_dump(mode="json"), ensure_ascii=False), encoding="utf-8"
+        )
         adapter_path = work_dir / "builder.mjs"
-        adapter_path.write_text(Path(__file__).with_suffix(".mjs").read_text(encoding="utf-8"), encoding="utf-8")
+        adapter_path.write_text(
+            Path(__file__).with_suffix(".mjs").read_text(encoding="utf-8"), encoding="utf-8"
+        )
         _link_node_modules(work_dir / "node_modules", node_modules_path)
         completed = subprocess.run(
             [
@@ -236,17 +249,32 @@ def create_excel_spreadsheet(
             raise SpreadsheetCreateError("artifact-tool did not produce an XLSX file.")
         size = output_temp.stat().st_size
         if size > max_bytes:
-            raise SpreadsheetCreateError(f"the new spreadsheet is too large ({size:,} bytes; limit {max_bytes:,} bytes).")
+            raise SpreadsheetCreateError(
+                f"the new spreadsheet is too large ({size:,} bytes; limit {max_bytes:,} bytes)."
+            )
         _validate_xlsx(output_temp)
         os.replace(output_temp, target)
         return SpreadsheetCreateResult(
             content=f"Created {target.name} with {len(request.sheets)} worksheet(s). The Excel workbook is available to download.",
-            artifact=_build_file_artifact(thread_id=thread_id, filename=target.name, size_bytes=size),
+            artifact=_build_file_artifact(
+                thread_id=thread_id, filename=target.name, size_bytes=size
+            ),
         )
-    except (OSError, ValueError, FileAccessError, SpreadsheetCreateError, subprocess.SubprocessError) as exc:
+    except (
+        OSError,
+        ValueError,
+        FileAccessError,
+        SpreadsheetCreateError,
+        subprocess.SubprocessError,
+    ) as exc:
         if target is not None:
             target.unlink(missing_ok=True)
-        logger.info("excel_create failed: thread=%s output=%s reason=%s", thread_id or "(none)", output_name, type(exc).__name__)
+        logger.info(
+            "excel_create failed: thread=%s output=%s reason=%s",
+            thread_id or "(none)",
+            output_name,
+            type(exc).__name__,
+        )
         return SpreadsheetCreateResult(content=f"Could not create Excel spreadsheet: {exc}")
     finally:
         if work_dir is not None:
@@ -323,7 +351,9 @@ def _validate_xlsx(path: Path) -> None:
             if "[Content_Types].xml" not in names or "xl/workbook.xml" not in names:
                 raise SpreadsheetCreateError("artifact-tool output is not a valid XLSX archive.")
     except zipfile.BadZipFile as exc:
-        raise SpreadsheetCreateError("artifact-tool output is not a readable XLSX archive.") from exc
+        raise SpreadsheetCreateError(
+            "artifact-tool output is not a readable XLSX archive."
+        ) from exc
 
 
 def _parse_cell(cell: str) -> tuple[int, int]:

@@ -14,7 +14,13 @@ from src.config import Settings
 from src.utils.networking import configure_ssl_from_env
 from src.utils.retry import invoke_with_retry
 
-from ...llm.prompts import AGENT_SYSTEM_PROMPT, GRADE_PROMPT, RAG_PROMPT
+from ...llm.prompts import (
+    GRADE_PROMPT,
+    TRUMP_AGENT_PERSONA,
+    TRUMP_RAG_PERSONA,
+    agent_system_prompt,
+    rag_prompt,
+)
 from ...llm.provider import build_chat_model, build_structured_chat_model
 from ...llm.sanitize import strip_citation_artifacts
 
@@ -23,6 +29,13 @@ logger = logging.getLogger(__name__)
 QuestionResolver = Callable[[dict[str, Any]], str]
 NodeCallable = Callable[[dict[str, Any]], dict[str, Any]]
 GradeCallable = Callable[[dict[str, Any]], Literal["generate", "rewrite"]]
+
+
+class Grade(BaseModel):
+    """Structured relevance verdict produced by the grading conditional edge."""
+
+    binary_score: str = Field(description="Relevance score: 'yes' or 'no'")
+    explanation: str | None = Field(None, description="Optional short explanation")
 
 
 configure_ssl_from_env()
@@ -42,6 +55,35 @@ def new_structured_chat_model(settings: Settings, schema: Any) -> Any:
     """
 
     return build_structured_chat_model(settings, schema)
+
+
+def cached_builder(factory: Callable[[], Any]) -> Callable[[], Any]:
+    """Return a zero-argument builder that constructs its value once.
+
+    Graph nodes used to rebuild their chat model (and structured-output
+    schema binding) on every turn; wrapping the constructor in this helper
+    inside a node factory makes one node reuse a single client across
+    turns. The factory callable is resolved at first call, so tests can
+    still monkeypatch ``new_chat_model`` / ``new_structured_chat_model``.
+    """
+
+    value: list[Any] = []
+
+    def build() -> Any:
+        if not value:
+            value.append(factory())
+        return value[0]
+
+    return build
+
+
+def _persona_blocks(settings: Settings) -> tuple[str, str]:
+    """Resolve persona style blocks for the agent and RAG prompts."""
+
+    style = str(getattr(settings, "agent_persona_style", "trump") or "trump").strip().lower()
+    if style == "none":
+        return "", ""
+    return TRUMP_AGENT_PERSONA, TRUMP_RAG_PERSONA
 
 
 def message_text(message: Any) -> str:
@@ -534,8 +576,6 @@ def build_extractive_answer(question: str, context: str) -> str:
     for index, sentence in enumerate(sentences):
         lower = sentence.lower()
         score = sum(1 for token in tokens if token in lower)
-        if "reinforcement learning" in lower and {"reinforcement", "learning"} <= tokens:
-            score += 2
         if score > 0:
             scored.append((score, index, sentence))
 
@@ -568,14 +608,14 @@ def grade_documents_factory(
 ) -> GradeCallable:
     """Return a conditional edge function that grades retrieved context."""
 
+    # Built once per graph instead of on every grading call; the pydantic
+    # schema class is module-level for the same reason.
+    structured_llm = cached_builder(lambda: new_structured_chat_model(settings, Grade))
+
     def grade_documents(state: dict[str, Any]) -> Literal["generate", "rewrite"]:
         logger.info("CHECK RELEVANCE")
 
-        class Grade(BaseModel):
-            binary_score: str = Field(description="Relevance score: 'yes' or 'no'")
-            explanation: str | None = Field(None, description="Optional short explanation")
-
-        llm_with_tool = new_structured_chat_model(settings, Grade)
+        llm_with_tool = structured_llm()
         # Bind today's date so the grader is anchored in the present and does
         # not flag post-cutoff information as "not relevant".
         dated_grade_prompt = GRADE_PROMPT.partial(current_date=date.today().isoformat())
@@ -654,6 +694,9 @@ def agent_factory(
 ) -> NodeCallable:
     """Return the agent node."""
 
+    tool_model = cached_builder(lambda: new_chat_model(settings).bind_tools(tools))
+    agent_persona, _ = _persona_blocks(settings)
+
     def agent(state: dict[str, Any]) -> dict[str, list[AIMessage]]:
         logger.info("CALL AGENT")
         messages = list(state["messages"])
@@ -676,9 +719,11 @@ def agent_factory(
             ]
         # Prepend a system prompt so the model knows when to use tools and
         # when to answer directly from its own knowledge.
-        dated_prompt = AGENT_SYSTEM_PROMPT.format(current_date=date.today().isoformat())
+        dated_prompt = agent_system_prompt(agent_persona).format(
+            current_date=date.today().isoformat()
+        )
         messages = [SystemMessage(content=dated_prompt)] + messages
-        model = new_chat_model(settings).bind_tools(tools)
+        model = tool_model()
 
         try:
             response = invoke_with_retry(
@@ -720,6 +765,8 @@ def rewrite_factory(
 ) -> NodeCallable:
     """Return the query-rewriting node."""
 
+    plain_llm = cached_builder(lambda: new_chat_model(settings))
+
     def rewrite(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("TRANSFORM QUERY")
         question = question_resolver(state)
@@ -743,7 +790,7 @@ def rewrite_factory(
 
         try:
             response = invoke_with_retry(
-                new_chat_model(settings),
+                plain_llm(),
                 rewrite_prompt,
                 max_retries=settings.dashscope_max_retries,
             )
@@ -768,6 +815,9 @@ def generate_factory(
 ) -> NodeCallable:
     """Return the final RAG answer generation node."""
 
+    plain_llm = cached_builder(lambda: new_chat_model(settings))
+    _, rag_persona = _persona_blocks(settings)
+
     def generate(state: dict[str, Any]) -> dict[str, list[AIMessage]]:
         logger.info("GENERATE")
         question = question_resolver(state)
@@ -778,8 +828,8 @@ def generate_factory(
         )
         # Bind today's date so the model is anchored in the present and treats
         # retrieved context as current rather than dismissing post-cutoff facts.
-        dated_prompt = RAG_PROMPT.partial(current_date=date.today().isoformat())
-        rag_chain = dated_prompt | new_chat_model(settings) | StrOutputParser()
+        dated_prompt = rag_prompt(rag_persona).partial(current_date=date.today().isoformat())
+        rag_chain = dated_prompt | plain_llm() | StrOutputParser()
 
         try:
             answer = invoke_with_retry(

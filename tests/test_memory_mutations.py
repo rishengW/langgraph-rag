@@ -22,7 +22,9 @@ class StepClock:
         self._n = start
 
     def __call__(self) -> str:
-        value = f"2026-07-01T{self._n // 3600:02d}:{self._n // 60 % 60:02d}:{self._n % 60:02d}+00:00"
+        value = (
+            f"2026-07-01T{self._n // 3600:02d}:{self._n // 60 % 60:02d}:{self._n % 60:02d}+00:00"
+        )
         self._n += 1
         return value
 
@@ -577,9 +579,7 @@ def test_forget_by_id_is_idempotent(store):
 
 
 def test_forget_by_id_out_of_scope_reports_not_found(store):
-    target = store.save(
-        content="theirs", scope="session", thread_id="theirs"
-    ).record_id
+    target = store.save(content="theirs", scope="session", thread_id="theirs").record_id
 
     outcome = store.forget(memory_id=target, thread_id="mine")
 

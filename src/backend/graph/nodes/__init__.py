@@ -75,4 +75,3 @@ __all__ = [
     "search_queries_factory",
     "web_answer_factory",
 ]
-

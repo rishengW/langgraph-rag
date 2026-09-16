@@ -283,7 +283,9 @@ class TokenArtifactGraph:
 def test_graph_executor_token_stream_emits_and_accumulates_artifacts_once():
     from src.backend.graph.events import TokenEvent
 
-    events = list(GraphExecutor(TokenArtifactGraph()).stream({"question": "map"}, stream_tokens=True))
+    events = list(
+        GraphExecutor(TokenArtifactGraph()).stream({"question": "map"}, stream_tokens=True)
+    )
 
     artifact_events = [event for event in events if isinstance(event, ArtifactEvent)]
     assert len(artifact_events) == 1

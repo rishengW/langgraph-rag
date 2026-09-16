@@ -201,7 +201,9 @@ def test_long_output_name_is_bounded_and_downloadable(presentation_scope):
 
 
 def test_tool_factory_is_gated_and_session_scoped(tmp_path: Path):
-    settings = Settings(dashscope_api_key="test-key", file_read_enabled=True, powerpoint_edit_enabled=True)
+    settings = Settings(
+        dashscope_api_key="test-key", file_read_enabled=True, powerpoint_edit_enabled=True
+    )
     session_root = tmp_path / "chat_uploads" / "thread-a"
     assert build_powerpoint_edit_tools(settings) == []
     tools = build_powerpoint_edit_tools(settings, session_root=session_root, thread_id="thread-a")

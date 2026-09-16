@@ -56,9 +56,7 @@ def route_after_agent(state: Any) -> str:
     return tools_condition(state)
 
 
-def route_after_agent_with_critique(
-    state: Any, *, critique_enabled: bool = False
-) -> str:
+def route_after_agent_with_critique(state: Any, *, critique_enabled: bool = False) -> str:
     """Critique a direct agent answer without intercepting tool calls."""
 
     result = route_after_agent(state)

@@ -160,30 +160,36 @@ def test_rank_records_tolerates_unparseable_timestamp():
 # ---- secret screening -----------------------------------------------------
 
 
-@pytest.mark.parametrize("text,expected", [
-    ("-----BEGIN RSA PRIVATE KEY-----", "pem_private_key"),
-    ("-----begin private key-----", "pem_private_key"),
-    ("my key is sk-abcdefghijklmnopqrstuv", "sk_token"),
-    ("AKIAIOSFODNN7EXAMPLE", "aws_access_key_id"),
-    ("ASIAIOSFODNN7EXAMPLE", "aws_access_key_id"),
-    ("Authorization: Bearer abcdefghijklmnopqrstuvwxyz", "bearer_token"),
-    ("password=hunter2hunter2", "assigned_secret"),
-    ("API_KEY: 0123456789abcdef", "assigned_secret"),
-    ("db_passwd = s3cret-value", "assigned_secret"),
-    ("my token: abcdefghijkl", "assigned_secret"),
-])
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("-----BEGIN RSA PRIVATE KEY-----", "pem_private_key"),
+        ("-----begin private key-----", "pem_private_key"),
+        ("my key is sk-abcdefghijklmnopqrstuv", "sk_token"),
+        ("AKIAIOSFODNN7EXAMPLE", "aws_access_key_id"),
+        ("ASIAIOSFODNN7EXAMPLE", "aws_access_key_id"),
+        ("Authorization: Bearer abcdefghijklmnopqrstuvwxyz", "bearer_token"),
+        ("password=hunter2hunter2", "assigned_secret"),
+        ("API_KEY: 0123456789abcdef", "assigned_secret"),
+        ("db_passwd = s3cret-value", "assigned_secret"),
+        ("my token: abcdefghijkl", "assigned_secret"),
+    ],
+)
 def test_find_secret_match_detects_each_pattern(text, expected):
     assert find_secret_match(text) == expected
 
 
-@pytest.mark.parametrize("text", [
-    "",
-    "Prefers metric units",
-    "My name is Ada and I like short answers",
-    "sk-short",
-    "bearer token",
-    "the password is on a sticky note",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "Prefers metric units",
+        "My name is Ada and I like short answers",
+        "sk-short",
+        "bearer token",
+        "the password is on a sticky note",
+    ],
+)
 def test_find_secret_match_allows_ordinary_text(text):
     assert find_secret_match(text) is None
 

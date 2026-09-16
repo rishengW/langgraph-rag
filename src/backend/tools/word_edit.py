@@ -240,9 +240,7 @@ class WordContentBlock(BaseModel):
                 raise ValueError("table requires at least one row.")
             column_count = len(self.rows[0])
             if column_count < 1 or column_count > _MAX_CREATE_COLUMNS:
-                raise ValueError(
-                    f"table rows must contain 1-{_MAX_CREATE_COLUMNS} columns."
-                )
+                raise ValueError(f"table rows must contain 1-{_MAX_CREATE_COLUMNS} columns.")
             if any(len(row) != column_count for row in self.rows):
                 raise ValueError("every table row must have the same number of columns.")
         return self
@@ -808,10 +806,7 @@ def _add_numbering_definition(document: Any, *, ordered: bool) -> int:
         int(element.get(qn("w:abstractNumId")))
         for element in numbering.findall(qn("w:abstractNum"))
     ]
-    num_ids = [
-        int(element.get(qn("w:numId")))
-        for element in numbering.findall(qn("w:num"))
-    ]
+    num_ids = [int(element.get(qn("w:numId"))) for element in numbering.findall(qn("w:num"))]
     abstract_id = max(abstract_ids, default=-1) + 1
     num_id = max(num_ids, default=0) + 1
 
@@ -1012,8 +1007,7 @@ def _write_created_document(document: Any, *, target: Path, max_bytes: int) -> P
         output_size = temp_path.stat().st_size
         if output_size > max_bytes:
             raise WordEditError(
-                f"the new document is too large ({output_size:,} bytes; "
-                f"limit {max_bytes:,} bytes)."
+                f"the new document is too large ({output_size:,} bytes; limit {max_bytes:,} bytes)."
             )
         _guard_archive(temp_path)
         _load_document(temp_path)
@@ -1265,8 +1259,7 @@ def _guard_archive(path: Path) -> None:
 
     if len(infos) > _MAX_ZIP_ENTRIES:
         raise WordEditError(
-            f"{path.name!r} contains too many parts ({len(infos)}; "
-            f"limit {_MAX_ZIP_ENTRIES})."
+            f"{path.name!r} contains too many parts ({len(infos)}; limit {_MAX_ZIP_ENTRIES})."
         )
 
     total_uncompressed = sum(max(0, info.file_size) for info in infos)
@@ -1285,9 +1278,7 @@ def _guard_archive(path: Path) -> None:
 
     missing = [part for part in _REQUIRED_PARTS if part not in names]
     if missing:
-        raise WordEditError(
-            f"{path.name!r} is not a valid Word document (missing {missing[0]!r})."
-        )
+        raise WordEditError(f"{path.name!r} is not a valid Word document (missing {missing[0]!r}).")
 
 
 def _load_document(path: Path) -> Any:

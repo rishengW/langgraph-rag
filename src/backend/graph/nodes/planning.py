@@ -19,6 +19,7 @@ from src.utils.retry import invoke_with_retry
 
 from .common import (
     QuestionResolver,
+    cached_builder,
     chat_question_resolver,
     message_text,
     new_chat_model,
@@ -82,6 +83,7 @@ def planner_node(
     """
 
     limit = max(1, min(int(max_subgoals), MAX_PLAN_SUBGOALS))
+    structured_llm = cached_builder(lambda: new_structured_chat_model(settings, PlanResult))
 
     def plan(state: dict[str, Any]) -> dict[str, Any]:
         question = _resolve_question(state, question_resolver)
@@ -103,7 +105,7 @@ def planner_node(
 
         try:
             result = invoke_with_retry(
-                new_structured_chat_model(settings, PlanResult),
+                structured_llm(),
                 [HumanMessage(content=prompt)],
                 max_retries=settings.dashscope_max_retries,
             )
@@ -174,7 +176,9 @@ def normalize_plan(
             identifier = f"sg-{index}"
         seen.add(identifier)
         dependencies = item.get("dependencies")
-        deps = [str(value).strip() for value in dependencies] if isinstance(dependencies, list) else []
+        deps = (
+            [str(value).strip() for value in dependencies] if isinstance(dependencies, list) else []
+        )
         status = str(item.get("status") or "pending")
         if status not in {"pending", "in_progress", "completed", "failed"}:
             status = "pending"
@@ -241,9 +245,7 @@ def subgoal_dispatcher_node(
             if item["status"] != "pending":
                 continue
             failed_dependencies = [
-                dep
-                for dep in item["dependencies"]
-                if by_id.get(dep, {}).get("status") == "failed"
+                dep for dep in item["dependencies"] if by_id.get(dep, {}).get("status") == "failed"
             ]
             if failed_dependencies:
                 item["status"] = "failed"
@@ -288,6 +290,8 @@ def subgoal_worker_node(
     reducer joins outputs from the current wave.
     """
 
+    plain_llm = cached_builder(lambda: new_chat_model(settings))
+
     def execute(state: dict[str, Any]) -> dict[str, Any]:
         raw_goal = state.get("subgoal") or state.get("active_subgoal") or {}
         if not isinstance(raw_goal, Mapping):
@@ -317,7 +321,7 @@ def subgoal_worker_node(
         )
         try:
             response = invoke_with_retry(
-                new_chat_model(settings),
+                plain_llm(),
                 [HumanMessage(content=prompt)],
                 max_retries=settings.dashscope_max_retries,
             )
@@ -371,9 +375,7 @@ def route_subgoals(
                         "current_question": planning_question,
                         "planning_question": planning_question,
                         "planning_input_context": planning_input_context,
-                        "planning_run_id": max(
-                            0, int(state.get("planning_run_id", 0) or 0)
-                        ),
+                        "planning_run_id": max(0, int(state.get("planning_run_id", 0) or 0)),
                     },
                 )
             )
@@ -449,12 +451,18 @@ def answer_self_critique_node(
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Build a post-answer critic for correctness, grounding, and completeness."""
 
+    structured_llm = cached_builder(lambda: new_structured_chat_model(settings, _CritiqueResult))
+
     def critique(state: dict[str, Any]) -> dict[str, Any]:
         answer = _latest_answer(state)
         question = _resolve_question(state, question_resolver)
         context = _answer_context(state)
         if not answer:
-            return {"answer_critique": _critique_dict(0.0, 0.0, 0.0, "No answer was generated.", "Generate an answer.")}
+            return {
+                "answer_critique": _critique_dict(
+                    0.0, 0.0, 0.0, "No answer was generated.", "Generate an answer."
+                )
+            }
         prompt = (
             "Critique the final answer against the question and evidence. Score each "
             "dimension from 0 to 1: correctness, groundedness, completeness. "
@@ -466,7 +474,7 @@ def answer_self_critique_node(
         )
         try:
             result = invoke_with_retry(
-                new_structured_chat_model(settings, _CritiqueResult),
+                structured_llm(),
                 [HumanMessage(content=prompt)],
                 max_retries=settings.dashscope_max_retries,
             )
@@ -494,6 +502,7 @@ def reflection_revise_node(
     """Build a bounded revision node that uses the latest critic feedback."""
 
     budget = max(0, int(max_retries))
+    plain_llm = cached_builder(lambda: new_chat_model(settings))
 
     def revise(state: dict[str, Any]) -> dict[str, Any]:
         retry_count = max(0, int(state.get("reflection_retry_count", 0) or 0))
@@ -513,7 +522,7 @@ def reflection_revise_node(
         )
         try:
             response = invoke_with_retry(
-                new_chat_model(settings),
+                plain_llm(),
                 [HumanMessage(content=prompt)],
                 max_retries=settings.dashscope_max_retries,
             )
@@ -556,9 +565,7 @@ def route_after_self_critique(
 
 
 def _resolve_question(state: dict[str, Any], resolver: QuestionResolver) -> str:
-    preserved = str(
-        state.get("planning_question") or state.get("current_question") or ""
-    ).strip()
+    preserved = str(state.get("planning_question") or state.get("current_question") or "").strip()
     try:
         return str(resolver(state) or preserved).strip()
     except Exception:  # noqa: BLE001 - optional node should be defensive
@@ -602,9 +609,7 @@ def _latest_answer(state: dict[str, Any]) -> str:
     return ""
 
 
-def _result_records(
-    state: dict[str, Any], *, planning_run_id: int | None = None
-) -> dict[str, Any]:
+def _result_records(state: dict[str, Any], *, planning_run_id: int | None = None) -> dict[str, Any]:
     raw = state.get("subgoal_results")
     if isinstance(raw, Mapping):
         return {str(key): value for key, value in raw.items()}
@@ -613,17 +618,17 @@ def _result_records(
         for item in raw:
             if not isinstance(item, Mapping) or not item.get("id"):
                 continue
-            if planning_run_id is not None and int(item.get("planning_run_id", -1)) != planning_run_id:
+            if (
+                planning_run_id is not None
+                and int(item.get("planning_run_id", -1)) != planning_run_id
+            ):
                 continue
             records[str(item["id"])] = item
     item = state.get("subgoal_result")
     if (
         isinstance(item, Mapping)
         and item.get("id")
-        and (
-            planning_run_id is None
-            or int(item.get("planning_run_id", -1)) == planning_run_id
-        )
+        and (planning_run_id is None or int(item.get("planning_run_id", -1)) == planning_run_id)
     ):
         records[str(item["id"])] = item
     return records
@@ -663,7 +668,9 @@ def _plan_context(plan: Sequence[Mapping[str, Any]]) -> str:
         description = str(item.get("description") or "").strip()
         result = str(item.get("result") or "").strip()
         if description:
-            lines.append(f"[{status}] {description}: {result}" if result else f"[{status}] {description}")
+            lines.append(
+                f"[{status}] {description}: {result}" if result else f"[{status}] {description}"
+            )
     return "\n".join(lines)[-MAX_SCRATCHPAD_CHARS:]
 
 

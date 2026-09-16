@@ -17,7 +17,7 @@ from src.utils.retry import invoke_with_retry
 
 from ...llm.sanitize import strip_citation_artifacts
 from ..events import WebFetchEvent
-from .common import chat_question_resolver, message_text, new_chat_model
+from .common import cached_builder, chat_question_resolver, message_text, new_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,8 @@ def web_answer_factory(
     query rewriting. It delegates page loading and prompt assembly to the web
     search lightweight-path modules.
     """
+
+    plain_llm = cached_builder(lambda: new_chat_model(settings))
 
     def web_answer(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("GENERATE WEB ANSWER")
@@ -233,7 +235,7 @@ def web_answer_factory(
 
         try:
             result = invoke_with_retry(
-                new_chat_model(settings),
+                plain_llm(),
                 [HumanMessage(content=prompt)],
                 max_retries=settings.dashscope_max_retries,
             )

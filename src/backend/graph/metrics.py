@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from collections import Counter
+import threading
+from collections import Counter, deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from time import perf_counter
@@ -63,11 +64,20 @@ class MetricsSnapshot:
 
 
 class MetricsCollector:
-    """Record lightweight graph metrics from emitted GraphEvent instances."""
+    """Record lightweight graph metrics from emitted GraphEvent instances.
+
+    Thread-safe: one collector is shared by all graph runs in the process,
+    so mutations happen under a lock. Graph events carry no run identity;
+    node start/end pairing uses a FIFO queue per node, which pairs exactly
+    for sequential runs and degrades to approximate latency attribution
+    (never lost or clobbered counters) when concurrent turns execute the
+    same node.
+    """
 
     def __init__(self, clock: Callable[[], float] = perf_counter) -> None:
         self._clock = clock
-        self._node_starts: dict[str, float] = {}
+        self._lock = threading.Lock()
+        self._node_starts: dict[str, deque[float]] = {}
         self._nodes: dict[str, NodeMetricsSnapshot] = {}
         self._error_count = 0
         self._query_count = 0
@@ -84,50 +94,54 @@ class MetricsCollector:
     def record_event(self, event: GraphEvent) -> None:
         """Record metrics for one graph event."""
 
-        if isinstance(event, NodeStartEvent):
-            self._node_starts[event.node] = self._clock()
-        elif isinstance(event, NodeEndEvent):
-            self._record_node_end(event)
-        elif isinstance(event, ErrorEvent):
-            self._record_error(event)
-        elif isinstance(event, DoneEvent):
-            self._query_count += 1
-        elif isinstance(event, TokenEvent):
-            self._token_count += 1
-        elif isinstance(event, RetrieverResultEvent):
-            self._retriever_query_count += 1
-            self._retriever_total_docs += event.num_docs
-        elif isinstance(event, GraderDecisionEvent):
-            self._grade_distribution[event.score] += 1
-            self._rewrite_count_distribution[event.rewrite_count] += 1
-        elif isinstance(event, ToolStartEvent):
-            self._tool_call_count += 1
-            self._catalog_generation = max(self._catalog_generation, event.catalog_generation)
-        elif isinstance(event, ToolEndEvent):
-            self._tool_total_duration_ms += event.duration_ms
-            self._tool_outcomes[event.outcome] += 1
-            self._catalog_generation = max(self._catalog_generation, event.catalog_generation)
+        with self._lock:
+            if isinstance(event, NodeStartEvent):
+                self._node_starts.setdefault(event.node, deque()).append(self._clock())
+            elif isinstance(event, NodeEndEvent):
+                self._record_node_end(event)
+            elif isinstance(event, ErrorEvent):
+                self._record_error(event)
+            elif isinstance(event, DoneEvent):
+                self._query_count += 1
+            elif isinstance(event, TokenEvent):
+                self._token_count += 1
+            elif isinstance(event, RetrieverResultEvent):
+                self._retriever_query_count += 1
+                self._retriever_total_docs += event.num_docs
+            elif isinstance(event, GraderDecisionEvent):
+                self._grade_distribution[event.score] += 1
+                self._rewrite_count_distribution[event.rewrite_count] += 1
+            elif isinstance(event, ToolStartEvent):
+                self._tool_call_count += 1
+                self._catalog_generation = max(self._catalog_generation, event.catalog_generation)
+            elif isinstance(event, ToolEndEvent):
+                self._tool_total_duration_ms += event.duration_ms
+                self._tool_outcomes[event.outcome] += 1
+                self._catalog_generation = max(self._catalog_generation, event.catalog_generation)
 
     def snapshot(self) -> MetricsSnapshot:
         """Return an immutable metrics snapshot for API or test consumers."""
 
-        return MetricsSnapshot(
-            nodes=dict(self._nodes),
-            error_count=self._error_count,
-            query_count=self._query_count,
-            token_count=self._token_count,
-            retriever_query_count=self._retriever_query_count,
-            retriever_total_docs=self._retriever_total_docs,
-            grade_distribution=dict(self._grade_distribution),
-            rewrite_count_distribution=dict(self._rewrite_count_distribution),
-            tool_call_count=self._tool_call_count,
-            tool_total_duration_ms=self._tool_total_duration_ms,
-            tool_outcomes=dict(self._tool_outcomes),
-            catalog_generation=self._catalog_generation,
-        )
+        with self._lock:
+            return MetricsSnapshot(
+                nodes=dict(self._nodes),
+                error_count=self._error_count,
+                query_count=self._query_count,
+                token_count=self._token_count,
+                retriever_query_count=self._retriever_query_count,
+                retriever_total_docs=self._retriever_total_docs,
+                grade_distribution=dict(self._grade_distribution),
+                rewrite_count_distribution=dict(self._rewrite_count_distribution),
+                tool_call_count=self._tool_call_count,
+                tool_total_duration_ms=self._tool_total_duration_ms,
+                tool_outcomes=dict(self._tool_outcomes),
+                catalog_generation=self._catalog_generation,
+            )
 
     def _record_node_end(self, event: NodeEndEvent) -> None:
-        start = self._node_starts.pop(event.node, None)
+        # Callers hold self._lock.
+        starts = self._node_starts.get(event.node)
+        start = starts.popleft() if starts else None
         if start is None:
             start = self._clock()
         elapsed = max(0.0, self._clock() - start)
@@ -139,6 +153,7 @@ class MetricsCollector:
         )
 
     def _record_error(self, event: ErrorEvent) -> None:
+        # Callers hold self._lock.
         self._error_count += 1
         if event.node is None:
             return

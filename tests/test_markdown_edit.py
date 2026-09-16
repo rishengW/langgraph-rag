@@ -180,9 +180,7 @@ def test_edit_applies_all_operations_and_preserves_original_format(md_scope):
     )
 
     assert source.read_bytes() == original
-    assert (session_root / "notes.edited.md").read_bytes() == (
-        b"start\r\nalpha\r\nBETA\r\nend\r\n"
-    )
+    assert (session_root / "notes.edited.md").read_bytes() == (b"start\r\nalpha\r\nBETA\r\nend\r\n")
     assert result.artifact is not None
     assert result.artifact["filename"] == "notes.edited.md"
     assert result.artifact["mimeType"] == MARKDOWN_MIME_TYPE
@@ -404,7 +402,9 @@ def test_tool_registration_requires_flags_session_root_and_thread_id(
         file_read_root=str(tmp_path / "files"),
     )
 
-    assert build_markdown_edit_tools(disabled, session_root=session_root, thread_id="thread-a") == []
+    assert (
+        build_markdown_edit_tools(disabled, session_root=session_root, thread_id="thread-a") == []
+    )
     assert build_markdown_edit_tools(enabled, session_root=None, thread_id="thread-a") == []
     assert build_markdown_edit_tools(enabled, session_root=session_root, thread_id="") == []
     assert build_markdown_edit_tools(enabled, session_root=session_root, thread_id="../other") == []

@@ -184,6 +184,7 @@ SETTING_ENV_NAMES = {
     "document_quality_min_similarity": "DOCUMENT_QUALITY_MIN_SIMILARITY",
     "document_quality_recency_bias_days": "DOCUMENT_QUALITY_RECENCY_BIAS_DAYS",
     "rerank_strategy": "RERANK_STRATEGY",
+    "agent_persona_style": "AGENT_PERSONA_STYLE",
     "llm_provider": "LLM_PROVIDER",
     "deepseek_model": "DEEPSEEK_MODEL",
     "deepseek_base_url": "DEEPSEEK_BASE_URL",
@@ -408,8 +409,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         scope = str(value).strip().casefold() or str(default or "global")
         if scope not in MEMORY_SCOPES:
             raise ValueError(
-                "memory_default_scope must be one of: "
-                f"{', '.join(MEMORY_SCOPES)}; got {value!r}"
+                f"memory_default_scope must be one of: {', '.join(MEMORY_SCOPES)}; got {value!r}"
             )
         return scope
     if name in (
@@ -576,6 +576,13 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         if strategy not in ("lexical", "embedding", "hybrid"):
             raise ValueError("rerank_strategy must be one of: lexical, embedding, hybrid")
         return strategy
+    if name == "agent_persona_style":
+        if value is None:
+            return str(default or "trump")
+        style = str(value).strip().lower() or str(default or "trump")
+        if style not in ("trump", "none"):
+            raise ValueError("agent_persona_style must be one of: trump, none")
+        return style
     if name in ("web_search_timelimit",):
         text = "" if value is None else str(value).strip()
         return text or None
@@ -656,12 +663,15 @@ def apply_runtime_environment(settings: Settings) -> None:
 
 
 def secret_fingerprint(secret: str) -> str:
-    """Return a non-sensitive fingerprint for checking which secret was loaded."""
+    """Return a non-sensitive fingerprint for checking which secret was loaded.
+
+    Only the SHA-256 digest prefix and length are reported; plaintext
+    fragments of the secret never reach logs or the terminal.
+    """
 
     value = (secret or "").strip()
     digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:10] if value else "none"
-    preview = "***" if len(value) <= 8 else f"{value[:3]}...{value[-4:]}"
-    return f"{preview} (len={len(value)}, sha256={digest})"
+    return f"sha256:{digest} (len={len(value)})"
 
 
 def load_settings(

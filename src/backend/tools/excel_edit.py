@@ -106,8 +106,7 @@ class ExcelEditOperation(BaseModel):
         default=None,
         max_length=12,
         description=(
-            "A1 cell address such as C4. Required for set_cell, set_formula, "
-            "and clear_cell."
+            "A1 cell address such as C4. Required for set_cell, set_formula, and clear_cell."
         ),
     )
     value: CellValue = Field(
@@ -177,7 +176,9 @@ class ExcelEditOperation(BaseModel):
                 raise ValueError("set_cell requires a value (use clear_cell to blank a cell).")
             if isinstance(self.value, str):
                 if self.value.startswith("="):
-                    raise ValueError("set_cell values must not start with '='; use the set_formula action.")
+                    raise ValueError(
+                        "set_cell values must not start with '='; use the set_formula action."
+                    )
                 if len(self.value) > _MAX_CELL_CHARS or _CONTROL_CHARS.search(self.value):
                     raise ValueError("cell value is too long or contains control characters.")
         if action == "set_formula":
@@ -192,12 +193,16 @@ class ExcelEditOperation(BaseModel):
                 raise ValueError("formulas containing '|' (DDE commands) are not allowed.")
         if action in ("insert_rows", "delete_rows") and not self.row_index:
             raise ValueError(f"action {action!r} requires row_index.")
-        if action in (
-            "insert_columns",
-            "delete_columns",
-            "set_column_width",
-            "set_number_format",
-        ) and not self.column_index:
+        if (
+            action
+            in (
+                "insert_columns",
+                "delete_columns",
+                "set_column_width",
+                "set_number_format",
+            )
+            and not self.column_index
+        ):
             raise ValueError(f"action {action!r} requires column_index.")
         if action in ("rename_sheet", "add_sheet") and not (
             self.new_sheet_name and self.new_sheet_name.strip()
@@ -219,7 +224,9 @@ class ExcelEditOperation(BaseModel):
 
 
 class ExcelInspectInput(BaseModel):
-    path: str = Field(..., min_length=1, description="Path to a .xlsx uploaded to this chat session.")
+    path: str = Field(
+        ..., min_length=1, description="Path to a .xlsx uploaded to this chat session."
+    )
     max_chars: int = Field(default=_MAX_INSPECT_CHARS, ge=1, le=200_000)
 
 
@@ -373,9 +380,7 @@ def _apply_operations(workbook: Any, operations: list[ExcelEditOperation]) -> No
         except ExcelEditError:
             raise
         except Exception as exc:  # noqa: BLE001 - surface any openpyxl failure as a clear error
-            raise ExcelEditError(
-                f"operation {index} ({operation.action}) failed: {exc}"
-            ) from exc
+            raise ExcelEditError(f"operation {index} ({operation.action}) failed: {exc}") from exc
 
 
 def _apply_operation(workbook: Any, operation: ExcelEditOperation) -> None:
@@ -514,7 +519,9 @@ def _resolve_session_xlsx(
     except OSError as exc:
         raise ExcelEditError(f"could not resolve the session directory: {exc}") from exc
     candidate = Path(text).expanduser()
-    candidates = [candidate] if candidate.is_absolute() else [session / candidate, file_root / candidate]
+    candidates = (
+        [candidate] if candidate.is_absolute() else [session / candidate, file_root / candidate]
+    )
     access_errors: list[FileAccessError] = []
     found_in_scope = False
     for option in candidates:
@@ -567,7 +574,10 @@ def _guard_archive(path: Path) -> None:
             # risk refusing real workbooks that store small parts uncompressed.
             for info in entries:
                 total += info.file_size
-                if info.compress_size and info.file_size / info.compress_size > _MAX_COMPRESSION_RATIO:
+                if (
+                    info.compress_size
+                    and info.file_size / info.compress_size > _MAX_COMPRESSION_RATIO
+                ):
                     raise ExcelEditError("workbook has an unsafe compression ratio.")
             if total > _MAX_UNCOMPRESSED_BYTES:
                 raise ExcelEditError("workbook expands beyond the safety limit.")

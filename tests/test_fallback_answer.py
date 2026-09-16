@@ -25,9 +25,7 @@ def test_fallback_uses_preserved_question_and_excludes_generated_refusal(
             "current_question": "When was the University of Melbourne founded?",
             "messages": [
                 HumanMessage(content="When was it founded?"),
-                AIMessage(
-                    content="I couldn't retrieve readable content from the web sources."
-                ),
+                AIMessage(content="I couldn't retrieve readable content from the web sources."),
             ],
         }
     )

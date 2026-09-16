@@ -214,10 +214,10 @@ Key settings:
 | `JAVASCRIPT_EDIT_ENABLED` | `false` | JavaScript .js/.mjs/.cjs creation/editing; needs FILE_READ_ENABLED too |
 | `HTML_EDIT_ENABLED` | `false` | HTML .html/.htm creation/editing; needs FILE_READ_ENABLED too |
 | `CHROMA_DIR` | `.chroma` | Vector store location |
-| `RAG_ENV` | `development` | Runtime environment; `production` activates fail-closed deployment topology checks |
+| `RAG_ENV` | `development` | Runtime environment; `production`/`staging` activate fail-closed topology checks and require `API_KEY` |
 | `RAG_WORKER_COUNT` | `1` | Declared production worker count; must remain `1` while local state or locks are authoritative |
 | `RAG_REPLICA_COUNT` | `1` | Declared production replica count; must remain `1` while local state or locks are authoritative |
-| `API_KEY` | — | API auth key for mutation endpoints via `Authorization: Bearer`; open when unset |
+| `API_KEY` | — | API auth key for mutation endpoints via `Authorization: Bearer`; open when unset in `development`, required (fail-closed) in `production`/`staging` |
 | `API_HOST` | `127.0.0.1` | Bind address via the settings loader; `CHAT_API_HOST` overrides the `serve` command default |
 | `API_PORT` | `8000` | Listen port via the settings loader; the `serve` command and Docker use `CHAT_API_PORT` (default `8001`) |
 | `CORS_ALLOW_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
@@ -462,7 +462,7 @@ API endpoints:
 | `GET` | `/health` | Public dependency-free liveness probe |
 | `GET` | `/ready` | Public bounded readiness status |
 | `GET` | `/admin/health/dependencies` | API-key-protected dependency diagnostics |
-| `GET` | `/metrics` | In-process graph metrics |
+| `GET` | `/metrics` | API-key-protected graph metrics (hidden with `404` when no key is configured) |
 | `POST` | `/chat` | Create a thread |
 | `POST` | `/chat/{id}/message` | Send a turn |
 | `POST` | `/chat/{id}/message/stream` | SSE stream: node events + per-token answer deltas (`?tokens=false` for node events only) |
@@ -680,7 +680,7 @@ Local development is open when `API_KEY` is unset. When set, mutation endpoints 
 Authorization: Bearer <API_KEY>
 ```
 
-Protected endpoints: `POST /chat`, `POST /chat/{id}/message`, `POST /chat/{id}/message/stream`, `DELETE /chat/{id}`, and `GET /admin/health/dependencies`. The administrative health route is hidden with `404` when no API key is configured.
+Protected endpoints: `POST /chat`, `POST /chat/{id}/message`, `POST /chat/{id}/message/stream`, `DELETE /chat/{id}`, `GET /admin/health/dependencies`, and `GET /metrics`. The administrative routes are hidden with `404` when no API key is configured. In `production`/`staging` environments (`RAG_ENV`), a missing `API_KEY` fails closed: all authenticated endpoints return `503` until a key is configured.
 
 CORS is configured via `cors_allow_origins` in YAML or `CORS_ALLOW_ORIGINS` env var. Public liveness and readiness expose only bounded status; dependency names and states are available only through the authenticated administrative route.
 

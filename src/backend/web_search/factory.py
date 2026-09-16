@@ -118,11 +118,7 @@ def is_search_provider_configured(name: str, config: Any | None) -> bool:
 def configured_api_provider_names(config: Any | None) -> list[str]:
     """Return configured key-backed providers in stable preference order."""
 
-    return [
-        name
-        for name in API_PROVIDER_NAMES
-        if is_search_provider_configured(name, config)
-    ]
+    return [name for name in API_PROVIDER_NAMES if is_search_provider_configured(name, config)]
 
 
 __all__ = [

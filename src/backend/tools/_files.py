@@ -59,8 +59,7 @@ def resolve_safe_path(
 
     if not _is_within(resolved, root_resolved):
         raise FileAccessError(
-            f"access denied: {text!r} is outside the allowed directory "
-            f"({root_resolved})."
+            f"access denied: {text!r} is outside the allowed directory ({root_resolved})."
         )
 
     if resolved.name.lower() in _BLOCKED_NAMES or resolved.suffix.lower() in _BLOCKED_SUFFIXES:
@@ -79,9 +78,7 @@ def resolve_safe_path(
 
     size = resolved.stat().st_size
     if size > max_bytes:
-        raise FileAccessError(
-            f"file is too large ({size:,} bytes; limit {max_bytes:,} bytes)."
-        )
+        raise FileAccessError(f"file is too large ({size:,} bytes; limit {max_bytes:,} bytes).")
 
     return resolved
 

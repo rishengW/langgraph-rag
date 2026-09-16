@@ -12,7 +12,7 @@ from src.config import Settings
 from src.utils.retry import invoke_with_retry
 
 from ...llm.sanitize import strip_citation_artifacts
-from .common import QuestionResolver, message_text, new_chat_model
+from .common import QuestionResolver, cached_builder, message_text, new_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,8 @@ def fallback_answer_factory(
     cannot become a new search query or contaminate the fallback answer.
     """
 
+    plain_llm = cached_builder(lambda: new_chat_model(settings))
+
     def fallback_answer(state: dict[str, Any]) -> dict[str, Any]:
         question = _original_question(state, question_resolver)
         if not question:
@@ -49,7 +51,7 @@ def fallback_answer_factory(
         )
         try:
             response = invoke_with_retry(
-                new_chat_model(settings),
+                plain_llm(),
                 [HumanMessage(content=prompt)],
                 max_retries=settings.dashscope_max_retries,
             )
@@ -63,9 +65,7 @@ def fallback_answer_factory(
     return fallback_answer
 
 
-def _original_question(
-    state: dict[str, Any], question_resolver: QuestionResolver
-) -> str:
+def _original_question(state: dict[str, Any], question_resolver: QuestionResolver) -> str:
     """Resolve the user question without ever selecting an AI refusal."""
 
     standalone = state.get("current_question")

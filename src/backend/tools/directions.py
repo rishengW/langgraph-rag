@@ -142,7 +142,9 @@ def get_directions_result(
             "Transit directions are not supported. Use driving, walking, or cycling."
         )
 
-    service_key = api_key if api_key is not None else str(getattr(settings, "amap_web_service_key", ""))
+    service_key = (
+        api_key if api_key is not None else str(getattr(settings, "amap_web_service_key", ""))
+    )
     timeout = timeout_seconds
     if timeout is None:
         timeout = int(getattr(settings, "amap_api_timeout_seconds", 10) or 10)
@@ -291,7 +293,10 @@ def _format_directions(
             [
                 "",
                 "Route steps:",
-                *[f"{index}. {instruction}" for index, instruction in enumerate(instructions[:8], 1)],
+                *[
+                    f"{index}. {instruction}"
+                    for index, instruction in enumerate(instructions[:8], 1)
+                ],
             ]
         )
     return "\n".join(sections)

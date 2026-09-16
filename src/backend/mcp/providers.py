@@ -112,7 +112,7 @@ class RetrieverToolProvider(FactoryToolProvider):
 
     def __init__(self, settings: Settings, *, rebuild: bool) -> None:
         def build() -> Sequence[BaseTool]:
-            from ..core.retriever import build_retriever_tool
+            from ..rag.chroma_retriever import build_retriever_tool
 
             return (build_retriever_tool(settings, rebuild=rebuild),)
 

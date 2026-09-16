@@ -243,7 +243,9 @@ def test_one_content_free_log_record_per_outcome(tmp_path, caplog, response, lev
     with caplog.at_level(logging.INFO, logger="src.backend.memory.extraction"):
         instance.run("round_complete", "thread")
 
-    records = [record for record in caplog.records if record.name == "src.backend.memory.extraction"]
+    records = [
+        record for record in caplog.records if record.name == "src.backend.memory.extraction"
+    ]
     assert len(records) == 1
     assert records[0].levelno == level
     assert records[0].getMessage().startswith("memory_extraction")

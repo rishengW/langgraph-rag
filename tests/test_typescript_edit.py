@@ -109,12 +109,8 @@ def test_create_writes_downloadable_typescript_and_is_collision_safe(
     assert second.artifact is not None
     assert first.artifact["filename"] == "meeting_notes.ts"
     assert second.artifact["filename"] == "meeting_notes-2.ts"
-    assert (
-        session_root / "meeting_notes.ts"
-    ).read_bytes() == b"export const alpha = 1;\r\n"
-    assert (
-        session_root / "meeting_notes-2.ts"
-    ).read_bytes() == b"export const beta = 2;"
+    assert (session_root / "meeting_notes.ts").read_bytes() == b"export const alpha = 1;\r\n"
+    assert (session_root / "meeting_notes-2.ts").read_bytes() == b"export const beta = 2;"
     assert not (file_root / "meeting_notes.ts").exists()
 
 
@@ -396,9 +392,7 @@ def test_path_traversal_and_cross_session_access_are_denied(typescript_scope):
     for path in ("../thread-b/private.ts", str(other_source)):
         result = _edit(
             path,
-            operations=[
-                TypeScriptEditOperation(action="append_line", new_text="const no = 1;")
-            ],
+            operations=[TypeScriptEditOperation(action="append_line", new_text="const no = 1;")],
             file_root=file_root,
             session_root=session_root,
             thread_id=thread_id,
@@ -482,16 +476,13 @@ def test_tool_registration_requires_flags_session_root_and_thread_id(
         file_read_root=str(tmp_path / "files"),
     )
 
-    assert build_typescript_edit_tools(
-        disabled, session_root=session_root, thread_id="thread-a"
-    ) == []
+    assert (
+        build_typescript_edit_tools(disabled, session_root=session_root, thread_id="thread-a") == []
+    )
     assert build_typescript_edit_tools(enabled, session_root=None, thread_id="thread-a") == []
     assert build_typescript_edit_tools(enabled, session_root=session_root, thread_id="") == []
     assert (
-        build_typescript_edit_tools(
-            enabled, session_root=session_root, thread_id="../other"
-        )
-        == []
+        build_typescript_edit_tools(enabled, session_root=session_root, thread_id="../other") == []
     )
     assert [
         tool.name

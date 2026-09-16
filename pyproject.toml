@@ -2,9 +2,39 @@
 name = "langgraph-rag"
 version = "0.1.0"
 description = "Local LangGraph RAG application"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
+# Mirrors requirements.txt (the pinned deployment lock used by Docker/CI).
 dependencies = [
+    "langchain==0.3.30",
+    "langchain-core==0.3.86",
+    "langchain-community==0.3.31",
+    "langchain-openai==0.3.17",
+    "langchain-text-splitters==0.3.11",
+    "langchain-chroma==0.2.3",
+    "langchain-huggingface==0.3.1",
+    "langgraph==0.6.11",
+    "chromadb==0.6.3",
+    "sentence-transformers==5.5.1",
+    "tiktoken==0.13.0",
+    "dashscope==1.25.21",
+    "fastapi==0.119.1",
     "mcp==2.1.0",
+    "uvicorn==0.49.0",
+    "pydantic==2.13.4",
+    "python-multipart==0.0.20",
+    "beautifulsoup4==4.15.0",
+    "ddgs==9.14.4",
+    "openpyxl==3.1.5",
+    "playwright==1.61.0",
+    "pypdf==6.1.3",
+    "python-docx==1.1.2",
+    "python-pptx==0.6.23",
+    "python-dotenv==1.2.2",
+    "PyYAML==6.0.3",
+    "requests==2.34.2",
+    "sympy==1.14.0",
+    "typing-extensions==4.15.0",
+    "yfinance==1.4.1",
 ]
 
 [tool.pytest.ini_options]
@@ -14,6 +44,11 @@ pythonpath = ["."]
 addopts = [
     "-q",
     "--tb=short",
+    "--timeout=120",
+]
+markers = [
+    "integration: broader multi-module tests (deselect with -m 'not integration')",
+    "slow: long-running tests (deselect with -m 'not slow')",
 ]
 
 [tool.coverage.run]
@@ -32,8 +67,6 @@ line-length = 100
 extend-exclude = [
     ".venv",
     ".chroma",
-    "advanced_phase1_workbench",
-    "advanced_phase2_interfaces_workbench",
 ]
 
 [tool.ruff.lint]
@@ -63,8 +96,4 @@ ignore_missing_imports = true
 show_error_codes = true
 warn_unused_ignores = true
 pretty = true
-exclude = [
-    "^advanced_phase1_workbench/",
-    "^advanced_phase2_interfaces_workbench/",
-]
 

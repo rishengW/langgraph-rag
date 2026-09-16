@@ -101,10 +101,7 @@ def read_yaml_file(
     body = text[:limit]
     header = f"Contents of {resolved.name} ({len(text):,} chars):"
     if truncated:
-        header = (
-            f"Contents of {resolved.name} (showing first {limit:,} of "
-            f"{len(text):,} chars):"
-        )
+        header = f"Contents of {resolved.name} (showing first {limit:,} of {len(text):,} chars):"
     return f"{header}\n\n{body}"
 
 

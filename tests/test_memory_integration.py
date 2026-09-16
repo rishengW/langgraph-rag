@@ -79,7 +79,7 @@ def stub_retriever(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "src.backend.core.retriever.build_retriever_tool", fake_build_retriever_tool
+        "src.backend.rag.chroma_retriever.build_retriever_tool", fake_build_retriever_tool
     )
 
 
@@ -92,9 +92,7 @@ def lightweight_tools(settings):
 
 
 @pytest.mark.parametrize("resolver", [heavy_tools, lightweight_tools])
-def test_both_graphs_expose_the_memory_tools_when_enabled(
-    tmp_path, stub_retriever, resolver
-):
+def test_both_graphs_expose_the_memory_tools_when_enabled(tmp_path, stub_retriever, resolver):
     settings = make_settings(tmp_path, web_search_enabled=True)
 
     names = {tool.name for tool in resolver(settings)}
@@ -103,9 +101,7 @@ def test_both_graphs_expose_the_memory_tools_when_enabled(
 
 
 @pytest.mark.parametrize("resolver", [heavy_tools, lightweight_tools])
-def test_neither_graph_exposes_the_memory_tools_when_disabled(
-    tmp_path, stub_retriever, resolver
-):
+def test_neither_graph_exposes_the_memory_tools_when_disabled(tmp_path, stub_retriever, resolver):
     settings = make_settings(tmp_path, memory_enabled=False, web_search_enabled=True)
 
     names = {tool.name for tool in resolver(settings)}
@@ -119,11 +115,7 @@ def test_both_graphs_expose_identical_memory_schemas(tmp_path, stub_retriever):
     settings = make_settings(tmp_path, web_search_enabled=True)
 
     def memory_schemas(tools):
-        return {
-            tool.name: sorted(tool.args)
-            for tool in tools
-            if tool.name in MEMORY_TOOL_NAMES
-        }
+        return {tool.name: sorted(tool.args) for tool in tools if tool.name in MEMORY_TOOL_NAMES}
 
     heavy = memory_schemas(heavy_tools(settings))
     lightweight = memory_schemas(lightweight_tools(settings))
@@ -143,9 +135,7 @@ def test_disabled_memory_touches_no_file(tmp_path, stub_retriever):
 
 
 @pytest.mark.parametrize("resolver", [heavy_tools, lightweight_tools])
-def test_enabling_memory_leaves_other_tools_unchanged(
-    tmp_path, stub_retriever, resolver
-):
+def test_enabling_memory_leaves_other_tools_unchanged(tmp_path, stub_retriever, resolver):
     settings_off = make_settings(tmp_path, memory_enabled=False, web_search_enabled=True)
     settings_on = make_settings(tmp_path, web_search_enabled=True)
 
@@ -187,9 +177,7 @@ def test_memory_note_precedes_the_upload_note(tmp_path, monkeypatch):
         "src.frontend.chat.api._new_upload_context", lambda session, settings: "Uploaded: a.txt"
     )
 
-    inputs = _graph_inputs_for_turn(
-        fake_session(), "which units do I prefer?", settings
-    )
+    inputs = _graph_inputs_for_turn(fake_session(), "which units do I prefer?", settings)
     messages = inputs["messages"]
 
     assert [type(m).__name__ for m in messages] == [
@@ -205,9 +193,7 @@ def test_memory_note_precedes_the_upload_note(tmp_path, monkeypatch):
 def test_no_memory_note_when_nothing_matches(tmp_path, monkeypatch):
     seeded_store(tmp_path, "Prefers metric units")
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(
-        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
-    )
+    monkeypatch.setattr("src.frontend.chat.api._new_upload_context", lambda session, settings: None)
 
     inputs = _graph_inputs_for_turn(fake_session(), "bicycles", settings)
 
@@ -217,13 +203,9 @@ def test_no_memory_note_when_nothing_matches(tmp_path, monkeypatch):
 def test_no_memory_note_when_auto_recall_is_off(tmp_path, monkeypatch):
     seeded_store(tmp_path, "Prefers metric units")
     settings = make_settings(tmp_path, memory_auto_recall_enabled=False)
-    monkeypatch.setattr(
-        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
-    )
+    monkeypatch.setattr("src.frontend.chat.api._new_upload_context", lambda session, settings: None)
 
-    inputs = _graph_inputs_for_turn(
-        fake_session(), "which units do I prefer?", settings
-    )
+    inputs = _graph_inputs_for_turn(fake_session(), "which units do I prefer?", settings)
 
     assert [type(m).__name__ for m in inputs["messages"]] == ["HumanMessage"]
 
@@ -231,9 +213,7 @@ def test_no_memory_note_when_auto_recall_is_off(tmp_path, monkeypatch):
 def test_turn_completes_when_the_store_raises(tmp_path, monkeypatch, caplog):
     seeded_store(tmp_path, "Prefers metric units")
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(
-        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
-    )
+    monkeypatch.setattr("src.frontend.chat.api._new_upload_context", lambda session, settings: None)
 
     def boom(self, thread_id):
         raise RuntimeError("store is on fire")
@@ -241,9 +221,7 @@ def test_turn_completes_when_the_store_raises(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(MemoryStore, "in_scope", boom)
 
     with caplog.at_level("WARNING"):
-        inputs = _graph_inputs_for_turn(
-            fake_session(), "which units do I prefer?", settings
-        )
+        inputs = _graph_inputs_for_turn(fake_session(), "which units do I prefer?", settings)
 
     monkeypatch.undo()
 
@@ -254,9 +232,7 @@ def test_turn_completes_when_the_store_raises(tmp_path, monkeypatch, caplog):
 def test_injection_is_read_only(tmp_path, monkeypatch):
     store = seeded_store(tmp_path, "Prefers metric units")
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(
-        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
-    )
+    monkeypatch.setattr("src.frontend.chat.api._new_upload_context", lambda session, settings: None)
     before = store.path.read_text(encoding="utf-8")
 
     _graph_inputs_for_turn(fake_session(), "which units do I prefer?", settings)
@@ -272,13 +248,9 @@ def test_session_scoped_memory_is_only_injected_for_its_thread(tmp_path, monkeyp
         max_record_chars=1000,
         clock=lambda: TS,
     )
-    assert store.save(
-        content="metric units only here", scope="session", thread_id="thread-42"
-    ).ok
+    assert store.save(content="metric units only here", scope="session", thread_id="thread-42").ok
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(
-        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
-    )
+    monkeypatch.setattr("src.frontend.chat.api._new_upload_context", lambda session, settings: None)
 
     mine = _graph_inputs_for_turn(fake_session("thread-42"), "metric", settings)
     theirs = _graph_inputs_for_turn(fake_session("other"), "metric", settings)
@@ -299,15 +271,11 @@ def test_turn_without_settings_still_builds_a_question():
 def test_history_excludes_the_memory_note(tmp_path, monkeypatch):
     seeded_store(tmp_path, "Prefers metric units")
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(
-        "src.frontend.chat.api._new_upload_context", lambda session, settings: None
-    )
+    monkeypatch.setattr("src.frontend.chat.api._new_upload_context", lambda session, settings: None)
 
     from langchain_core.messages import AIMessage
 
-    inputs = _graph_inputs_for_turn(
-        fake_session(), "which units do I prefer?", settings
-    )
+    inputs = _graph_inputs_for_turn(fake_session(), "which units do I prefer?", settings)
     transcript = [*inputs["messages"], AIMessage(content="You prefer metric.")]
 
     turns = _serialize_messages(transcript)

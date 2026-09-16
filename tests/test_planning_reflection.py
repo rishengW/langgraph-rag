@@ -188,9 +188,12 @@ def test_direct_answer_and_web_answer_critique_routing():
         route_after_lightweight_agent_with_critique(direct, critique_enabled=True)
         == "answer_self_critique"
     )
-    assert route_after_web_answer_with_fallback(
-        {"web_answer_no_readable_content": False}, planning_enabled=True
-    ) == "answer_self_critique"
+    assert (
+        route_after_web_answer_with_fallback(
+            {"web_answer_no_readable_content": False}, planning_enabled=True
+        )
+        == "answer_self_critique"
+    )
 
 
 def test_reflection_revision_is_bounded(monkeypatch, isolated_settings):
@@ -224,7 +227,10 @@ def test_reflection_revision_is_bounded(monkeypatch, isolated_settings):
     assert second == {"reflection_retry_count": 1}
     assert calls == 1
     assert route_after_self_critique(state, max_retries=1) == "reflection_revise"
-    assert route_after_self_critique({**state, "reflection_retry_count": 1}, max_retries=1) == "__end__"
+    assert (
+        route_after_self_critique({**state, "reflection_retry_count": 1}, max_retries=1)
+        == "__end__"
+    )
 
 
 def test_lightweight_graph_runs_planning_and_critiques_web_answer(isolated_settings):
@@ -386,7 +392,9 @@ def test_planning_remains_default_off_in_both_graphs(isolated_settings):
         ),
     )
 
-    standard_nodes = build_graph(settings=isolated_settings(), providers=providers).get_graph().nodes
+    standard_nodes = (
+        build_graph(settings=isolated_settings(), providers=providers).get_graph().nodes
+    )
     lightweight_providers = GraphProviders(
         tools=[
             build_web_search_tool(
@@ -396,9 +404,11 @@ def test_planning_remains_default_off_in_both_graphs(isolated_settings):
         ],
         nodes=providers.nodes,
     )
-    lightweight_nodes = build_lightweight_graph(
-        settings=isolated_settings(), providers=lightweight_providers
-    ).get_graph().nodes
+    lightweight_nodes = (
+        build_lightweight_graph(settings=isolated_settings(), providers=lightweight_providers)
+        .get_graph()
+        .nodes
+    )
 
     assert "planner" not in standard_nodes
     assert "answer_self_critique" not in standard_nodes

@@ -62,9 +62,7 @@ def initialize_chat_app_state(
     if metrics is not None or not hasattr(app.state, "metrics"):
         app.state.metrics = metrics if metrics is not None else MetricsCollector()
     if quota_manager is not None or not hasattr(app.state, "quota_manager"):
-        app.state.quota_manager = (
-            quota_manager if quota_manager is not None else QuotaManager()
-        )
+        app.state.quota_manager = quota_manager if quota_manager is not None else QuotaManager()
 
 
 def get_config(request: Request) -> Settings:

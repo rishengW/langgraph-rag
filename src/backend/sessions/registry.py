@@ -23,6 +23,12 @@ TimeProvider = Callable[[], float]
 
 ISOLATED_SOURCE_MODES = {"explicit", "web_search"}
 
+# Metadata persistence is skipped for touch-only accesses within this window;
+# in-memory ``last_accessed_at`` is still updated on every touch so TTL
+# cleanup stays exact. This bounds SQLite writes to one per interval per
+# session instead of one per request.
+TOUCH_PERSIST_INTERVAL_SECONDS = 30.0
+
 
 def _safe_isolated_chroma_dir(chroma_dir: Path) -> bool:
     try:
@@ -35,7 +41,7 @@ def _safe_isolated_chroma_dir(chroma_dir: Path) -> bool:
 
 def _release_chroma_system(chroma_dir: Path) -> None:
     try:
-        from ..core.retriever import _release_chroma_system as release
+        from ..rag.chroma_retriever import _release_chroma_system as release
     except Exception as exc:
         logger.debug("Chroma release helper is unavailable: %s", exc)
         return
@@ -48,7 +54,7 @@ def _release_chroma_system(chroma_dir: Path) -> None:
 
 def _remove_chroma_dir(chroma_dir: Path) -> None:
     try:
-        from ..core.retriever import _rmtree_with_retry as remove_with_retry
+        from ..rag.chroma_retriever import _rmtree_with_retry as remove_with_retry
     except Exception as exc:
         logger.debug("Chroma retry deletion helper is unavailable: %s", exc)
         shutil.rmtree(chroma_dir)
@@ -100,6 +106,7 @@ class ChatSessionRegistry:
         self._cleanup = cleanup or cleanup_isolated_chroma
         self._storage = storage
         self._time = time_func
+        self._touch_persisted_at: dict[str, float] = {}
         self._stop_cleanup = threading.Event()
         self._cleanup_thread: threading.Thread | None = None
 
@@ -135,6 +142,7 @@ class ChatSessionRegistry:
         with self._lock:
             self._sessions[thread_id] = session
         self._save_metadata(session)
+        self._mark_touch_persisted(session.thread_id)
         logger.info(
             "Created chat session %s with %d source URL(s) (mode=%s)",
             thread_id,
@@ -176,7 +184,7 @@ class ChatSessionRegistry:
                 session.touch(self._time())
                 session_to_save = session
         if session_to_save is not None:
-            self._save_metadata(session_to_save)
+            self._save_touch_metadata(session_to_save)
         return session
 
     def get_owned(
@@ -202,7 +210,7 @@ class ChatSessionRegistry:
                 session.touch(self._time())
                 session_to_save = session
         if session_to_save is not None:
-            self._save_metadata(session_to_save)
+            self._save_touch_metadata(session_to_save)
         return session
 
     def update_sources(
@@ -232,6 +240,7 @@ class ChatSessionRegistry:
             session_to_save = session
 
         self._save_metadata(session_to_save)
+        self._mark_touch_persisted(thread_id)
         logger.info(
             "Updated chat session %s with %d source URL(s) (mode=%s)",
             thread_id,
@@ -259,6 +268,7 @@ class ChatSessionRegistry:
         if session is None:
             return False
 
+        self._forget_touch_persisted(session.thread_id)
         self._delete_metadata(session.thread_id)
         self._cleanup_session(session)
         logger.info("Deleted chat session %s", session.thread_id)
@@ -283,6 +293,7 @@ class ChatSessionRegistry:
                         expired.append(expired_session)
 
         for session in expired:
+            self._forget_touch_persisted(session.thread_id)
             self._delete_metadata(session.thread_id)
             self._cleanup_session(session)
             logger.info("Expired chat session %s", session.thread_id)
@@ -321,6 +332,25 @@ class ChatSessionRegistry:
             self._cleanup(session)
         except Exception as exc:
             logger.warning("Cleanup failed for chat session %s: %s", session.thread_id, exc)
+
+    def _save_touch_metadata(self, session: ChatSession) -> None:
+        """Persist metadata for a touch-only access, throttled per interval."""
+
+        now = self._time()
+        with self._lock:
+            last = self._touch_persisted_at.get(session.thread_id)
+            if last is not None and now - last < TOUCH_PERSIST_INTERVAL_SECONDS:
+                return
+            self._touch_persisted_at[session.thread_id] = now
+        self._save_metadata(session)
+
+    def _mark_touch_persisted(self, thread_id: str) -> None:
+        with self._lock:
+            self._touch_persisted_at[thread_id] = self._time()
+
+    def _forget_touch_persisted(self, thread_id: str) -> None:
+        with self._lock:
+            self._touch_persisted_at.pop(thread_id, None)
 
     def _save_metadata(self, session: ChatSession) -> None:
         # REFACTOR: Optional persistence hook; default registry behavior is unchanged.

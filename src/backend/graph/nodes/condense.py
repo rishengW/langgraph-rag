@@ -13,7 +13,12 @@ from src.config import Settings
 from src.utils.retry import invoke_with_retry
 
 from ...llm.prompts import CONDENSE_PROMPT
-from .common import _truncate_context_text, bounded_chat_messages, new_chat_model
+from .common import (
+    _truncate_context_text,
+    bounded_chat_messages,
+    cached_builder,
+    new_chat_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +90,8 @@ def condense_followup_question(
     messages: Sequence[BaseMessage],
     latest_text: str,
     settings: Settings,
+    *,
+    model: Any = None,
 ) -> str:
     """Rewrite a follow-up turn into a standalone question using prior turns.
 
@@ -92,7 +99,8 @@ def condense_followup_question(
     step so both contextualize a vague follow-up (e.g. "Argentina and Jordan",
     "group stage not knockout") against the conversation history before it
     drives a search. Returns ``latest_text`` unchanged when there is no prior
-    history or the LLM call fails (passthrough fallback).
+    history or the LLM call fails (passthrough fallback). ``model`` lets a
+    caller that already built a chat model reuse it across turns.
     """
 
     if not needs_condensation(latest_text):
@@ -113,7 +121,8 @@ def condense_followup_question(
         return latest_text
 
     dated_prompt = CONDENSE_PROMPT.partial(current_date=date.today().isoformat())
-    chain = dated_prompt | new_chat_model(settings) | StrOutputParser()
+    llm = model if model is not None else new_chat_model(settings)
+    chain = dated_prompt | llm | StrOutputParser()
     try:
         standalone = invoke_with_retry(
             chain,
@@ -128,6 +137,8 @@ def condense_followup_question(
 
 def condense_question_factory(settings: Settings) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Condense the latest chat turn into a standalone question."""
+
+    condense_llm = cached_builder(lambda: new_chat_model(settings))
 
     def condense_question(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("CONDENSE QUESTION")
@@ -147,7 +158,9 @@ def condense_question_factory(settings: Settings) -> Callable[[dict[str, Any]], 
                 "rewrite_count": 0,
             }
 
-        standalone = condense_followup_question(history, latest_text, settings)
+        standalone = condense_followup_question(
+            history, latest_text, settings, model=condense_llm()
+        )
         logger.info("Condensed question: %r", standalone)
         return {
             "current_question": standalone,
@@ -156,4 +169,3 @@ def condense_question_factory(settings: Settings) -> Callable[[dict[str, Any]], 
         }
 
     return condense_question
-

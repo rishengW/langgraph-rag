@@ -167,9 +167,7 @@ def _json_ld_candidates(soup: Any, *, modified: bool = False) -> list[str]:
 def _json_ld_date_values(payload: Any, *, modified: bool = False) -> list[str]:
     if isinstance(payload, list):
         return [
-            value
-            for item in payload
-            for value in _json_ld_date_values(item, modified=modified)
+            value for item in payload for value in _json_ld_date_values(item, modified=modified)
         ]
     if not isinstance(payload, dict):
         return []

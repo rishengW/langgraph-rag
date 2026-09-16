@@ -20,4 +20,3 @@ def parse_url_input(raw_urls: str | list[str] | None) -> list[str] | None:
 
     urls = [url.strip() for url in candidates if url and url.strip()]
     return urls or None
-

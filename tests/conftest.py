@@ -1,11 +1,26 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from langchain_core.messages import AIMessage
 
 from src.config import Settings
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Auto-mark tests by filename so unit/integration layers are selectable.
+
+    Files named ``*_integration.py`` carry the ``integration`` marker; no
+    manual decorator upkeep is needed as the layering grows.
+    """
+
+    for item in items:
+        path = Path(str(item.fspath))
+        name = path.stem
+        if "integration" in name:
+            item.add_marker(pytest.mark.integration)
 
 
 @pytest.fixture
@@ -32,4 +47,3 @@ def ai_message():
         return AIMessage(content=content)
 
     return _make
-

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
+from collections import deque
 from collections.abc import Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -19,6 +22,9 @@ AMAP_PROXY_USER_AGENT = "langgraph-rag/1.0 (AMap JS API proxy)"
 MAX_AMAP_PROXY_PATH_CHARS = 512
 MAX_AMAP_PROXY_QUERY_CHARS = 4096
 MAX_AMAP_PROXY_RESPONSE_BYTES = 5_000_000
+AMAP_PROXY_RATE_LIMIT = 60
+AMAP_PROXY_RATE_WINDOW_SECONDS = 60.0
+_MAX_TRACKED_RATE_CLIENTS = 4096
 
 _SAFE_PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._~-]+$")
 _SAFE_QUERY_NAME_RE = re.compile(r"^[A-Za-z0-9_.\[\]-]{1,64}$")
@@ -59,6 +65,41 @@ class AMapProxyResponse:
     status_code: int = 200
 
 
+class ClientRateLimiter:
+    """Thread-safe sliding-window rate limiter keyed by client identity.
+
+    The AMap proxy is intentionally unauthenticated (the browser JS SDK
+    cannot send Authorization headers), so a per-client request budget is
+    the only protection against anonymous quota exhaustion.
+    """
+
+    def __init__(self, max_requests: int, window_seconds: float) -> None:
+        self._max_requests = max(1, int(max_requests))
+        self._window_seconds = max(0.001, float(window_seconds))
+        self._lock = threading.Lock()
+        self._hits: dict[str, deque[float]] = {}
+
+    def allow(self, client_key: str, *, now: float | None = None) -> bool:
+        """Record one request for `client_key` and return whether it fits the budget."""
+
+        moment = time.monotonic() if now is None else float(now)
+        cutoff = moment - self._window_seconds
+        with self._lock:
+            hits = self._hits.setdefault(client_key, deque())
+            while hits and hits[0] <= cutoff:
+                hits.popleft()
+            if len(hits) >= self._max_requests:
+                return False
+            hits.append(moment)
+            if len(self._hits) > _MAX_TRACKED_RATE_CLIENTS:
+                stale = [
+                    key for key, values in self._hits.items() if not values or values[-1] <= cutoff
+                ]
+                for key in stale:
+                    del self._hits[key]
+            return True
+
+
 def build_amap_client_config(settings: Any) -> dict[str, object]:
     """Return the strict browser-visible subset of AMap configuration."""
 
@@ -85,11 +126,7 @@ def validate_amap_proxy_path(path: str) -> str:
     """Validate an AMap-relative API path without normalizing attacker input."""
 
     value = path or ""
-    if (
-        not value
-        or value != value.strip()
-        or len(value) > MAX_AMAP_PROXY_PATH_CHARS
-    ):
+    if not value or value != value.strip() or len(value) > MAX_AMAP_PROXY_PATH_CHARS:
         raise AMapProxyError("Invalid AMap service path.", status_code=400)
     decoded = unquote(value)
     if decoded != value:
@@ -98,15 +135,12 @@ def validate_amap_proxy_path(path: str) -> str:
         raise AMapProxyError("Invalid AMap service path.", status_code=400)
     segments = value.split("/")
     if any(
-        not segment
-        or segment in {".", ".."}
-        or _SAFE_PATH_SEGMENT_RE.fullmatch(segment) is None
+        not segment or segment in {".", ".."} or _SAFE_PATH_SEGMENT_RE.fullmatch(segment) is None
         for segment in segments
     ):
         raise AMapProxyError("Invalid AMap service path.", status_code=400)
     if value not in _ALLOWED_REST_PATHS and not any(
-        value == prefix or value.startswith(f"{prefix}/")
-        for prefix in _ALLOWED_WEB_PATH_PREFIXES
+        value == prefix or value.startswith(f"{prefix}/") for prefix in _ALLOWED_WEB_PATH_PREFIXES
     ):
         raise AMapProxyError("Unsupported AMap service path.", status_code=404)
     return value
@@ -243,9 +277,12 @@ def _safe_media_type(content_type: str) -> str:
 
 
 __all__ = [
+    "AMAP_PROXY_RATE_LIMIT",
+    "AMAP_PROXY_RATE_WINDOW_SECONDS",
     "AMAP_SERVICE_HOST_PATH",
     "AMapProxyError",
     "AMapProxyResponse",
+    "ClientRateLimiter",
     "build_amap_client_config",
     "fetch_amap_proxy_response",
     "validate_amap_proxy_path",

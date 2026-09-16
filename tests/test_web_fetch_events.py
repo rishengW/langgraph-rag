@@ -50,17 +50,13 @@ def test_web_fetch_events_flow_through_streaming_executor(monkeypatch, isolated_
     content_fetcher.fetch_pages = fake_fetch_pages
     content_fetcher.is_readable_page = lambda *args, **kwargs: True
     content_fetcher.is_readable_text = is_readable_text
-    monkeypatch.setitem(
-        sys.modules, "src.backend.web_search.content_fetcher", content_fetcher
-    )
+    monkeypatch.setitem(sys.modules, "src.backend.web_search.content_fetcher", content_fetcher)
     monkeypatch.setattr(
         "src.backend.web_search.common.is_page_text_relevant",
         lambda *args, **kwargs: True,
     )
 
-    monkeypatch.setattr(
-        web_answer_module, "new_chat_model", lambda _settings: "fake-model"
-    )
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "fake-model")
     monkeypatch.setattr(
         web_answer_module,
         "invoke_with_retry",
@@ -90,9 +86,7 @@ def test_web_fetch_events_flow_through_streaming_executor(monkeypatch, isolated_
             nodes=GraphNodeOverrides(
                 agent=agent,
                 decompose=lambda _state: {"sub_questions": ["atomic question"]},
-                merge=lambda _state: {
-                    "source_urls": ["https://a.test/one", "https://b.test/two"]
-                },
+                merge=lambda _state: {"source_urls": ["https://a.test/one", "https://b.test/two"]},
                 fallback_answer=lambda _state: {
                     "messages": [AIMessage(content="grounded refusal")]
                 },
@@ -132,9 +126,7 @@ def test_web_fetch_announcements_swallow_failures_outside_stream(monkeypatch, is
 
     from src.backend.graph.nodes import web_answer as web_answer_module
 
-    monkeypatch.setattr(
-        web_answer_module, "new_chat_model", lambda _settings: "fake-model"
-    )
+    monkeypatch.setattr(web_answer_module, "new_chat_model", lambda _settings: "fake-model")
     monkeypatch.setattr(
         web_answer_module,
         "invoke_with_retry",
@@ -153,9 +145,7 @@ def test_web_fetch_announcements_swallow_failures_outside_stream(monkeypatch, is
     import src.backend.web_search.content_fetcher as real_fetcher
 
     content_fetcher.is_readable_text = real_fetcher.is_readable_text
-    monkeypatch.setitem(
-        sys.modules, "src.backend.web_search.content_fetcher", content_fetcher
-    )
+    monkeypatch.setitem(sys.modules, "src.backend.web_search.content_fetcher", content_fetcher)
     monkeypatch.setattr(
         "src.backend.web_search.common.is_page_text_relevant",
         lambda *args, **kwargs: True,

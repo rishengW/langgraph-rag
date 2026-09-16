@@ -19,10 +19,37 @@ from src.config import Settings
 
 # Suffixes accepted for upload — the union of what the file tools read.
 ALLOWED_UPLOAD_SUFFIXES = (
-    ".txt", ".md", ".log", ".csv", ".docx", ".xlsx", ".pptx", ".pdf",
-    ".ts", ".tsx", ".json", ".jsonl", ".yaml", ".yml", ".r", ".rs", ".go", ".sql", ".php",
-    ".rb", ".tex", ".pl", ".hs", ".lua", ".jl", ".sh", ".bash", ".m",
-    ".groovy", ".swift", ".zip",
+    ".txt",
+    ".md",
+    ".log",
+    ".csv",
+    ".docx",
+    ".xlsx",
+    ".pptx",
+    ".pdf",
+    ".ts",
+    ".tsx",
+    ".json",
+    ".jsonl",
+    ".yaml",
+    ".yml",
+    ".r",
+    ".rs",
+    ".go",
+    ".sql",
+    ".php",
+    ".rb",
+    ".tex",
+    ".pl",
+    ".hs",
+    ".lua",
+    ".jl",
+    ".sh",
+    ".bash",
+    ".m",
+    ".groovy",
+    ".swift",
+    ".zip",
 )
 
 UPLOAD_SUBDIR = "chat_uploads"
@@ -469,9 +496,7 @@ def validate_suffix(filename: str) -> str:
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_UPLOAD_SUFFIXES:
         allowed = ", ".join(ALLOWED_UPLOAD_SUFFIXES)
-        raise UploadError(
-            f"unsupported file type {suffix or '(none)'!r}; allowed: {allowed}."
-        )
+        raise UploadError(f"unsupported file type {suffix or '(none)'!r}; allowed: {allowed}.")
     return suffix
 
 
@@ -481,9 +506,7 @@ def _upload_target(
     filename: str,
 ) -> tuple[str, Path]:
     if not settings.file_read_enabled:
-        raise UploadError(
-            "file reading is disabled; set FILE_READ_ENABLED=true to accept uploads."
-        )
+        raise UploadError("file reading is disabled; set FILE_READ_ENABLED=true to accept uploads.")
 
     safe_name = sanitize_filename(filename)
     if not safe_name:
@@ -510,9 +533,7 @@ def _saved_upload(
     try:
         relative = target_path.resolve().relative_to(root).as_posix()
     except ValueError:
-        raise UploadError(
-            "internal error: upload path escaped the file-read root."
-        ) from None
+        raise UploadError("internal error: upload path escaped the file-read root.") from None
     return SavedUpload(safe_name, relative, size_bytes)
 
 
@@ -530,9 +551,7 @@ def save_upload(
     if not content:
         raise UploadError("the uploaded file is empty.")
     if len(content) > max_bytes:
-        raise UploadError(
-            f"file is too large ({len(content):,} bytes; limit {max_bytes:,} bytes)."
-        )
+        raise UploadError(f"file is too large ({len(content):,} bytes; limit {max_bytes:,} bytes).")
 
     try:
         target_path.write_bytes(content)
@@ -573,8 +592,7 @@ def save_upload_stream(
                 size_bytes += len(chunk)
                 if size_bytes > max_bytes:
                     raise UploadError(
-                        f"file is too large ({size_bytes:,}+ bytes; "
-                        f"limit {max_bytes:,} bytes)."
+                        f"file is too large ({size_bytes:,}+ bytes; limit {max_bytes:,} bytes)."
                     )
                 temporary.write(chunk)
 

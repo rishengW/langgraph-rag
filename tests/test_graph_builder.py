@@ -108,7 +108,7 @@ def test_builder_requires_settings_for_default_nodes():
 
 
 def test_resolve_tools_adds_web_search_when_enabled(monkeypatch, isolated_settings):
-    import src.backend.core.retriever as retriever_module
+    import src.backend.rag.chroma_retriever as retriever_module
     import src.backend.tools as web_search_module
 
     settings = isolated_settings(web_search_enabled=True)
@@ -145,7 +145,7 @@ def test_resolve_tools_adds_web_search_when_enabled(monkeypatch, isolated_settin
 
 
 def test_resolve_tools_adds_enabled_agent_tools(monkeypatch, isolated_settings):
-    import src.backend.core.retriever as retriever_module
+    import src.backend.rag.chroma_retriever as retriever_module
     import src.backend.tools as tools_module
     import src.backend.tools as web_search_module
 
@@ -220,7 +220,7 @@ def test_resolve_tools_adds_enabled_agent_tools(monkeypatch, isolated_settings):
 
 
 def test_resolve_tools_skips_web_search_when_disabled(monkeypatch, isolated_settings):
-    import src.backend.core.retriever as retriever_module
+    import src.backend.rag.chroma_retriever as retriever_module
     import src.backend.tools as web_search_module
 
     settings = isolated_settings(web_search_enabled=False)
@@ -237,9 +237,7 @@ def test_resolve_tools_skips_web_search_when_disabled(monkeypatch, isolated_sett
         lambda _settings: pytest.fail("web search tool should not be built"),
     )
 
-    assert _resolve_tools(settings, GraphProviders(), rebuild_vectorstore=False) == [
-        retriever_tool
-    ]
+    assert _resolve_tools(settings, GraphProviders(), rebuild_vectorstore=False) == [retriever_tool]
 
 
 def test_resolve_tools_preserves_provider_tools_override(isolated_settings):
@@ -259,7 +257,7 @@ def test_resolve_tools_registers_text_editor_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.backend.core.retriever as retriever_module
+    import src.backend.rag.chroma_retriever as retriever_module
     import src.backend.tools as tools_module
 
     settings = isolated_settings(
@@ -315,7 +313,7 @@ def test_resolve_tools_registers_word_creator_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.backend.core.retriever as retriever_module
+    import src.backend.rag.chroma_retriever as retriever_module
     import src.backend.tools as tools_module
 
     settings = isolated_settings(
@@ -468,7 +466,7 @@ def test_resolve_tools_registers_excel_creator_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.backend.core.retriever as retriever_module
+    import src.backend.rag.chroma_retriever as retriever_module
     import src.backend.tools as tools_module
 
     settings = isolated_settings(
@@ -549,7 +547,7 @@ def test_both_graphs_register_powerpoint_editor_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.backend.core.retriever as retriever_module
+    import src.backend.rag.chroma_retriever as retriever_module
     import src.backend.tools as tools_module
     import src.backend.tools as web_search_module
 
@@ -618,7 +616,7 @@ def test_both_graphs_register_excel_editor_with_session_scope(
     isolated_settings,
     tmp_path,
 ):
-    import src.backend.core.retriever as retriever_module
+    import src.backend.rag.chroma_retriever as retriever_module
     import src.backend.tools as tools_module
     import src.backend.tools as web_search_module
 

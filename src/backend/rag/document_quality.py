@@ -235,11 +235,7 @@ def _matches_relevance_query(
 
 
 def _query_terms(query: str) -> set[str]:
-    return {
-        token
-        for token in _tokens(query)
-        if len(token) >= 3 and token not in STOP_WORDS
-    }
+    return {token for token in _tokens(query) if len(token) >= 3 and token not in STOP_WORDS}
 
 
 def _cjk_character_count(text: str) -> int:
@@ -316,8 +312,6 @@ def _recency_score(age_days: int, bias_days: int) -> float:
 def _bias_recent_documents(documents: list[Document]) -> list[Document]:
     return sorted(
         documents,
-        key=lambda document: float(
-            document.metadata.get("document_quality_recency_score", 0.0)
-        ),
+        key=lambda document: float(document.metadata.get("document_quality_recency_score", 0.0)),
         reverse=True,
     )

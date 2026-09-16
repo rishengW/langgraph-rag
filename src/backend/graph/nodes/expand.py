@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from src.config import Settings
 from src.utils.retry import invoke_with_retry
 
-from .common import chat_question_resolver, new_structured_chat_model
+from .common import cached_builder, chat_question_resolver, new_structured_chat_model
 from .search_queries import WEB_SEARCH_MAX_QUERIES
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,8 @@ def expand_factory(
     back to the input sub-questions (k=1 passthrough per sub-question).
     """
 
+    paraphrases_llm = cached_builder(lambda: new_structured_chat_model(settings, _ExpandResult))
+
     def expand(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("EXPAND QUERIES")
         sub_questions = _resolve_sub_questions(state, question_resolver)
@@ -74,8 +76,9 @@ def expand_factory(
             }
 
         expanded: list[str] = []
+        paraphrase_llm = paraphrases_llm()
         for sub_question in sub_questions:
-            for query in _paraphrases_for(sub_question, settings):
+            for query in _paraphrases_for(sub_question, settings, model=paraphrase_llm):
                 if query not in expanded:
                     expanded.append(query)
                 if len(expanded) >= WEB_SEARCH_MAX_QUERIES:
@@ -97,7 +100,12 @@ def expand_factory(
     return expand
 
 
-def _paraphrases_for(sub_question: str, settings: Settings) -> list[str]:
+def _paraphrases_for(
+    sub_question: str,
+    settings: Settings,
+    *,
+    model: Any = None,
+) -> list[str]:
     """Return 1-3 paraphrases for a single sub-question.
 
     Always returns the input as the first entry. On LLM failure returns
@@ -126,20 +134,18 @@ def _paraphrases_for(sub_question: str, settings: Settings) -> list[str]:
         "the original search is preserved.\n"
         "- Queries should be keyword-form, not full natural-language "
         "questions. Drop filler words (what, is, the, of, does, etc.).\n"
-        '- Return only one JSON object with this exact shape: '
+        "- Return only one JSON object with this exact shape: "
         '{"paraphrases":["query 1","query 2"]}.\n'
     )
 
     try:
-        chain = new_structured_chat_model(settings, _ExpandResult)
+        chain = model if model is not None else new_structured_chat_model(settings, _ExpandResult)
         result = invoke_with_retry(
             chain,
             [HumanMessage(content=prompt)],
             max_retries=settings.dashscope_max_retries,
         )
-        paraphrases = _clamp_paraphrases(
-            getattr(result, "paraphrases", None), sub_question
-        )
+        paraphrases = _clamp_paraphrases(getattr(result, "paraphrases", None), sub_question)
     except Exception as exc:  # noqa: BLE001 - passthrough fallback by design
         logger.warning("Expand LLM call failed; using atomic passthrough: %s", exc)
         paraphrases = [sub_question]
@@ -169,9 +175,7 @@ def _clamp_paraphrases(raw: Any, original: str) -> list[str]:
     return cleaned
 
 
-def _resolve_sub_questions(
-    state: dict[str, Any], question_resolver: QuestionResolver
-) -> list[str]:
+def _resolve_sub_questions(state: dict[str, Any], question_resolver: QuestionResolver) -> list[str]:
     raw = state.get("sub_questions")
     if isinstance(raw, list) and raw:
         return [str(item).strip() for item in raw if str(item).strip()]

@@ -90,9 +90,7 @@ def test_confident_amap_poi_match_skips_geocode_and_district_fallbacks():
 
     geocode_place("上海", requester=requester, api_key="test-key")
 
-    assert [url for url, _params in requester.calls] == [
-        "https://restapi.amap.com/v3/place/text"
-    ]
+    assert [url for url, _params in requester.calls] == ["https://restapi.amap.com/v3/place/text"]
 
 
 def test_amap_address_geocode_fallback_runs_after_unconfident_poi_results():

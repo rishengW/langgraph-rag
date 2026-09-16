@@ -127,10 +127,7 @@ def solve_math(
 ) -> str:
     op = (operation or "").strip().lower()
     if op not in _OPERATIONS:
-        return (
-            f"Unsupported operation {operation!r}. "
-            f"Use one of: {', '.join(_OPERATIONS)}."
-        )
+        return f"Unsupported operation {operation!r}. Use one of: {', '.join(_OPERATIONS)}."
 
     raw_expr = (expression or "").strip()
     if not raw_expr:
@@ -149,9 +146,7 @@ def solve_math(
             f"enable the math tool: {exc}"
         )
 
-    transformations = standard_transformations + (
-        implicit_multiplication_application,
-    )
+    transformations = standard_transformations + (implicit_multiplication_application,)
 
     def _parse(text: str) -> Any:
         # parse_expr is SymPy's safe parser: no Python eval of arbitrary code.

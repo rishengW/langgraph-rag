@@ -30,4 +30,3 @@ __all__ = [
     "parse_urls",
     "secret_fingerprint",
 ]
-

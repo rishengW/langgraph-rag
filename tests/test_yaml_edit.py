@@ -315,7 +315,5 @@ def test_tool_registration_requires_flags_session_root_and_thread_id(
     assert build_yaml_edit_tools(enabled, session_root=session_root, thread_id="") == []
     assert [
         tool.name
-        for tool in build_yaml_edit_tools(
-            enabled, session_root=session_root, thread_id="thread-a"
-        )
+        for tool in build_yaml_edit_tools(enabled, session_root=session_root, thread_id="thread-a")
     ] == ["create_yaml_file", "inspect_yaml_file", "edit_yaml_file"]

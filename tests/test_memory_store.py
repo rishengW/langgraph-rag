@@ -80,9 +80,7 @@ def write_document(store: MemoryStore, doc: MemoryDocument) -> None:
 ROUND_TRIP_DOCUMENTS = {
     "empty": (),
     "global_record_null_scope_id": (make_record(),),
-    "session_record": (
-        make_record("b" * 32, scope="session", scope_id="thread-1"),
-    ),
+    "session_record": (make_record("b" * 32, scope="session", scope_id="thread-1"),),
     "never_recalled": (make_record("c" * 32, last_recalled_at=None),),
     "recalled": (make_record("d" * 32, last_recalled_at=LATER),),
     "with_tags": (make_record("e" * 32, tags=("style", "units", "zh")),),
@@ -102,12 +100,8 @@ ROUND_TRIP_DOCUMENTS = {
         make_record("2" * 32, scope="session", scope_id="thread-a"),
         make_record("3" * 32, scope="session", scope_id="thread-b"),
     ),
-    "whitespace_in_content": (
-        make_record("4" * 32, content="line one\nline two\ttabbed"),
-    ),
-    "max_tags": (
-        make_record("5" * 32, tags=tuple(f"tag{i}" for i in range(10))),
-    ),
+    "whitespace_in_content": (make_record("4" * 32, content="line one\nline two\ttabbed"),),
+    "max_tags": (make_record("5" * 32, tags=tuple(f"tag{i}" for i in range(10))),),
 }
 
 
@@ -115,9 +109,7 @@ ROUND_TRIP_DOCUMENTS = {
 def test_round_trip_preserves_records_field_by_field(name):
     """Property 1: parse(serialize(doc)) reproduces the record list exactly."""
 
-    doc = MemoryDocument(
-        version=SCHEMA_VERSION, updated_at=TS, records=ROUND_TRIP_DOCUMENTS[name]
-    )
+    doc = MemoryDocument(version=SCHEMA_VERSION, updated_at=TS, records=ROUND_TRIP_DOCUMENTS[name])
 
     text = serialize_document(doc)
     parsed, warnings = parse_document(text, fallback_updated_at=TS)
@@ -357,9 +349,7 @@ def test_blank_store_path_falls_back_to_the_default(tmp_path, monkeypatch):
     assert resolve_store_path(settings).name == "long_term_memory.json"
 
 
-def test_relative_store_path_resolves_against_the_working_directory(
-    tmp_path, monkeypatch
-):
+def test_relative_store_path_resolves_against_the_working_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     settings = Settings(dashscope_api_key="x", memory_store_path="custom/mem.json")
 
@@ -432,9 +422,7 @@ def test_read_notices_an_out_of_band_rewrite(tmp_path):
     write_document(store, MemoryDocument(SCHEMA_VERSION, TS, (make_record(),)))
     assert len(store.read()) == 1
 
-    bigger = tuple(
-        make_record(f"{i:032x}", content=f"record {i}") for i in range(5)
-    )
+    bigger = tuple(make_record(f"{i:032x}", content=f"record {i}") for i in range(5))
     store.path.write_text(
         serialize_document(MemoryDocument(SCHEMA_VERSION, LATER, bigger)),
         encoding="utf-8",
@@ -704,9 +692,7 @@ def test_non_permission_os_error_reports_a_filesystem_error(tmp_path, monkeypatc
     assert tmp_files(tmp_path) == []
 
 
-def test_temporary_file_cleanup_failure_is_logged_not_raised(
-    tmp_path, monkeypatch, caplog
-):
+def test_temporary_file_cleanup_failure_is_logged_not_raised(tmp_path, monkeypatch, caplog):
     store = make_store(tmp_path)
 
     def boom(src, dst):
@@ -752,10 +738,7 @@ def test_concurrent_readers_never_see_a_partial_document(tmp_path):
         for size in range(1, 20):
             persist(
                 store,
-                tuple(
-                    make_record(f"{i:032x}", content=f"record {i}")
-                    for i in range(size)
-                ),
+                tuple(make_record(f"{i:032x}", content=f"record {i}") for i in range(size)),
             )
     finally:
         stop.set()

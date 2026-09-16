@@ -46,12 +46,15 @@ def sample_messages() -> list:
 # ---- role classification ---------------------------------------------------
 
 
-@pytest.mark.parametrize("message,expected", [
-    (HumanMessage(content="q"), "user"),
-    (AIMessage(content="a"), "assistant"),
-    (SystemMessage(content="s"), "system"),
-    (ToolMessage(content="t", tool_call_id="1"), "tool"),
-])
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        (HumanMessage(content="q"), "user"),
+        (AIMessage(content="a"), "assistant"),
+        (SystemMessage(content="s"), "system"),
+        (ToolMessage(content="t", tool_call_id="1"), "tool"),
+    ],
+)
 def test_message_role_matches_history_serializer_classes(message, expected):
     assert message_role(message) == expected
 
@@ -202,9 +205,7 @@ def test_render_slice_labels_roles_and_separates_blocks():
 
     rendered = render_slice(kept, max_chars=10_000)
 
-    assert rendered == (
-        f"{USER_LABEL} second question\n\n{ASSISTANT_LABEL} second answer"
-    )
+    assert rendered == (f"{USER_LABEL} second question\n\n{ASSISTANT_LABEL} second answer")
 
 
 def test_render_slice_is_deterministic():

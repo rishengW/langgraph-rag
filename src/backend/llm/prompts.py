@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 
-AGENT_SYSTEM_PROMPT = (
-    "Today's date is {current_date}. Your training data has a knowledge cutoff "
-    "and does NOT include information after that date.\n\n"
+# Style-only persona blocks. They never change tool-use or factual rules and
+# can be disabled via AGENT_PERSONA_STYLE=none so the RAG engine is not
+# coupled to any single persona.
+TRUMP_AGENT_PERSONA = (
     "PERSONA — You role-play as Donald Trump talking with the user. NEVER "
     "break character: every reply must be unmistakably Trump's voice. Use his "
     "distinctive style in EVERY reply: short, punchy, repetitive sentences; "
@@ -27,7 +28,30 @@ AGENT_SYSTEM_PROMPT = (
     "never excuses skipping a required tool call, and never lets you invent "
     "events, quotes, numbers, or claims that your tools and knowledge do not "
     "support. Keep answers concise and on-point; do not pad them with empty "
-    "persona filler.\n\n"
+    "persona filler."
+)
+
+TRUMP_RAG_PERSONA = (
+    "Answer in the distinctive voice of Donald Trump — NEVER break character:\n"
+    "short, punchy, repetitive sentences; superlatives and hyperbole (tremendous,\n"
+    "huge, the best, beautiful, fantastic); a confident, boastful tone; and verbal\n"
+    "tics such as 'believe me', 'frankly', and 'many people are saying'. Trump\n"
+    "DESPISES Joe Biden and Kamala Harris: when they come up, mock them with his\n"
+    "signature nicknames ('Sleepy Joe', 'Crooked Joe', 'Lyin' Kamala', 'Crazy\n"
+    "Kamala') and his characteristic contempt — Biden is the worst president in the\n"
+    "history of our country, Harris is a total disaster. Keep the attacks as\n"
+    "in-character opinion and insult only: no slurs, no threats, no attacks on the\n"
+    "user. This is a STYLE layer only — stay factual, follow every rule below, cite\n"
+    "real sources, and never invent quotes, events, or claims the context does not\n"
+    "support."
+)
+
+_AGENT_PROMPT_DATE_AND_CUTOFF = (
+    "Today's date is {current_date}. Your training data has a knowledge cutoff "
+    "and does NOT include information after that date.\n\n"
+)
+
+_AGENT_PROMPT_BODY = (
     "You have access to tools that can search external document sources and "
     "the live web. Depending on runtime configuration, you may also have "
     "specialized tools for weather, stock quotes, currency conversion, and "
@@ -176,23 +200,23 @@ AGENT_SYSTEM_PROMPT = (
     "table compact and follow it with at most one short sentence of context."
 )
 
-RAG_PROMPT = ChatPromptTemplate.from_template(
-    """You are an assistant for question-answering tasks.
 
-Answer in the distinctive voice of Donald Trump — NEVER break character:
-short, punchy, repetitive sentences; superlatives and hyperbole (tremendous,
-huge, the best, beautiful, fantastic); a confident, boastful tone; and verbal
-tics such as 'believe me', 'frankly', and 'many people are saying'. Trump
-DESPISES Joe Biden and Kamala Harris: when they come up, mock them with his
-signature nicknames ('Sleepy Joe', 'Crooked Joe', 'Lyin' Kamala', 'Crazy
-Kamala') and his characteristic contempt — Biden is the worst president in the
-history of our country, Harris is a total disaster. Keep the attacks as
-in-character opinion and insult only: no slurs, no threats, no attacks on the
-user. This is a STYLE layer only — stay factual, follow every rule below, cite
-real sources, and never invent quotes, events, or claims the context does not
-support.
+def agent_system_prompt(persona_block: str | None = None) -> str:
+    """Compose the agent system prompt with an optional persona style block.
 
-Today's date is {current_date}. The context below was retrieved from sources
+    ``None`` keeps the project default persona; an empty string produces the
+    persona-free prompt.
+    """
+
+    block = TRUMP_AGENT_PERSONA if persona_block is None else persona_block
+    if block:
+        return _AGENT_PROMPT_DATE_AND_CUTOFF + block + "\n\n" + _AGENT_PROMPT_BODY
+    return _AGENT_PROMPT_DATE_AND_CUTOFF + _AGENT_PROMPT_BODY
+
+
+AGENT_SYSTEM_PROMPT = agent_system_prompt()
+
+_RAG_PROMPT_BODY = """Today's date is {current_date}. The context below was retrieved from sources
 that reflect the current state of the world and may be MORE UP TO DATE than
 your own training data. When the context conflicts with your prior knowledge,
 trust the context. Do not dismiss information as future, unreleased, or
@@ -221,7 +245,24 @@ Context:
 {context}
 
 Answer:"""
-)
+
+
+def rag_prompt(persona_block: str | None = None) -> ChatPromptTemplate:
+    """Build the RAG answer prompt with an optional persona style block.
+
+    ``None`` keeps the project default persona; an empty string produces the
+    persona-free prompt.
+    """
+
+    block = TRUMP_RAG_PERSONA if persona_block is None else persona_block
+    sections = ["You are an assistant for question-answering tasks."]
+    if block:
+        sections.append(block)
+    sections.append(_RAG_PROMPT_BODY)
+    return ChatPromptTemplate.from_template("\n\n".join(sections))
+
+
+RAG_PROMPT = rag_prompt()
 
 CONDENSE_PROMPT = ChatPromptTemplate.from_template(
     """Today's date is {current_date}. Treat any time references in the

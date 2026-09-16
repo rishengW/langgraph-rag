@@ -171,9 +171,7 @@ def _format_weather(label: str, payload: dict[str, Any]) -> str:
     current: dict[str, Any] = raw_current if isinstance(raw_current, dict) else {}
     daily: dict[str, Any] = raw_daily if isinstance(raw_daily, dict) else {}
     units: dict[str, Any] = raw_units if isinstance(raw_units, dict) else {}
-    daily_units: dict[str, Any] = (
-        raw_daily_units if isinstance(raw_daily_units, dict) else {}
-    )
+    daily_units: dict[str, Any] = raw_daily_units if isinstance(raw_daily_units, dict) else {}
 
     temperature = current.get("temperature_2m")
     humidity = current.get("relative_humidity_2m")
@@ -188,9 +186,7 @@ def _format_weather(label: str, payload: dict[str, Any]) -> str:
         unit = units.get("temperature_2m", "C")
         current_rows.append(("Current temperature", f"{temperature}{unit}"))
     if humidity is not None:
-        current_rows.append(
-            ("Humidity", f"{humidity}{units.get('relative_humidity_2m', '%')}")
-        )
+        current_rows.append(("Humidity", f"{humidity}{units.get('relative_humidity_2m', '%')}"))
     if wind is not None:
         current_rows.append(("Wind", f"{wind}{units.get('wind_speed_10m', ' km/h')}"))
     if description:
@@ -235,9 +231,7 @@ def _daily_forecast_table(
         low = _list_get(min_temps, index)
         description = _weather_description(_list_get(codes, index))
         temp_range = (
-            f"{low}{temp_unit}-{high}{temp_unit}"
-            if high is not None and low is not None
-            else ""
+            f"{low}{temp_unit}-{high}{temp_unit}" if high is not None and low is not None else ""
         )
         rows.append((str(day), temp_range, description))
 

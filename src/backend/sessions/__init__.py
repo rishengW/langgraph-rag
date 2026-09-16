@@ -3,7 +3,11 @@ from __future__ import annotations
 from .checkpoint import SQLiteMemorySaver
 from .isolation import _settings_for_session, settings_for_session
 from .models import ChatSession
-from .registry import ChatSessionRegistry, cleanup_isolated_chroma
+from .registry import (
+    TOUCH_PERSIST_INTERVAL_SECONDS,
+    ChatSessionRegistry,
+    cleanup_isolated_chroma,
+)
 from .sqlite import SQLiteStorage
 from .storage import (
     InMemoryStorage,
@@ -21,6 +25,7 @@ __all__ = [
     "SessionStorageError",
     "SQLiteMemorySaver",
     "StorageBackend",
+    "TOUCH_PERSIST_INTERVAL_SECONDS",
     "_settings_for_session",
     "cleanup_isolated_chroma",
     "settings_for_session",

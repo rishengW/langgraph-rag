@@ -199,6 +199,8 @@ chunk_context_enabled: false
 chunk_context_document_excerpt_chars: 6000
 chunk_context_max_prefix_chars: 200
 chunk_context_max_concurrency: 4
+# Style-only persona for the agent/RAG prompts: trump or none.
+agent_persona_style: trump
 dashscope_request_timeout: 120
 dashscope_max_retries: 3
 dashscope_http_base_url: ""

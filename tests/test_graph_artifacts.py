@@ -205,8 +205,7 @@ def test_normalize_route_caps_steps_and_polyline_points():
         "origin": [116.0, 39.0],
         "destination": [116.5, 39.5],
         "steps": [
-            {"instruction": f"Step {index}", "distance": index}
-            for index in range(MAX_STEPS + 10)
+            {"instruction": f"Step {index}", "distance": index} for index in range(MAX_STEPS + 10)
         ],
         "polyline": [[116.0 + index * 0.0001, 39.0] for index in range(MAX_POLYLINE_POINTS + 10)],
     }
@@ -250,9 +249,7 @@ def test_invalid_amap_envelopes_are_rejected():
         {**base, "kind": "route", "mode": "walking", "origin": [116.0, 39.0]},
     ]
 
-    assert [normalize_amap_artifact(case) for case in invalid_cases] == [None] * len(
-        invalid_cases
-    )
+    assert [normalize_amap_artifact(case) for case in invalid_cases] == [None] * len(invalid_cases)
 
 
 def test_extract_artifacts_from_tool_messages_preserves_order_and_dedupes():
@@ -402,9 +399,7 @@ def test_invalid_file_artifacts_are_rejected_instead_of_rewritten_or_clamped():
         {**base, "sizeBytes": MAX_FILE_SIZE_BYTES + 1},
     ]
 
-    assert [normalize_file_artifact(case) for case in invalid_cases] == [None] * len(
-        invalid_cases
-    )
+    assert [normalize_file_artifact(case) for case in invalid_cases] == [None] * len(invalid_cases)
 
 
 def test_generic_extractor_keeps_files_while_legacy_amap_extractor_filters_them():
@@ -434,9 +429,10 @@ def test_generic_extractor_keeps_files_while_legacy_amap_extractor_filters_them(
         )
     ]
 
-    assert [
-        artifact["type"] for artifact in extract_artifacts_from_messages(messages)
-    ] == ["amap", "file"]
-    assert [
-        artifact["type"] for artifact in extract_amap_artifacts_from_messages(messages)
-    ] == ["amap"]
+    assert [artifact["type"] for artifact in extract_artifacts_from_messages(messages)] == [
+        "amap",
+        "file",
+    ]
+    assert [artifact["type"] for artifact in extract_amap_artifacts_from_messages(messages)] == [
+        "amap"
+    ]

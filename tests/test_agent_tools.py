@@ -76,9 +76,7 @@ def test_currency_tool_converts_with_frankfurter_rate():
         return {"rate": 0.9, "date": "2026-06-12"}
 
     tool = build_currency_tool(Settings(dashscope_api_key="test-key"), requester=requester)
-    result = tool.invoke(
-        {"amount": 10, "from_currency": "usd", "to_currency": "eur"}
-    )
+    result = tool.invoke({"amount": 10, "from_currency": "usd", "to_currency": "eur"})
 
     assert "10 USD = 9.0000 EUR" in result
     assert "Exchange rate: 1 USD = 0.900000 EUR" in result
@@ -176,18 +174,14 @@ def test_math_tool_computes_limit():
 
 def test_math_tool_limit_to_infinity():
     tool = build_math_tool(Settings(dashscope_api_key="test-key"))
-    result = tool.invoke(
-        {"operation": "limit", "expression": "1/x", "point": "oo"}
-    )
+    result = tool.invoke({"operation": "limit", "expression": "1/x", "point": "oo"})
 
     assert "= 0" in result
 
 
 def test_math_tool_computes_series():
     tool = build_math_tool(Settings(dashscope_api_key="test-key"))
-    result = tool.invoke(
-        {"operation": "series", "expression": "exp(x)", "order": 4}
-    )
+    result = tool.invoke({"operation": "series", "expression": "exp(x)", "order": 4})
 
     # Maclaurin series of e^x: 1 + x + x**2/2 + x**3/6 + ...
     assert "x**2/2" in result
@@ -213,9 +207,7 @@ def test_statistics_tool_requires_numbers():
 
 def test_linalg_determinant():
     tool = build_linalg_tool(Settings(dashscope_api_key="test-key"))
-    result = tool.invoke(
-        {"operation": "determinant", "matrix": "[[1, 2], [3, 4]]"}
-    )
+    result = tool.invoke({"operation": "determinant", "matrix": "[[1, 2], [3, 4]]"})
 
     # det = 1*4 - 2*3 = -2
     assert "-2" in result
@@ -237,9 +229,7 @@ def test_linalg_solve_system():
 
 def test_linalg_inverse_singular_reports_clearly():
     tool = build_linalg_tool(Settings(dashscope_api_key="test-key"))
-    result = tool.invoke(
-        {"operation": "inverse", "matrix": "[[1, 2], [2, 4]]"}
-    )
+    result = tool.invoke({"operation": "inverse", "matrix": "[[1, 2], [2, 4]]"})
 
     assert "singular" in result.lower()
 
@@ -298,18 +288,14 @@ def test_number_theory_gcd_requires_second_number():
 
 def test_datetime_tool_difference_in_days():
     tool = build_datetime_tool(Settings(dashscope_api_key="test-key"))
-    result = tool.invoke(
-        {"operation": "difference", "start": "2026-01-01", "end": "2026-01-11"}
-    )
+    result = tool.invoke({"operation": "difference", "start": "2026-01-01", "end": "2026-01-11"})
 
     assert "10 day(s)" in result
 
 
 def test_datetime_tool_add_offsets_date():
     tool = build_datetime_tool(Settings(dashscope_api_key="test-key"))
-    result = tool.invoke(
-        {"operation": "add", "start": "2026-06-30", "days": 5}
-    )
+    result = tool.invoke({"operation": "add", "start": "2026-06-30", "days": 5})
 
     assert "2026-07-05" in result
 
@@ -395,9 +381,7 @@ def test_directions_tool_geocodes_endpoints_and_formats_route():
         Settings(dashscope_api_key="test-key", amap_web_service_key="amap-secret"),
         requester=requester,
     )
-    result = tool.invoke(
-        {"origin": "Shanghai", "destination": "Hangzhou", "mode": "driving"}
-    )
+    result = tool.invoke({"origin": "Shanghai", "destination": "Hangzhou", "mode": "driving"})
 
     assert "Directions from Shanghai, 上海市, 中国 to Hangzhou, 浙江省, 中国" in result
     assert "| Coordinate system | GCJ-02 (AMap) |" in result
@@ -443,9 +427,7 @@ def test_directions_tool_accepts_raw_coordinates_and_converts_wgs84_before_routi
         Settings(dashscope_api_key="test-key", amap_web_service_key="amap-secret"),
         requester=requester,
     )
-    result = tool.invoke(
-        {"origin": "31.23,121.47", "destination": "30.29,120.16"}
-    )
+    result = tool.invoke({"origin": "31.23,121.47", "destination": "30.29,120.16"})
 
     assert "| Distance | 1.0 km |" in result
     assert "| Estimated time | 10 min |" in result
@@ -553,9 +535,7 @@ def test_map_tool_reports_no_results():
 
 def test_math_tool_computes_derivative():
     tool = build_math_tool(Settings(dashscope_api_key="test-key"))
-    result = tool.invoke(
-        {"operation": "derivative", "expression": "x**2 + 3*x", "variable": "x"}
-    )
+    result = tool.invoke({"operation": "derivative", "expression": "x**2 + 3*x", "variable": "x"})
 
     assert "2*x + 3" in result
 

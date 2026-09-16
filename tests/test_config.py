@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from src.backend.core.config import Settings as CoreSettings
 from src.config.loader import (
     _settings_defaults,
     load_settings,
@@ -20,10 +19,6 @@ from src.config.settings import (
     DEFAULT_WEB_SEARCH_JS_FALLBACK_DOMAINS,
     Settings,
 )
-
-
-def test_settings_reexport_preserves_old_import_path():
-    assert CoreSettings is Settings
 
 
 def test_parse_helpers():
@@ -192,9 +187,7 @@ def test_powerpoint_edit_defaults_environment_and_documentation(tmp_path, monkey
 
     assert settings.powerpoint_edit_enabled is False
     assert defaults["powerpoint_edit_enabled"] is False
-    assert "POWERPOINT_EDIT_ENABLED=false" in Path(".env.example").read_text(
-        encoding="utf-8"
-    )
+    assert "POWERPOINT_EDIT_ENABLED=false" in Path(".env.example").read_text(encoding="utf-8")
 
     monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
     monkeypatch.setenv("POWERPOINT_EDIT_ENABLED", "true")
@@ -209,9 +202,7 @@ def test_excel_edit_defaults_environment_and_documentation(tmp_path, monkeypatch
 
     assert settings.excel_edit_enabled is False
     assert defaults["excel_edit_enabled"] is False
-    assert "EXCEL_EDIT_ENABLED=false" in Path(".env.example").read_text(
-        encoding="utf-8"
-    )
+    assert "EXCEL_EDIT_ENABLED=false" in Path(".env.example").read_text(encoding="utf-8")
 
     monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
     monkeypatch.setenv("EXCEL_EDIT_ENABLED", "true")
@@ -226,9 +217,7 @@ def test_text_edit_defaults_environment_and_documentation(tmp_path, monkeypatch)
 
     assert settings.text_edit_enabled is False
     assert defaults["text_edit_enabled"] is False
-    assert "TEXT_EDIT_ENABLED=false" in Path(".env.example").read_text(
-        encoding="utf-8"
-    )
+    assert "TEXT_EDIT_ENABLED=false" in Path(".env.example").read_text(encoding="utf-8")
 
     monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
     monkeypatch.setenv("TEXT_EDIT_ENABLED", "true")
@@ -243,9 +232,7 @@ def test_markdown_edit_defaults_environment_and_documentation(tmp_path, monkeypa
 
     assert settings.markdown_edit_enabled is False
     assert defaults["markdown_edit_enabled"] is False
-    assert "MARKDOWN_EDIT_ENABLED=false" in Path(".env.example").read_text(
-        encoding="utf-8"
-    )
+    assert "MARKDOWN_EDIT_ENABLED=false" in Path(".env.example").read_text(encoding="utf-8")
 
     monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
     monkeypatch.setenv("MARKDOWN_EDIT_ENABLED", "true")
@@ -260,9 +247,7 @@ def test_typescript_edit_defaults_environment_and_documentation(tmp_path, monkey
 
     assert settings.typescript_edit_enabled is False
     assert defaults["typescript_edit_enabled"] is False
-    assert "TYPESCRIPT_EDIT_ENABLED=false" in Path(".env.example").read_text(
-        encoding="utf-8"
-    )
+    assert "TYPESCRIPT_EDIT_ENABLED=false" in Path(".env.example").read_text(encoding="utf-8")
 
     monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
     monkeypatch.setenv("TYPESCRIPT_EDIT_ENABLED", "true")
@@ -689,17 +674,20 @@ def test_load_settings_accepts_memory_env(tmp_path, monkeypatch):
     assert settings.memory_auto_recall_enabled is False
 
 
-@pytest.mark.parametrize("raw,expected", [
-    ("true", True),
-    ("1", True),
-    ("yes", True),
-    ("on", True),
-    ("TRUE", True),
-    ("false", False),
-    ("0", False),
-    ("maybe", False),
-    ("", False),
-])
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("true", True),
+        ("1", True),
+        ("yes", True),
+        ("on", True),
+        ("TRUE", True),
+        ("false", False),
+        ("0", False),
+        ("maybe", False),
+        ("", False),
+    ],
+)
 def test_memory_boolean_accepted_values(tmp_path, monkeypatch, raw, expected):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
     monkeypatch.setenv("MEMORY_ENABLED", raw)
@@ -709,16 +697,19 @@ def test_memory_boolean_accepted_values(tmp_path, monkeypatch, raw, expected):
     assert settings.memory_enabled is expected
 
 
-@pytest.mark.parametrize("env_name,raw,low,high", [
-    ("MEMORY_MAX_RECORDS", "0", 1, 10000),
-    ("MEMORY_MAX_RECORDS", "10001", 1, 10000),
-    ("MEMORY_MAX_RECORD_CHARS", "0", 1, 10000),
-    ("MEMORY_MAX_RECORD_CHARS", "10001", 1, 10000),
-    ("MEMORY_RECALL_TOP_K", "0", 1, 50),
-    ("MEMORY_RECALL_TOP_K", "51", 1, 50),
-    ("MEMORY_CONTEXT_MAX_CHARS", "-1", 1, 20000),
-    ("MEMORY_CONTEXT_MAX_CHARS", "20001", 1, 20000),
-])
+@pytest.mark.parametrize(
+    "env_name,raw,low,high",
+    [
+        ("MEMORY_MAX_RECORDS", "0", 1, 10000),
+        ("MEMORY_MAX_RECORDS", "10001", 1, 10000),
+        ("MEMORY_MAX_RECORD_CHARS", "0", 1, 10000),
+        ("MEMORY_MAX_RECORD_CHARS", "10001", 1, 10000),
+        ("MEMORY_RECALL_TOP_K", "0", 1, 50),
+        ("MEMORY_RECALL_TOP_K", "51", 1, 50),
+        ("MEMORY_CONTEXT_MAX_CHARS", "-1", 1, 20000),
+        ("MEMORY_CONTEXT_MAX_CHARS", "20001", 1, 20000),
+    ],
+)
 def test_load_settings_rejects_out_of_range_memory_ints(
     tmp_path, monkeypatch, env_name, raw, low, high
 ):
@@ -736,12 +727,15 @@ def test_load_settings_rejects_out_of_range_memory_ints(
     assert str(low) in message and str(high) in message
 
 
-@pytest.mark.parametrize("env_name", [
-    "MEMORY_MAX_RECORDS",
-    "MEMORY_MAX_RECORD_CHARS",
-    "MEMORY_RECALL_TOP_K",
-    "MEMORY_CONTEXT_MAX_CHARS",
-])
+@pytest.mark.parametrize(
+    "env_name",
+    [
+        "MEMORY_MAX_RECORDS",
+        "MEMORY_MAX_RECORD_CHARS",
+        "MEMORY_RECALL_TOP_K",
+        "MEMORY_CONTEXT_MAX_CHARS",
+    ],
+)
 def test_load_settings_rejects_non_integer_memory_ints(tmp_path, monkeypatch, env_name):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
     monkeypatch.setenv(env_name, "not-a-number")
@@ -882,23 +876,27 @@ def test_load_settings_accepts_extraction_env(tmp_path, monkeypatch):
     assert settings.memory_extraction_max_session_age_hours == 24
 
 
-@pytest.mark.parametrize("env_name", [
-    "MEMORY_EXTRACTION_ENABLED",
-    "MEMORY_EXTRACTION_ON_SESSION_START",
-])
-@pytest.mark.parametrize("raw,expected", [
-    ("true", True),
-    ("1", True),
-    ("YES", True),
-    ("on", True),
-    ("false", False),
-    ("0", False),
-    ("maybe", False),
-    ("", False),
-])
-def test_extraction_boolean_accepted_values(
-    tmp_path, monkeypatch, env_name, raw, expected
-):
+@pytest.mark.parametrize(
+    "env_name",
+    [
+        "MEMORY_EXTRACTION_ENABLED",
+        "MEMORY_EXTRACTION_ON_SESSION_START",
+    ],
+)
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("true", True),
+        ("1", True),
+        ("YES", True),
+        ("on", True),
+        ("false", False),
+        ("0", False),
+        ("maybe", False),
+        ("", False),
+    ],
+)
+def test_extraction_boolean_accepted_values(tmp_path, monkeypatch, env_name, raw, expected):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
     monkeypatch.setenv(env_name, raw)
 
@@ -907,9 +905,9 @@ def test_extraction_boolean_accepted_values(
     assert getattr(settings, env_name.lower()) is expected
 
 
-@pytest.mark.parametrize("env_name,low,high", [
-    (name, low, high) for name, (low, high) in EXTRACTION_INT_RANGES.items()
-])
+@pytest.mark.parametrize(
+    "env_name,low,high", [(name, low, high) for name, (low, high) in EXTRACTION_INT_RANGES.items()]
+)
 def test_load_settings_rejects_out_of_range_extraction_ints(
     tmp_path, monkeypatch, env_name, low, high
 ):
@@ -930,9 +928,7 @@ def test_load_settings_rejects_out_of_range_extraction_ints(
 
 
 @pytest.mark.parametrize("env_name", sorted(EXTRACTION_INT_RANGES))
-def test_load_settings_rejects_non_integer_extraction_ints(
-    tmp_path, monkeypatch, env_name
-):
+def test_load_settings_rejects_non_integer_extraction_ints(tmp_path, monkeypatch, env_name):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
     monkeypatch.setenv(env_name, "not-a-number")
 

@@ -16,13 +16,13 @@ from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import replace
 
-from src.backend.core.web_search import (
-    discover_urls_from_web,
-    settings_for_discovered_urls,
-)
 from src.backend.graph.events import DoneEvent, ErrorEvent, TokenEvent, ToolEndEvent, ToolStartEvent
 from src.backend.graph.executor import GraphExecutor
 from src.backend.memory.recall import build_turn_messages
+from src.backend.web_search import (
+    discover_urls_from_web,
+    settings_for_discovered_urls,
+)
 from src.config import load_settings, secret_fingerprint
 
 from .memory_hooks import after_turn, build_extraction_runtime

@@ -61,15 +61,23 @@ def test_edit_excel_applies_cell_formula_and_clear_operations(tmp_path: Path) ->
         "source.xlsx",
         operations=[
             ExcelEditOperation(
-                action="set_cell", sheet="Data", cell="A2",
-                expected_value="Widget", value="Gizmo",
+                action="set_cell",
+                sheet="Data",
+                cell="A2",
+                expected_value="Widget",
+                value="Gizmo",
             ),
             ExcelEditOperation(
-                action="set_formula", sheet="Data", cell="D2",
-                expected_value="=B2*C2", formula="=B2*C2+1",
+                action="set_formula",
+                sheet="Data",
+                cell="D2",
+                expected_value="=B2*C2",
+                formula="=B2*C2+1",
             ),
             ExcelEditOperation(
-                action="clear_cell", sheet="Data", cell="A3",
+                action="clear_cell",
+                sheet="Data",
+                cell="A3",
                 expected_value="Gadget",
             ),
         ],
@@ -106,8 +114,11 @@ def test_edit_excel_rejects_stale_expected_value_and_publishes_nothing(
         "source.xlsx",
         operations=[
             ExcelEditOperation(
-                action="set_cell", sheet="Data", cell="A2",
-                expected_value="STALE", value="X",
+                action="set_cell",
+                sheet="Data",
+                cell="A2",
+                expected_value="STALE",
+                value="X",
             ),
         ],
         session_root=session_root,
@@ -217,8 +228,12 @@ def test_edit_excel_sets_column_width_and_number_format(tmp_path: Path) -> None:
     result = edit_excel(
         "source.xlsx",
         operations=[
-            ExcelEditOperation(action="set_column_width", sheet="Data", column_index=1, column_width=25),
-            ExcelEditOperation(action="set_number_format", sheet="Data", column_index=2, number_format="#,##0.00"),
+            ExcelEditOperation(
+                action="set_column_width", sheet="Data", column_index=1, column_width=25
+            ),
+            ExcelEditOperation(
+                action="set_number_format", sheet="Data", column_index=2, number_format="#,##0.00"
+            ),
         ],
         session_root=session_root,
         file_root=file_root,
@@ -235,18 +250,36 @@ def test_edit_excel_sets_column_width_and_number_format(tmp_path: Path) -> None:
 def test_edit_excel_collision_safe_and_preserves_original(tmp_path: Path) -> None:
     file_root, session_root = _roots(tmp_path)
     _write_source_xlsx(session_root / "source.xlsx")
-    op = [ExcelEditOperation(action="set_cell", sheet="Data", cell="B2", expected_value=10, value=99)]
+    op = [
+        ExcelEditOperation(action="set_cell", sheet="Data", cell="B2", expected_value=10, value=99)
+    ]
 
-    first = edit_excel("source.xlsx", operations=op, session_root=session_root,
-                       file_root=file_root, max_bytes=5_000_000, thread_id="thread-a")
-    second = edit_excel("source.xlsx", operations=op, session_root=session_root,
-                        file_root=file_root, max_bytes=5_000_000, thread_id="thread-a")
+    first = edit_excel(
+        "source.xlsx",
+        operations=op,
+        session_root=session_root,
+        file_root=file_root,
+        max_bytes=5_000_000,
+        thread_id="thread-a",
+    )
+    second = edit_excel(
+        "source.xlsx",
+        operations=op,
+        session_root=session_root,
+        file_root=file_root,
+        max_bytes=5_000_000,
+        thread_id="thread-a",
+    )
 
     assert first.artifact and first.artifact["filename"] == "source.edited.xlsx"
     assert second.artifact and second.artifact["filename"] == "source.edited-2.xlsx"
 
-    first_value = load_workbook(session_root / "source.edited.xlsx", data_only=False)["Data"]["B2"].value
-    second_value = load_workbook(session_root / "source.edited-2.xlsx", data_only=False)["Data"]["B2"].value
+    first_value = load_workbook(session_root / "source.edited.xlsx", data_only=False)["Data"][
+        "B2"
+    ].value
+    second_value = load_workbook(session_root / "source.edited-2.xlsx", data_only=False)["Data"][
+        "B2"
+    ].value
     assert first_value == 99
     assert second_value == 99
     # The uploaded source is never overwritten.
@@ -260,8 +293,9 @@ def test_edit_excel_refuses_access_outside_session(tmp_path: Path) -> None:
     result = edit_excel(
         "../outside.xlsx",
         operations=[
-            ExcelEditOperation(action="set_cell", sheet="Data", cell="A2",
-                               expected_value="Widget", value="X"),
+            ExcelEditOperation(
+                action="set_cell", sheet="Data", cell="A2", expected_value="Widget", value="X"
+            ),
         ],
         session_root=session_root,
         file_root=file_root,
@@ -279,8 +313,9 @@ def test_edit_excel_refuses_oversize_source(tmp_path: Path) -> None:
     result = edit_excel(
         "source.xlsx",
         operations=[
-            ExcelEditOperation(action="set_cell", sheet="Data", cell="A2",
-                               expected_value="Widget", value="X"),
+            ExcelEditOperation(
+                action="set_cell", sheet="Data", cell="A2", expected_value="Widget", value="X"
+            ),
         ],
         session_root=session_root,
         file_root=file_root,
@@ -294,8 +329,18 @@ def test_edit_excel_refuses_oversize_source(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "op",
     [
-        {"action": "set_cell", "sheet": "Data", "cell": "A2", "expected_value": "x"},  # missing value
-        {"action": "set_cell", "sheet": "Data", "cell": "A2", "value": "=B2"},  # value starts with '='
+        {
+            "action": "set_cell",
+            "sheet": "Data",
+            "cell": "A2",
+            "expected_value": "x",
+        },  # missing value
+        {
+            "action": "set_cell",
+            "sheet": "Data",
+            "cell": "A2",
+            "value": "=B2",
+        },  # value starts with '='
         {"action": "set_formula", "sheet": "Data", "cell": "A2", "formula": "B2"},  # no '='
         {"action": "set_cell", "sheet": "Data", "cell": "A0", "value": 1},  # bad cell address
         {"action": "set_cell", "cell": "A2", "value": 1},  # missing sheet
@@ -306,7 +351,12 @@ def test_edit_excel_refuses_oversize_source(tmp_path: Path) -> None:
         {"action": "set_column_width", "sheet": "Data", "column_index": 1},  # missing width
         {"action": "set_number_format", "sheet": "Data", "column_index": 1},  # missing format
         {"action": "delete_rows", "sheet": "Data", "row_index": 0},  # row_index < 1
-        {"action": "set_formula", "sheet": "Data", "cell": "A2", "formula": "=cmd|'/c calc'!A1"},  # DDE blocked
+        {
+            "action": "set_formula",
+            "sheet": "Data",
+            "cell": "A2",
+            "formula": "=cmd|'/c calc'!A1",
+        },  # DDE blocked
         {"action": "bogus", "sheet": "Data"},  # invalid action literal
     ],
 )
@@ -345,11 +395,19 @@ def test_build_excel_edit_tools_gates_and_supports_structured_invocation(
         {
             "path": "source.xlsx",
             "operations": [
-                {"action": "set_cell", "sheet": "Data", "cell": "A2",
-                 "expected_value": "Widget", "value": "Gizmo"},
+                {
+                    "action": "set_cell",
+                    "sheet": "Data",
+                    "cell": "A2",
+                    "expected_value": "Widget",
+                    "value": "Gizmo",
+                },
             ],
         }
     )
     assert "Applied" in message
     assert (session_root / "source.edited.xlsx").is_file()
-    assert load_workbook(session_root / "source.edited.xlsx", data_only=False)["Data"]["A2"].value == "Gizmo"
+    assert (
+        load_workbook(session_root / "source.edited.xlsx", data_only=False)["Data"]["A2"].value
+        == "Gizmo"
+    )

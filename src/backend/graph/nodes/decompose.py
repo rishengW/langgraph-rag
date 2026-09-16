@@ -17,7 +17,7 @@ from src.config import Settings
 from src.utils.retry import invoke_with_retry
 
 from ...web_search.query_constraints import validate_query_candidate
-from .common import chat_question_resolver, new_structured_chat_model
+from .common import cached_builder, chat_question_resolver, new_structured_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,8 @@ def decompose_factory(
     to ``[original_question]`` (atomic passthrough).
     """
 
+    structured_llm = cached_builder(lambda: new_structured_chat_model(settings, _DecomposeResult))
+
     def decompose(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("DECOMPOSE QUESTION")
         try:
@@ -132,7 +134,7 @@ def decompose_factory(
         )
 
         try:
-            chain = new_structured_chat_model(settings, _DecomposeResult)
+            chain = structured_llm()
             result = invoke_with_retry(
                 chain,
                 [HumanMessage(content=prompt)],

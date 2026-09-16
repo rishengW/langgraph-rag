@@ -69,6 +69,10 @@ class Settings:
     allow_low_relevance_generate: bool = False
     min_keyword_matches: int = 2
     max_rewrites: int = 2
+    # Style-only persona injected into the agent and RAG prompts. "none"
+    # produces persona-free prompts; personas never change tool-use or
+    # factual rules.
+    agent_persona_style: str = "trump"
     # Keep the persisted chat transcript complete while bounding the subset
     # sent to conversational LLM calls on each turn.
     chat_context_max_turns: int = 8

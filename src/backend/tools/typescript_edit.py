@@ -98,8 +98,7 @@ class TypeScriptEditOperation(BaseModel):
         default=None,
         max_length=_MAX_LINE_CHARS,
         description=(
-            "The new single line. Required for replace_line, "
-            "insert_before_line, and append_line."
+            "The new single line. Required for replace_line, insert_before_line, and append_line."
         ),
     )
 
@@ -182,8 +181,7 @@ class TypeScriptEditInput(BaseModel):
         min_length=1,
         max_length=_MAX_OPERATIONS,
         description=(
-            "Line edits to validate against the original file and then apply "
-            "as one transaction."
+            "Line edits to validate against the original file and then apply as one transaction."
         ),
     )
     output_name: str | None = Field(
@@ -349,8 +347,7 @@ def create_typescript_file(
     )
     return TypeScriptEditResult(
         content=(
-            f"Created {published.name} in this chat session. "
-            "The file is available to download."
+            f"Created {published.name} in this chat session. The file is available to download."
         ),
         artifact=_build_file_artifact(
             thread_id=thread_id,
@@ -483,9 +480,7 @@ def _resolve_session_typescript(
     try:
         session_resolved = session_root.expanduser().resolve()
     except OSError as exc:
-        raise TypeScriptEditError(
-            f"could not resolve the session directory: {exc}"
-        ) from exc
+        raise TypeScriptEditError(f"could not resolve the session directory: {exc}") from exc
 
     candidate = Path(text).expanduser()
     candidates = (
@@ -535,7 +530,12 @@ def _read_typescript_document(path: Path) -> _TypeScriptDocument:
 def _decode_typescript(data: bytes, *, name: str) -> _TypeScriptDocument:
     """Strictly decode UTF-8 and reject binary or ambiguous line formats."""
 
-    unsupported_boms = (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE, codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)
+    unsupported_boms = (
+        codecs.BOM_UTF16_LE,
+        codecs.BOM_UTF16_BE,
+        codecs.BOM_UTF32_LE,
+        codecs.BOM_UTF32_BE,
+    )
     if any(data.startswith(bom) for bom in unsupported_boms):
         raise TypeScriptEditError(
             f"{name!r} uses an unsupported encoding; only UTF-8 text is supported."
@@ -609,9 +609,7 @@ def _plan_operations(
             )
             continue
         if document.lines[index] != operation.expected_text:
-            problems.append(
-                f"{label}: expected_text does not exactly match line {index}."
-            )
+            problems.append(f"{label}: expected_text does not exactly match line {index}.")
 
     if problems:
         raise TypeScriptEditError(
@@ -687,19 +685,13 @@ def _prepare_session_directory(*, session_root: Path, file_root: Path) -> Path:
         root = file_root.expanduser().resolve()
         directory = session_root.expanduser().resolve()
     except OSError as exc:
-        raise TypeScriptEditError(
-            f"could not resolve the session directory: {exc}"
-        ) from exc
+        raise TypeScriptEditError(f"could not resolve the session directory: {exc}") from exc
     if directory == root or not _is_within(directory, root):
-        raise TypeScriptEditError(
-            "the output directory is outside the configured file root."
-        )
+        raise TypeScriptEditError("the output directory is outside the configured file root.")
     try:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise TypeScriptEditError(
-            f"could not create the session directory: {exc}"
-        ) from exc
+        raise TypeScriptEditError(f"could not create the session directory: {exc}") from exc
     if not directory.is_dir():
         raise TypeScriptEditError("the session output path is not a directory.")
     return directory
@@ -735,9 +727,7 @@ def _reserve_created_output_path(
         except FileExistsError:
             continue
         except OSError as exc:
-            raise TypeScriptEditError(
-                f"could not create the output file: {exc}"
-            ) from exc
+            raise TypeScriptEditError(f"could not create the output file: {exc}") from exc
     raise TypeScriptEditError(
         f"too many files named {stem!r} already exist in this session; "
         "download or remove some before creating another."
@@ -761,9 +751,7 @@ def _write_typescript_atomically(
         )
     except OSError as exc:
         target.unlink(missing_ok=True)
-        raise TypeScriptEditError(
-            f"could not create a temporary file: {exc}"
-        ) from exc
+        raise TypeScriptEditError(f"could not create a temporary file: {exc}") from exc
 
     temp_path = Path(temp_name)
     try:
@@ -781,9 +769,7 @@ def _write_typescript_atomically(
             os.fsync(stream.fileno())
         validated = _read_typescript_document(temp_path)
         if validated != document:
-            raise TypeScriptEditError(
-                "the saved TypeScript file did not pass validation."
-            )
+            raise TypeScriptEditError("the saved TypeScript file did not pass validation.")
         os.replace(temp_path, target)
     except TypeScriptEditError:
         if handle >= 0:
@@ -796,9 +782,7 @@ def _write_typescript_atomically(
             os.close(handle)
         temp_path.unlink(missing_ok=True)
         target.unlink(missing_ok=True)
-        raise TypeScriptEditError(
-            f"could not save the TypeScript file: {exc}"
-        ) from exc
+        raise TypeScriptEditError(f"could not save the TypeScript file: {exc}") from exc
     return target
 
 
@@ -814,13 +798,9 @@ def _reserve_output_path(
         directory = session_root.expanduser().resolve()
         resolved_source = source_path.resolve()
     except OSError as exc:
-        raise TypeScriptEditError(
-            f"could not resolve the output directory: {exc}"
-        ) from exc
+        raise TypeScriptEditError(f"could not resolve the output directory: {exc}") from exc
     if not directory.is_dir() or not _is_within(resolved_source, directory):
-        raise TypeScriptEditError(
-            "the output directory is outside this chat session."
-        )
+        raise TypeScriptEditError("the output directory is outside this chat session.")
 
     for variant in range(1, _MAX_OUTPUT_VARIANTS + 1):
         name = f"{stem}{suffix}" if variant == 1 else f"{stem}-{variant}{suffix}"
@@ -833,9 +813,7 @@ def _reserve_output_path(
         except FileExistsError:
             continue
         except OSError as exc:
-            raise TypeScriptEditError(
-                f"could not create the output file: {exc}"
-            ) from exc
+            raise TypeScriptEditError(f"could not create the output file: {exc}") from exc
     raise TypeScriptEditError(
         f"too many edited copies of {source_path.name!r} already exist in this "
         "session; download or remove some before editing again."
@@ -854,9 +832,7 @@ def _output_stem(*, source_path: Path, output_name: str | None) -> str:
     return f"{source_path.stem}.edited"
 
 
-def _build_file_artifact(
-    *, thread_id: str, filename: str, size_bytes: int
-) -> dict[str, object]:
+def _build_file_artifact(*, thread_id: str, filename: str, size_bytes: int) -> dict[str, object]:
     return {
         "type": FILE_ARTIFACT_TYPE,
         "version": FILE_ARTIFACT_VERSION,

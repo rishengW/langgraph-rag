@@ -348,7 +348,11 @@ def test_expand_clamps_total_query_batch(isolated_settings, monkeypatch):
     monkeypatch.setattr(
         expand_module,
         "_paraphrases_for",
-        lambda question, _settings: [question, f"{question} alt 1", f"{question} alt 2"],
+        lambda question, _settings, *, model=None: [
+            question,
+            f"{question} alt 1",
+            f"{question} alt 2",
+        ],
     )
     node = expand_module.expand_factory(isolated_settings())
 

@@ -89,8 +89,7 @@ class BaiduWebSearch:
         if not raw_results:
             title = soup.title.string.strip() if soup.title and soup.title.string else ""
             logger.warning(
-                "Baidu returned no parseable result links "
-                "(final_url=%s, title=%r, html_bytes=%s)",
+                "Baidu returned no parseable result links (final_url=%s, title=%r, html_bytes=%s)",
                 final_url,
                 title[:120],
                 len(html),
@@ -102,9 +101,7 @@ class BaiduWebSearch:
         ]
         resolved_urls = [url for url, _title, _snippet in candidates]
         redirect_indexes = [
-            index
-            for index, url in enumerate(resolved_urls)
-            if is_baidu_result_redirect(url)
+            index for index, url in enumerate(resolved_urls) if is_baidu_result_redirect(url)
         ]
         remaining = deadline_at - monotonic()
         if redirect_indexes and remaining > 0.1:
@@ -213,9 +210,7 @@ def candidate_baidu_results(soup: BeautifulSoup) -> list[tuple[str, str, str]]:
             continue
         seen.add(href)
         title = anchor.get_text(" ", strip=True)
-        snippet_node = container.select_one(
-            ".c-abstract, [class*='content-right'], .c-span-last"
-        )
+        snippet_node = container.select_one(".c-abstract, [class*='content-right'], .c-span-last")
         snippet = snippet_node.get_text(" ", strip=True) if snippet_node else ""
         results.append((href, title, snippet))
 

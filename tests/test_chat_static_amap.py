@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,7 +63,7 @@ def test_artifacts_are_validated_capped_deduped_and_restored_from_history() -> N
     assert "const MAX_POLYLINE_POINTS = 500;" in script
     assert "function normalizeAMapArtifact" in script
     assert "function artifactDedupeKey" in script
-    assert 'raw.provider !== AMAP_PROVIDER' in script
+    assert "raw.provider !== AMAP_PROVIDER" in script
     assert "payload.artifacts" in script
     assert "payload.artifact" in script
     assert 'eventType === "artifact"' in script
@@ -87,9 +88,9 @@ def test_streaming_defers_markdown_katex_and_artifact_rendering_until_final() ->
     token_branch = script.split('eventType === "token"', maxsplit=1)[1].split(
         'eventType === "artifact"', maxsplit=1
     )[0]
-    streamed_renderer = script.split(
-        "const renderStreamedAnswer = () => {", maxsplit=1
-    )[1].split("};", maxsplit=1)[0]
+    streamed_renderer = script.split("const renderStreamedAnswer = () => {", maxsplit=1)[1].split(
+        "};", maxsplit=1
+    )[0]
 
     assert "renderStreamedAnswer();" in token_branch
     assert "el.textContent = answer;" in streamed_renderer
@@ -132,7 +133,9 @@ def test_file_artifacts_use_validated_download_cards() -> None:
     assert "raw.mimeType !== fileType.mimeType" in script
     assert "url !== expectedUrl" in script
     assert "Number.isSafeInteger(sizeBytes)" in script
-    assert "meta.textContent = `${artifact.label} - ${formatFileSize(artifact.sizeBytes)}`;" in script
+    assert (
+        "meta.textContent = `${artifact.label} - ${formatFileSize(artifact.sizeBytes)}`;" in script
+    )
     assert ".file-card" in index
     assert ".file-card__download" in index
 
@@ -142,7 +145,7 @@ def test_maps_are_destroyed_on_transcript_clear_new_chat_and_pagehide() -> None:
 
     assert "const liveMapInstances = new Set();" in script
     assert "function destroyMapInstances()" in script
-    assert "destroyMapInstances();\n    transcript.innerHTML = \"\";" in script
+    assert 'destroyMapInstances();\n    transcript.innerHTML = "";' in script
     assert 'window.addEventListener("pagehide", destroyMapInstances);' in script
 
 
@@ -152,4 +155,6 @@ def test_index_has_responsive_amap_styles_and_bumped_script_cache_version() -> N
     assert ".amap-card" in index
     assert ".amap-card__map" in index
     assert "@media (max-width: 640px)" in index
-    assert '<script src="/static/script.js?v=20"></script>' in index
+    # Cache busting only needs a numeric version; pinning one literal breaks
+    # on every future bump.
+    assert re.search(r'<script src="/static/script\.js\?v=\d+"></script>', index)

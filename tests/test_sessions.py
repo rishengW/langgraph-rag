@@ -5,12 +5,14 @@ import sqlite3
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
+from src.backend.security import Principal, ResourceOwner
 from src.backend.sessions import (
     TOUCH_PERSIST_INTERVAL_SECONDS,
     ChatSession,
     ChatSessionRegistry,
     InMemoryStorage,
     SessionMetadata,
+    SessionSummary,
     SQLiteMemorySaver,
     SQLiteStorage,
     _settings_for_session,
@@ -719,3 +721,52 @@ def test_get_touch_persists_metadata_at_most_once_per_interval(tmp_path, mock_se
     registry.get("throttled")
     assert len(saved) == initial_saves + 1, "touch after the interval must persist"
     assert saved[-1] == 1031.0
+
+
+def test_registry_list_owned_returns_only_owned_sessions_sorted_by_recency(
+    mock_settings,
+):
+    registry = ChatSessionRegistry(cleanup=lambda _session: None, time_func=lambda: 10.0)
+    owner = ResourceOwner.from_principal(Principal("principal-a", "tenant-a"))
+    registry.create(
+        graph=object(),
+        settings=mock_settings,
+        source_urls=["https://example.com/a"],
+        source_mode="explicit",
+        thread_id="owned-old",
+        owner=owner,
+    )
+
+    registry._time = lambda: 20.0
+    registry.create(
+        graph=object(),
+        settings=mock_settings,
+        source_urls=[],
+        source_mode="defaults",
+        thread_id="owned-new",
+        owner=owner,
+    )
+    registry.create(
+        graph=object(),
+        settings=mock_settings,
+        source_urls=[],
+        source_mode="defaults",
+        thread_id="owned-b",
+        owner=ResourceOwner.from_principal(Principal("principal-b", "tenant-a")),
+    )
+    registry.create(
+        graph=object(),
+        settings=mock_settings,
+        source_urls=[],
+        source_mode="defaults",
+        thread_id="ownerless",
+    )
+
+    summaries = registry.list_owned(Principal("principal-a", "tenant-a"))
+
+    assert [item.thread_id for item in summaries] == ["owned-new", "owned-old"]
+    assert all(isinstance(item, SessionSummary) for item in summaries)
+    assert summaries[-1].source_urls == ["https://example.com/a"]
+    # Mismatched tenant sees nothing; probes do not touch access timestamps.
+    assert registry.list_owned(Principal("principal-a", "tenant-b")) == []
+    assert registry.get_owned("owned-old", Principal("principal-a", "tenant-b")) is None

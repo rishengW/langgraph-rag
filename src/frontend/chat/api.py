@@ -90,6 +90,8 @@ from ..api.models import (
     HistoryTurn,
     MessageRequest,
     MessageResponse,
+    SessionListResponse,
+    SessionSummaryItem,
     StartChatRequest,
     StartChatResponse,
     UploadedFile,
@@ -806,6 +808,9 @@ def create_app(
         # Missing, ownerless, and unauthorized IDs deliberately share one 404.
         if sessions.get_owned(thread_id, principal) is None:
             raise ResourceNotFoundError("Resource not found.")
+        # Sidebar label: the first user query of the thread wins; later turns
+        # are no-ops inside set_title.
+        sessions.set_title(thread_id, request.message)
         settings = get_config(fastapi_request)
         service = _build_chat_application_service(
             settings=settings,
@@ -850,6 +855,7 @@ def create_app(
         # starts, while the lease itself remains held until iteration closes.
         if sessions.get_owned(thread_id, principal) is None:
             raise ResourceNotFoundError("Resource not found.")
+        sessions.set_title(thread_id, request.message)
         service = _build_chat_application_service(
             settings=get_config(fastapi_request),
             sessions=sessions,
@@ -1096,6 +1102,31 @@ def create_app(
                 )
                 for saved in remaining
             ],
+        )
+
+    @app.get("/chat/sessions", response_model=SessionListResponse)
+    async def list_chat_sessions(
+        fastapi_request: Request,
+        sessions: SessionRegistryDep,
+        principal: PrincipalDep,
+    ) -> SessionListResponse:
+        """List sessions owned by the caller, most recently used first."""
+
+        summaries = sessions.list_owned(principal)
+        return SessionListResponse(
+            thread_ids=[item.thread_id for item in summaries],
+            sessions=[
+                SessionSummaryItem(
+                    thread_id=item.thread_id,
+                    created_at=item.created_at,
+                    last_accessed_at=item.last_accessed_at,
+                    source_mode=item.source_mode,
+                    source_urls=list(item.source_urls),
+                    title=item.title,
+                )
+                for item in summaries
+            ],
+            total=len(summaries),
         )
 
     @app.delete("/chat/{thread_id}")

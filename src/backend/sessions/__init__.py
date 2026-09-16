@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .checkpoint import SQLiteMemorySaver
 from .isolation import _settings_for_session, settings_for_session
-from .models import ChatSession
+from .models import ChatSession, SessionSummary
 from .registry import (
     TOUCH_PERSIST_INTERVAL_SECONDS,
     ChatSessionRegistry,
@@ -23,6 +23,7 @@ __all__ = [
     "SQLiteStorage",
     "SessionMetadata",
     "SessionStorageError",
+    "SessionSummary",
     "SQLiteMemorySaver",
     "StorageBackend",
     "TOUCH_PERSIST_INTERVAL_SECONDS",

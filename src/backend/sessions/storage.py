@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
 from ..security import ResourceOwner
+from .models import TITLE_KEY
 
 if TYPE_CHECKING:
     from .models import ChatSession
@@ -49,6 +50,7 @@ class SessionMetadata:
             config={
                 "collection_name": session.settings.collection_name,
                 "extraction_watermark": int(session.extraction_watermark or 0),
+                **({TITLE_KEY: session.title} if session.title else {}),
             },
         )
 

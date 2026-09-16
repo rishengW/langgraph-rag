@@ -72,6 +72,23 @@ class UploadedFile(BaseModel):
     size_bytes: int
 
 
+class SessionSummaryItem(BaseModel):
+    """One owned session in the sidebar session list."""
+
+    thread_id: str
+    created_at: float
+    last_accessed_at: float
+    source_mode: str
+    source_urls: list[str] = Field(default_factory=list)
+    title: str | None = None
+
+
+class SessionListResponse(BaseModel):
+    thread_ids: list[str] = Field(default_factory=list)
+    sessions: list[SessionSummaryItem] = Field(default_factory=list)
+    total: int = 0
+
+
 class UploadResponse(BaseModel):
     thread_id: str
     files: list[UploadedFile]
@@ -83,6 +100,8 @@ __all__ = [
     "HistoryTurn",
     "MessageRequest",
     "MessageResponse",
+    "SessionListResponse",
+    "SessionSummaryItem",
     "StartChatRequest",
     "StartChatResponse",
     "UploadResponse",

@@ -28,6 +28,133 @@
             height: calc(100vh - 40px);
         }
 
+        .sidebar-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 40;
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 280px;
+            max-width: 85vw;
+            background: #f9fafb;
+            border-right: 1px solid #e5e7eb;
+            box-shadow: 8px 0 24px rgba(0, 0, 0, 0.15);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            padding: 12px;
+            gap: 10px;
+            transform: translateX(-100%);
+            transition: transform 0.2s ease;
+        }
+
+        .sidebar.open { transform: translateX(0); }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sidebar-title { font-weight: 600; font-size: 15px; color: #374151; }
+        .sidebar-close { font-size: 20px; line-height: 1; padding: 2px 8px; }
+        .sidebar-new { width: 100%; }
+
+        .session-list {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .session-list-empty {
+            color: #9ca3af;
+            font-size: 13px;
+            text-align: center;
+            padding: 16px 0;
+        }
+
+        .session-item {
+            text-align: left;
+            border: 1px solid transparent;
+            background: transparent;
+            border-radius: 8px;
+            padding: 8px 10px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            width: 100%;
+        }
+
+        .session-item:hover { background: #eef2ff; }
+        .session-item.active { background: #e0e7ff; border-color: #c7d2fe; }
+
+        .session-item-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: #1f2937;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .session-item-meta {
+            font-size: 11px;
+            color: #9ca3af;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .session-item-delete {
+            border: none;
+            background: transparent;
+            color: #9ca3af;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 0 4px;
+        }
+
+        .session-item-delete:hover { color: #991b1b; }
+
+        @media (min-width: 900px) {
+            /* Docked mode: the sidebar is a permanent left column on wide
+             * screens; the drawer/backdrop and its toggle stay hidden. */
+            .app {
+                flex-direction: row;
+                max-width: 1200px;
+                display: grid;
+                grid-template-columns: 260px 1fr;
+                grid-template-rows: auto 1fr;
+            }
+
+            .sidebar {
+                position: static;
+                grid-row: 1 / 3;
+                transform: none;
+                box-shadow: none;
+                border-right: 1px solid #e5e7eb;
+            }
+
+            .sidebar-backdrop { display: none !important; }
+            .sidebar-close { display: none; }
+            #sidebarToggleBtn { display: none; }
+            header { grid-column: 2; }
+            #startScreen, #chatScreen { grid-column: 2; }
+        }
+
+        @media (max-width: 640px) {
+            .sidebar { width: 78vw; }
+        }
+
         header {
             position: relative;
             min-height: 86px;
@@ -37,11 +164,6 @@
             align-items: center;
             justify-content: center;
             gap: 12px;
-        }
-
-        header #sessionControls {
-            position: absolute;
-            right: 24px;
         }
 
         h1 {
@@ -658,13 +780,24 @@
 </head>
 <body>
     <div class="app">
+        <div id="sidebarBackdrop" class="sidebar-backdrop hidden"></div>
+        <aside id="sidebar" class="sidebar" aria-label="Chat history">
+            <div class="sidebar-header">
+                <span class="sidebar-title">Chat history</span>
+                <button id="sidebarCloseBtn" class="btn-ghost sidebar-close" type="button"
+                        aria-label="Close session list">&times;</button>
+            </div>
+            <button id="sidebarNewChatBtn" class="btn-primary sidebar-new" type="button">+ New chat</button>
+            <div id="sessionList" class="session-list">
+                <div class="session-list-empty">No chat history yet</div>
+            </div>
+        </aside>
         <header>
             <div>
                 <h1>OnlySubscriber</h1>
             </div>
-            <div id="sessionControls" class="hidden">
-                <button id="newChatBtn" class="btn-ghost" type="button">New chat</button>
-            </div>
+            <button id="sidebarToggleBtn" class="btn-ghost" type="button"
+                    aria-label="Open session list">Sessions</button>
         </header>
 
         <!-- Start screen: begin a conversation -->
@@ -721,6 +854,6 @@
         </section>
     </div>
 
-    <script src="/static/script.js?v=26"></script>
+    <script src="/static/script.js?v=27"></script>
 </body>
 </html>

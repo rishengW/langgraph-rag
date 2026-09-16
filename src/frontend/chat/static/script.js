@@ -43,7 +43,7 @@ const FILE_DOWNLOAD_TYPES = Object.freeze({
 
 const startScreen = document.getElementById("startScreen");
 const chatScreen = document.getElementById("chatScreen");
-const sessionControls = document.getElementById("sessionControls");
+const newChatBtn = document.getElementById("sidebarNewChatBtn");
 
 const seedField = document.getElementById("seedQuestion");
 const startBtn = document.getElementById("startBtn");
@@ -54,7 +54,6 @@ const messageInput = document.getElementById("messageInput");
 const sendBtn = document.getElementById("sendBtn");
 const sessionInfo = document.getElementById("sessionInfo");
 const errorBanner = document.getElementById("errorBanner");
-const newChatBtn = document.getElementById("newChatBtn");
 const fileInput = document.getElementById("fileInput");
 const attachBtn = document.getElementById("attachBtn");
 const attachments = document.getElementById("attachments");
@@ -458,13 +457,11 @@ function renderSessionInfo(sourceUrls, sourceMode) {
 function showStart() {
     startScreen.classList.remove("hidden");
     chatScreen.classList.add("hidden");
-    sessionControls.classList.add("hidden");
 }
 
 function showChat() {
     startScreen.classList.add("hidden");
     chatScreen.classList.remove("hidden");
-    sessionControls.classList.remove("hidden");
     messageInput.focus();
 }
 
@@ -1553,6 +1550,9 @@ async function streamMessage(message, thinking, signal) {
         renderArtifactStack(turn, artifacts);
         transcript.scrollTop = transcript.scrollHeight;
     }
+    // The first turn sets the sidebar title server-side; refresh so the new
+    // entry (and its label) shows up without reopening the sidebar.
+    refreshSessionList();
     return { stopped: false };
 }
 
@@ -1744,9 +1744,6 @@ async function ensureThread() {
             source_urls: data.source_urls || [],
             source_mode: data.source_mode,
         };
-        // Reveal the top-right "New chat" control so an eagerly created
-        // session can be discarded without leaving the start screen.
-        sessionControls.classList.remove("hidden");
         return true;
     } catch (err) {
         showError(`Could not start chat: ${err.message}`);
@@ -1841,5 +1838,135 @@ newChatBtn.addEventListener("click", async () => {
     showStart();
 });
 
+// ---- session sidebar ----------------------------------------------------
+
+const sidebar = document.getElementById("sidebar");
+const sidebarBackdrop = document.getElementById("sidebarBackdrop");
+const sidebarToggleBtn = document.getElementById("sidebarToggleBtn");
+const sidebarCloseBtn = document.getElementById("sidebarCloseBtn");
+const sessionList = document.getElementById("sessionList");
+
+function openSidebar() {
+    sidebar.classList.add("open");
+    sidebarBackdrop.classList.remove("hidden");
+    refreshSessionList();
+}
+
+function closeSidebar() {
+    sidebar.classList.remove("open");
+    sidebarBackdrop.classList.add("hidden");
+}
+
+sidebarToggleBtn.addEventListener("click", openSidebar);
+sidebarCloseBtn.addEventListener("click", closeSidebar);
+sidebarBackdrop.addEventListener("click", closeSidebar);
+
+function formatSessionTime(timestamp) {
+    if (!timestamp) return "";
+    const date = new Date(timestamp * 1000);
+    const now = new Date();
+    const sameDay = date.toDateString() === now.toDateString();
+    const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (sameDay) return time;
+    return date.toLocaleDateString([], { month: "numeric", day: "numeric" }) + " " + time;
+}
+
+function sessionLabel(summary) {
+    if (summary.title) return summary.title;
+    if (summary.source_urls && summary.source_urls.length > 0) {
+        return summary.source_urls[0];
+    }
+    return "Chat " + summary.thread_id.slice(0, 8);
+}
+
+function renderSessionList(sessions) {
+    sessionList.innerHTML = "";
+    if (!sessions || sessions.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "session-list-empty";
+        empty.textContent = "No chat history yet";
+        sessionList.appendChild(empty);
+        return;
+    }
+    for (const summary of sessions) {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "session-item" + (summary.thread_id === threadId ? " active" : "");
+
+        const title = document.createElement("span");
+        title.className = "session-item-title";
+        title.textContent = sessionLabel(summary);
+
+        const meta = document.createElement("span");
+        meta.className = "session-item-meta";
+        const time = document.createElement("span");
+        time.textContent = formatSessionTime(summary.last_accessed_at);
+        const del = document.createElement("span");
+        del.className = "session-item-delete";
+        del.textContent = "Delete";
+        del.setAttribute("role", "button");
+        del.addEventListener("click", async (event) => {
+            event.stopPropagation();
+            if (!window.confirm("Delete this session?")) return;
+            try {
+                await apiDelete(`/chat/${summary.thread_id}`);
+            } catch (_) {
+                // best-effort; refresh below reflects the real state
+            }
+            if (summary.thread_id === threadId) {
+                localStorage.removeItem(STORAGE_KEY);
+                threadId = null;
+                pendingThreadSource = null;
+                clearTranscript();
+                clearError();
+                showStart();
+            }
+            await refreshSessionList();
+        });
+        meta.appendChild(time);
+        meta.appendChild(del);
+
+        item.appendChild(title);
+        item.appendChild(meta);
+        item.addEventListener("click", async () => {
+            closeSidebar();
+            if (summary.thread_id === threadId) return;
+            await restoreSpecificSession(summary.thread_id);
+        });
+        sessionList.appendChild(item);
+    }
+}
+
+async function refreshSessionList() {
+    try {
+        const data = await apiGet("/chat/sessions");
+        renderSessionList(data.sessions || []);
+    } catch (_) {
+        // Sidebar is non-critical; leave the previous list as-is.
+    }
+}
+
+async function restoreSpecificSession(targetThreadId) {
+    try {
+        const history = await apiGet(`/chat/${targetThreadId}/history`);
+        threadId = targetThreadId;
+        localStorage.setItem(STORAGE_KEY, threadId);
+        pendingThreadSource = null;
+        clearTranscript();
+        clearError();
+        renderSessionInfo(history.source_urls, history.source_mode);
+        for (const turn of history.turns || []) {
+            appendTurn(turn.role, turn.content, { artifacts: turn.artifacts });
+        }
+        showChat();
+    } catch (err) {
+        showError(`Could not open session: ${err.message}`);
+        await refreshSessionList();
+    }
+}
+
 window.addEventListener("pagehide", destroyMapInstances);
-document.addEventListener("DOMContentLoaded", restoreSession);
+document.addEventListener("DOMContentLoaded", async () => {
+    await restoreSession();
+    refreshSessionList();
+});

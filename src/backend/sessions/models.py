@@ -3,11 +3,13 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Final
 
 from src.config import Settings
 
 from ..security import ResourceOwner
+
+TITLE_KEY: Final[str] = "session_title"
 
 
 @dataclass
@@ -23,6 +25,9 @@ class ChatSession:
     created_at: float = field(default_factory=time.time)
     last_accessed_at: float | None = None
     isolated_chroma: bool = False
+    # Sidebar label: the first user query of the thread, set once and reused
+    # across restarts through SessionMetadata.config.
+    title: str | None = None
     # Tool-ready relative paths already injected into the conversation as an
     # upload-context note, so later turns do not re-announce the same files.
     announced_uploads: set[str] = field(default_factory=set)
@@ -40,3 +45,19 @@ class ChatSession:
 
     def touch(self, now: float | None = None) -> None:
         self.last_accessed_at = time.time() if now is None else now
+
+
+@dataclass(frozen=True)
+class SessionSummary:
+    """Lightweight view of one owned session for the sidebar session list.
+
+    Deliberately excludes runtime handles (graph, settings, turn lock) so it is
+    safe to build under the registry lock and serialize to the API response.
+    """
+
+    thread_id: str
+    created_at: float
+    last_accessed_at: float
+    source_mode: str
+    source_urls: list[str] = field(default_factory=list)
+    title: str | None = None

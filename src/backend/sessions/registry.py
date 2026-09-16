@@ -13,7 +13,7 @@ from src.config import Settings
 
 from ..memory.watermark import WATERMARK_KEY, coerce_watermark
 from ..security import Principal, ResourceOwner
-from .models import ChatSession
+from .models import TITLE_KEY, ChatSession, SessionSummary
 from .storage import SessionMetadata, StorageBackend
 
 logger = logging.getLogger(__name__)
@@ -170,6 +170,7 @@ class ChatSessionRegistry:
             last_accessed_at=metadata.last_accessed_at,
             isolated_chroma=metadata.isolated_chroma,
             extraction_watermark=coerce_watermark(metadata.config.get(WATERMARK_KEY)),
+            title=_optional_title(metadata.config.get(TITLE_KEY)),
         )
         with self._lock:
             self._sessions[session.thread_id] = session
@@ -278,6 +279,50 @@ class ChatSessionRegistry:
         with self._lock:
             return list(self._sessions.keys())
 
+    def list_owned(self, principal: Principal) -> list[SessionSummary]:
+        """Return summaries of sessions owned by the complete trusted identity.
+
+        Missing owners and mismatched identities intentionally collapse to an
+        empty result, mirroring :meth:`get_owned`; entries are ordered by
+        ``last_accessed_at`` descending so the sidebar shows recent first.
+        """
+
+        with self._lock:
+            summaries = [
+                SessionSummary(
+                    thread_id=session.thread_id,
+                    created_at=session.created_at,
+                    last_accessed_at=session.last_accessed_at or session.created_at,
+                    source_mode=session.source_mode,
+                    source_urls=list(session.source_urls),
+                    title=session.title,
+                )
+                for session in self._sessions.values()
+                if session.owner is not None and session.owner.authorizes(principal)
+            ]
+        summaries.sort(key=lambda item: item.last_accessed_at, reverse=True)
+        return summaries
+
+    def set_title(self, thread_id: str, title: str) -> bool:
+        """Set the sidebar title once per session; later calls are no-ops.
+
+        Persists through the metadata storage so the title survives restarts.
+        Returns whether the session exists.
+        """
+
+        cleaned = title.strip()
+        if not cleaned:
+            return False
+        session_to_save: ChatSession | None = None
+        with self._lock:
+            session = self._sessions.get(thread_id)
+            if session is None or session.title:
+                return session is not None
+            session.title = cleaned[:80]
+            session_to_save = session
+        self._save_metadata(session_to_save)
+        return True
+
     def cleanup_expired(self) -> int:
         if self._ttl_seconds is None:
             return 0
@@ -374,7 +419,12 @@ class ChatSessionRegistry:
             return len(self._sessions)
 
 
+def _optional_title(value: object) -> str | None:
+    return str(value) if isinstance(value, str) and value.strip() else None
+
+
 __all__ = [
     "ChatSessionRegistry",
+    "SessionSummary",
     "cleanup_isolated_chroma",
 ]

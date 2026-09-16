@@ -16,6 +16,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src.utils.networking import ensure_user_agent
 
+from .chunk_context import ChunkContextCache, ChunkContextConfig, apply_chunk_context
 from .document_quality import DocumentQualityConfig, filter_quality_documents
 
 ensure_user_agent()
@@ -334,6 +335,9 @@ def load_and_split_documents(
     chunk_overlap: int,
     quality_config: DocumentQualityConfig | None = None,
     embeddings: Any | None = None,
+    chunk_context_config: ChunkContextConfig | None = None,
+    chat_model: Any | None = None,
+    chunk_context_cache: ChunkContextCache | None = None,
     loader_factory: LoaderFactory = default_loader_factory,
     splitter_factory: SplitterFactory = default_splitter_factory,
 ) -> list[Document]:
@@ -352,9 +356,22 @@ def load_and_split_documents(
             "All loaded source documents were filtered out before indexing. "
             "No documents met the configured content quality thresholds."
         )
-    return split_documents(
+    splits = split_documents(
         docs,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         splitter_factory=splitter_factory,
     )
+    # REFACTOR: Optional LLM contextual prefixes; None config keeps legacy chunks.
+    if (
+        chunk_context_config is not None
+        and chunk_context_config.enabled
+        and chat_model is not None
+    ):
+        splits = apply_chunk_context(
+            splits,
+            config=chunk_context_config,
+            chat_model=chat_model,
+            cache=chunk_context_cache,
+        )
+    return splits

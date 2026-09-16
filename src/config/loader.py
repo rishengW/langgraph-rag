@@ -29,6 +29,10 @@ SETTING_ENV_NAMES = {
     "collection_name": "COLLECTION_NAME",
     "chunk_size": "CHUNK_SIZE",
     "chunk_overlap": "CHUNK_OVERLAP",
+    "chunk_context_enabled": "CHUNK_CONTEXT_ENABLED",
+    "chunk_context_document_excerpt_chars": "CHUNK_CONTEXT_DOCUMENT_EXCERPT_CHARS",
+    "chunk_context_max_prefix_chars": "CHUNK_CONTEXT_MAX_PREFIX_CHARS",
+    "chunk_context_max_concurrency": "CHUNK_CONTEXT_MAX_CONCURRENCY",
     "source_urls": "SOURCE_URLS",
     "langchain_tracing_v2": "LANGCHAIN_TRACING_V2",
     "langchain_api_key": "LANGCHAIN_API_KEY",
@@ -413,6 +417,9 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "embedding_batch_size",
         "chunk_size",
         "chunk_overlap",
+        "chunk_context_document_excerpt_chars",
+        "chunk_context_max_prefix_chars",
+        "chunk_context_max_concurrency",
         "api_port",
         "min_keyword_matches",
         "max_rewrites",
@@ -464,6 +471,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
             "document_quality_query_min_overlap",
             "document_quality_recency_bias_days",
             "wikipedia_max_summary_chars",
+            "chunk_context_max_prefix_chars",
         ):
             return max(0, parsed)
         if name in (
@@ -483,6 +491,8 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
             "amap_api_timeout_seconds",
             "dashscope_max_retries",
             "file_read_max_bytes",
+            "chunk_context_document_excerpt_chars",
+            "chunk_context_max_concurrency",
         ):
             return max(1, parsed)
         if name == "page_load_cache_ttl_seconds":
@@ -556,6 +566,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "memory_extraction_enabled",
         "memory_extraction_on_session_start",
         "document_quality_filter_enabled",
+        "chunk_context_enabled",
     ):
         return parse_bool(value, bool(default))
     if name in ("web_search_provider",):

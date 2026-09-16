@@ -90,8 +90,7 @@ def test_load_and_split_documents_skips_failed_sources():
     class FakeSplitter:
         def split_documents(self, documents: list[Document]) -> list[Document]:
             return [
-                Document(page_content=f"chunk:{document.page_content}")
-                for document in documents
+                Document(page_content=f"chunk:{document.page_content}") for document in documents
             ]
 
     def loader_factory(url: str, timeout: int) -> FakeLoader:
@@ -657,6 +656,9 @@ def test_chroma_retriever_rebuilds_incompatible_persisted_store(
                 recency_bias_days=settings.document_quality_recency_bias_days,
             ),
             "embeddings": embedding_model,
+            "chunk_context_config": None,
+            "chat_model": None,
+            "chunk_context_cache": None,
         }
     ]
     assert not (chroma_dir / "chroma.sqlite3").exists()

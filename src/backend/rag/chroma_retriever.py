@@ -16,6 +16,11 @@ from langchain_core.tools.retriever import create_retriever_tool
 from src.config import Settings
 from src.utils.retry import call_with_retry, remove_tree_with_retry
 
+from .chunk_context import (
+    CHUNK_CONTEXT_CACHE_FILENAME,
+    ChunkContextCache,
+    ChunkContextConfig,
+)
 from .document_loader import load_and_split_documents
 from .document_quality import DocumentQualityConfig
 from .embeddings import build_embeddings
@@ -49,10 +54,14 @@ def _embedding_config_path(chroma_dir: Path) -> Path:
     return chroma_dir / EMBEDDING_CONFIG_FILENAME
 
 
-def _embedding_config(settings: Settings) -> dict[str, int | str | None]:
+def _embedding_config(settings: Settings) -> dict[str, int | str | bool | None]:
     return {
         "embedding_model": settings.embedding_model,
         "embedding_dimension": settings.embedding_dimension,
+        # Contextual prefixes change the embedded content, so toggling the
+        # feature must force a rebuild instead of mixing prefixed/unprefixed
+        # embeddings in one store.
+        "chunk_context_enabled": settings.chunk_context_enabled,
     }
 
 
@@ -162,13 +171,19 @@ def _unlink_with_retry(path: Path, max_retries: int = 10, delay: float = 1.0) ->
 
 
 def _clear_chroma_store(chroma_dir: Path) -> None:
-    """Clear Chroma files while preserving nested chat/web-search stores."""
+    """Clear Chroma files while preserving nested chat/web-search stores.
+
+    The chunk-context prefix cache is preserved too: a rebuild must not re-pay
+    the LLM prefix cost for unchanged chunks.
+    """
 
     if not chroma_dir.exists():
         return
 
     for child in list(chroma_dir.iterdir()):
         if child.name in RESERVED_CHROMA_CHILD_DIRS:
+            continue
+        if child.name == CHUNK_CONTEXT_CACHE_FILENAME:
             continue
         if child.is_dir():
             _rmtree_with_retry(child)
@@ -268,6 +283,24 @@ class ChromaRetriever:
                 _release_chroma_system(settings.chroma_dir)
                 _clear_chroma_store(settings.chroma_dir)
 
+        chunk_context_config: ChunkContextConfig | None = None
+        chunk_context_model: Any | None = None
+        chunk_context_cache: ChunkContextCache | None = None
+        if settings.chunk_context_enabled:
+            from src.backend.llm.provider import build_chat_model
+
+            chunk_context_config = ChunkContextConfig(
+                enabled=True,
+                document_excerpt_chars=settings.chunk_context_document_excerpt_chars,
+                max_prefix_chars=settings.chunk_context_max_prefix_chars,
+                max_concurrency=settings.chunk_context_max_concurrency,
+                max_retries=settings.dashscope_max_retries,
+            )
+            chunk_context_model = build_chat_model(settings)
+            chunk_context_cache = ChunkContextCache(
+                settings.chroma_dir / CHUNK_CONTEXT_CACHE_FILENAME
+            )
+
         doc_splits = load_and_split_documents(
             settings.source_urls,
             page_load_timeout=settings.page_load_timeout,
@@ -285,6 +318,9 @@ class ChromaRetriever:
                 recency_bias_days=settings.document_quality_recency_bias_days,
             ),
             embeddings=embeddings,
+            chunk_context_config=chunk_context_config,
+            chat_model=chunk_context_model,
+            chunk_context_cache=chunk_context_cache,
         )
 
         logger.info("BUILD CHROMA VECTORSTORE")

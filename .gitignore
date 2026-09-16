@@ -53,3 +53,6 @@ advanced_phase2_interfaces_workbench/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Hypothesis test cache
+.hypothesis/

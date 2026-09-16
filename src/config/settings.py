@@ -248,6 +248,12 @@ class Settings:
     document_quality_recency_bias_days: int = 365
     # REFACTOR: Optional post-retrieval re-ranking strategy.
     rerank_strategy: str = "lexical"
+    # REFACTOR: Optional LLM contextual chunk prefixes (Anthropic-style). Off by
+    # default: no extra LLM calls and indexing behavior is unchanged.
+    chunk_context_enabled: bool = False
+    chunk_context_document_excerpt_chars: int = 6000
+    chunk_context_max_prefix_chars: int = 200
+    chunk_context_max_concurrency: int = 4
     dashscope_request_timeout: int = 120
     dashscope_max_retries: int = 3
     dashscope_http_base_url: str = ""

@@ -41,6 +41,12 @@ def is_retryable_connection_error(error: Exception) -> bool:
         "TIMEOUT",
         "REMOTE END",
         "TEMPORARILY UNAVAILABLE",
+        # Rate limiting: DashScope and OpenAI-compatible providers surface 429
+        # as a plain message ("Request rejected (429)"/"Throttling...") without
+        # a typed exception, so match the marker text like the embedding path.
+        "429",
+        "THROTTLING",
+        "RATE LIMIT",
     )
     return any(marker in error_msg for marker in retry_markers)
 

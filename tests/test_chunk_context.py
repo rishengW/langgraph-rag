@@ -148,9 +148,11 @@ def test_apply_chunk_context_uses_per_source_excerpt():
     apply_chunk_context(chunks, config=_enabled_config(), chat_model=model)
 
     assert len(model.calls) == 3
-    prompt_for_a2 = model.calls[1]
+    # Workers complete out of order; locate prompts by the chunk text they
+    # carry instead of list position.
+    prompt_for_a2 = next(p for p in model.calls if "A2 第二段" in p)
     assert "A1 第一段" in prompt_for_a2  # excerpt from the same source head
-    prompt_for_b1 = model.calls[2]
+    prompt_for_b1 = next(p for p in model.calls if "B1 另一篇" in p)
     assert "B1 另一篇" in prompt_for_b1
     assert "A1 第一段" not in prompt_for_b1  # excerpts never cross sources
 
@@ -174,7 +176,10 @@ def test_chunk_context_cache_avoids_repeat_llm_calls(tmp_path):
 
 def test_chunk_context_cache_round_trip_from_disk(tmp_path):
     path = tmp_path / CHUNK_CONTEXT_CACHE_FILENAME
-    ChunkContextCache(path).set("key-1", "前缀一")
+    cache = ChunkContextCache(path)
+    cache.set("key-1", "前缀一")
+    # set() is in-memory only; flush() persists (batched write, see #6).
+    cache.flush()
 
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw == {"key-1": "前缀一"}

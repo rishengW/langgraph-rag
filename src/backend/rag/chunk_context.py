@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import threading
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -58,6 +59,9 @@ class ChunkContextCache:
         self._path = Path(path)
         self._lock = threading.Lock()
         self._entries: dict[str, str] | None = None
+        # Debounce disk writes: a single indexing run generates hundreds of
+        # prefixes, and rewriting the whole JSON per set() is O(N^2) I/O.
+        self._dirty = False
 
     def _load_locked(self) -> dict[str, str]:
         if self._entries is not None:
@@ -79,16 +83,33 @@ class ChunkContextCache:
             return self._load_locked().get(key)
 
     def set(self, key: str, prefix: str) -> None:
+        # In-memory only; the caller flushes once per batch to avoid rewriting
+        # the whole JSON file per entry (O(N^2) write amplification).
         with self._lock:
             entries = self._load_locked()
             entries[key] = prefix
-            try:
-                self._path.parent.mkdir(parents=True, exist_ok=True)
-                tmp_path = self._path.with_suffix(".tmp")
-                tmp_path.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
-                tmp_path.replace(self._path)
-            except OSError as exc:
-                logger.warning("Could not write chunk context cache %s: %s", self._path, exc)
+            self._dirty = True
+
+    def flush(self) -> None:
+        """Persist pending in-memory entries to disk (idempotent)."""
+
+        with self._lock:
+            self._flush_locked()
+
+    def _flush_locked(self) -> None:
+        if not self._dirty:
+            return
+        assert self._entries is not None
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            # Unique tmp name: concurrent processes sharing the cache directory
+            # would otherwise overwrite each other's temp file mid-write.
+            tmp_path = self._path.with_name(f"{self._path.name}.{os.getpid()}.tmp")
+            tmp_path.write_text(json.dumps(self._entries, ensure_ascii=False), encoding="utf-8")
+            tmp_path.replace(self._path)
+            self._dirty = False
+        except OSError as exc:
+            logger.warning("Could not write chunk context cache %s: %s", self._path, exc)
 
 
 def _cache_key(model_label: str, source: str, chunk_text: str) -> str:
@@ -184,6 +205,13 @@ def apply_chunk_context(
                 counts["skipped"] += 1
             return index, chunk
 
+        if config.max_prefix_chars <= 0:
+            # Nothing would survive truncation; skip the LLM call entirely
+            # instead of paying for a prefix that is discarded.
+            with counts_lock:
+                counts["skipped"] += 1
+            return index, chunk
+
         source = str(chunk.metadata.get("source", ""))
         key = _cache_key(model_label, source, chunk.page_content)
         if cache is not None:
@@ -191,6 +219,13 @@ def apply_chunk_context(
             if cached is not None:
                 with counts_lock:
                     counts["cached"] += 1
+                # Truncation also applies on the cache-hit path: MAX_PREFIX_CHARS
+                # may have been lowered after the entry was stored.
+                cached = cached[: max(0, config.max_prefix_chars)].strip()
+                if not cached:
+                    with counts_lock:
+                        counts["skipped"] += 1
+                    return index, chunk
                 return index, _with_prefix(chunk, cached)
 
         prompt_text = CONTEXT_PROMPT.format(
@@ -233,6 +268,10 @@ def apply_chunk_context(
         for future in as_completed(futures):
             index, document = future.result()
             results[index] = document
+
+    if cache is not None:
+        # One disk write per batch, not per generated prefix.
+        cache.flush()
 
     logger.info(
         "CHUNK CONTEXT PREFIXES: %d generated, %d cached, %d failed, %d skipped",

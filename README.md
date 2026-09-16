@@ -3,7 +3,7 @@
 A local LangGraph retrieval-augmented generation project with a multi-turn chat
 FastAPI app:
 
-- **Chat** (`src/frontend/chat`): multi-turn chat with per-thread source sets, persisted session metadata, and SQLite-backed LangGraph checkpoints.
+- **Chat** (`src/frontend/chat`): multi-turn chat with per-thread source sets, a session sidebar (auto-titled entries, delete with confirmation), persisted session metadata, and SQLite-backed LangGraph checkpoints.
 
 The project started as a Python extraction of a Jupyter notebook; it is now organized as a reusable codebase with YAML configuration, typed graph events, SSE streaming, health/readiness/metrics endpoints, optional API-key auth, Docker support, CI quality gates, and company-readiness documentation.
 
@@ -473,9 +473,18 @@ API endpoints:
 | `POST` | `/chat/{id}/upload` | Upload files (.txt/.md/.log/.csv, .docx, .xlsx, .pdf; .pptx when PowerPoint editing is enabled) for the thread's file tools |
 | `GET` | `/chat/{id}/files/{filename}` | Download a session-scoped file (uploaded source or created/edited artifact) |
 | `GET` | `/chat/{id}/history` | Read transcript |
+| `GET` | `/chat/sessions` | List the caller's chat sessions for the sidebar (ids, titles, timestamps, source mode/URLs), most recently used first |
 | `DELETE` | `/chat/{id}` | Delete a thread (also removes the thread's uploaded files) |
 | `GET` | `/chat/config` | Returns AMap client configuration (key, timeout) to the browser |
 | `GET` | `/_AMapService/{proxied_path}` | Proxies AMap JS API requests (avoids CORS); uses `AMAP_JS_SECURITY_CODE` server-side |
+
+### Session sidebar
+
+The chat UI has a collapsible session sidebar backed by `GET /chat/sessions`:
+
+- Sessions are listed most recently used first. Each entry is labeled by the first user query of the thread; the title is set server-side on the first turn (later turns are no-ops) and persists across restarts via session metadata.
+- **New Chat** pre-creates a session up front so the sidebar immediately gains a "New Chat" entry; the first user query renames it.
+- Each entry has a `···` menu with a delete action behind a confirmation dialog. Deleting a session removes the thread together with its transcript checkpoints, per-thread state, and uploaded files.
 
 ## Persistence
 
@@ -684,7 +693,7 @@ Local development is open when `API_KEY` is unset. When set, mutation endpoints 
 Authorization: Bearer <API_KEY>
 ```
 
-Protected endpoints: `POST /chat`, `POST /chat/{id}/message`, `POST /chat/{id}/message/stream`, `DELETE /chat/{id}`, `GET /admin/health/dependencies`, and `GET /metrics`. The administrative routes are hidden with `404` when no API key is configured. In `production`/`staging` environments (`RAG_ENV`), a missing `API_KEY` fails closed: all authenticated endpoints return `503` until a key is configured.
+Protected endpoints: `POST /chat`, `POST /chat/{id}/message`, `POST /chat/{id}/message/stream`, `GET /chat/sessions`, `DELETE /chat/{id}`, `GET /admin/health/dependencies`, and `GET /metrics`. The administrative routes are hidden with `404` when no API key is configured. In `production`/`staging` environments (`RAG_ENV`), a missing `API_KEY` fails closed: all authenticated endpoints return `503` until a key is configured.
 
 CORS is configured via `cors_allow_origins` in YAML or `CORS_ALLOW_ORIGINS` env var. Public liveness and readiness expose only bounded status; dependency names and states are available only through the authenticated administrative route.
 

@@ -7,7 +7,6 @@ from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 
-_BeautifulSoupImport: Any
 try:
     from bs4 import BeautifulSoup as _BeautifulSoupImport
 except ImportError:  # pragma: no cover - dependency is declared for the app.

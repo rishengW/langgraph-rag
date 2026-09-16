@@ -323,8 +323,11 @@ class SQLiteMemorySaver(MemorySaver):
 
         self._require_owner(thread_id, owner)
         with self._lock:
-            if hasattr(super(), "delete_thread"):
-                super().delete_thread(thread_id)
+            # MemorySaver only gained delete_thread in newer langgraph releases;
+            # getattr keeps the fallback reachable on older ones.
+            parent_delete = getattr(super(), "delete_thread", None)
+            if parent_delete is not None:
+                parent_delete(thread_id)
             else:
                 self.storage.pop(thread_id, None)
                 for key in list(self.writes):

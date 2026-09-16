@@ -34,7 +34,7 @@ class FakeChatModel:
 
     model = "fake-model"
 
-    def __init__(self, reply: str = "PREFIX", error: Exception | None = None) -> None:
+    def __init__(self, reply: str | None = "PREFIX", error: Exception | None = None) -> None:
         self.reply = reply
         self.error = error
         self.calls: list[str] = []
@@ -91,6 +91,36 @@ def test_apply_chunk_context_failure_keeps_original_chunk():
 
     assert [doc.page_content for doc in result] == ["alpha", "beta"]
     assert len(model.calls) == 2
+
+
+def test_apply_chunk_context_none_content_keeps_original():
+    # Thinking-mode / tool-call-only responses can carry content=None; the chunk
+    # must stay untouched instead of getting a literal "None" prefix.
+    chunks = [_chunk("alpha")]
+    model = FakeChatModel(reply=None)
+
+    result = apply_chunk_context(chunks, config=_enabled_config(), chat_model=model)
+
+    assert result[0].page_content == "alpha"
+    assert len(model.calls) == 1
+
+
+def test_chunk_context_cache_scoped_by_source(tmp_path):
+    # Identical chunk text in two different documents must not share a cached
+    # prefix: the prefix situates the chunk in its own document.
+    cache = ChunkContextCache(tmp_path / CHUNK_CONTEXT_CACHE_FILENAME)
+    chunks = [
+        _chunk("相同的段落文字", source="https://a.test"),
+        _chunk("相同的段落文字", source="https://b.test"),
+    ]
+    model = FakeChatModel()
+
+    result = apply_chunk_context(
+        chunks, config=_enabled_config(), chat_model=model, cache=cache
+    )
+
+    assert len(model.calls) == 2
+    assert all(doc.page_content.startswith("PREFIX\n\n") for doc in result)
 
 
 def test_apply_chunk_context_truncates_long_prefix():

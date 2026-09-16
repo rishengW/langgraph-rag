@@ -18,9 +18,9 @@ from src.utils.retry import call_with_retry
 logger = logging.getLogger(__name__)
 
 CHUNK_CONTEXT_CACHE_FILENAME = "chunk_context_cache.json"
-# Bump when the prompt or prefix format changes; stale cache entries are keyed
-# off this version and simply stop hitting.
-PROMPT_VERSION = "v1"
+# Bump when the prompt, prefix format, or cache-key scheme changes; stale cache
+# entries are keyed off this version and simply stop hitting.
+PROMPT_VERSION = "v2"
 
 # Document excerpt first, chunk last: providers with implicit prompt caching
 # reuse the repeated document prefix across chunks of the same source.
@@ -91,11 +91,15 @@ class ChunkContextCache:
                 logger.warning("Could not write chunk context cache %s: %s", self._path, exc)
 
 
-def _cache_key(model_label: str, chunk_text: str) -> str:
+def _cache_key(model_label: str, source: str, chunk_text: str) -> str:
+    # The source is part of the key: identical chunk text in two documents must
+    # not share a prefix, since the prefix situates the chunk in its own document.
     digest = hashlib.sha256()
     digest.update(PROMPT_VERSION.encode())
     digest.update(b"|")
     digest.update(model_label.encode())
+    digest.update(b"|")
+    digest.update(source.encode("utf-8"))
     digest.update(b"|")
     digest.update(chunk_text.encode("utf-8"))
     return digest.hexdigest()
@@ -132,6 +136,10 @@ def _head_excerpt(source_chunks: Sequence[Document], max_chars: int) -> str:
 
 def _response_text(response: Any) -> str:
     content = getattr(response, "content", response)
+    # Thinking-mode or tool-call-only responses can carry content=None; without
+    # this guard str(None) would become a literal "None" prefix.
+    if content is None:
+        return ""
     if isinstance(content, list):
         content = "".join(
             str(block.get("text", "")) if isinstance(block, dict) else str(block)
@@ -176,7 +184,8 @@ def apply_chunk_context(
                 counts["skipped"] += 1
             return index, chunk
 
-        key = _cache_key(model_label, chunk.page_content)
+        source = str(chunk.metadata.get("source", ""))
+        key = _cache_key(model_label, source, chunk.page_content)
         if cache is not None:
             cached = cache.get(key)
             if cached is not None:
@@ -185,7 +194,7 @@ def apply_chunk_context(
                 return index, _with_prefix(chunk, cached)
 
         prompt_text = CONTEXT_PROMPT.format(
-            document_excerpt=excerpts.get(str(chunk.metadata.get("source", "")), ""),
+            document_excerpt=excerpts.get(source, ""),
             chunk_text=chunk.page_content,
         )
         try:

@@ -355,7 +355,7 @@ def route_subgoals(
 ) -> list[Any] | str:
     """Return worker ``Send`` objects or continue when no work is ready."""
 
-    from langgraph.constants import Send
+    from langgraph.types import Send
 
     dispatched = state.get("dispatched_subgoals") or []
     planning_question = str(

@@ -29,7 +29,7 @@ from .retriever import Retriever
 try:
     from langchain_chroma import Chroma as Chroma
 except ImportError:
-    from langchain_community.vectorstores import Chroma as Chroma  # type: ignore[assignment]
+    from langchain_community.vectorstores import Chroma as Chroma
 
 
 logger = logging.getLogger(__name__)

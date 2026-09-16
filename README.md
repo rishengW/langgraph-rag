@@ -29,7 +29,6 @@ langgraph-rag/
 |   |-- backend/
 |   |   |-- adapters/mcp_client/  # Outbound MCP client adapter (config, lifecycle, runtime, SSRF guards)
 |   |   |-- application/          # Chat/RAG application services, turn execution, session lifecycle
-|   |   |-- core/                 # Deprecated re-export shims (redirect to src/backend/graph, rag, web_search)
 |   |   |-- graph/                # LangGraph builder, state, edges, executor, metrics
 |   |   |   |-- nodes/            # Node factories (agent, condense, decompose, bounded search, expand, generate, grade, merge, rewrite, web_answer)
 |   |   |-- llm/                  # LLM provider seam (DashScope, DeepSeek), prompts, citation sanitizer
@@ -222,6 +221,11 @@ Key settings:
 | `API_PORT` | `8000` | Listen port via the settings loader; the `serve` command and Docker use `CHAT_API_PORT` (default `8001`) |
 | `CORS_ALLOW_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
 | `RERANK_STRATEGY` | `lexical` | `lexical`, `embedding`, or `hybrid` |
+| `CHUNK_CONTEXT_ENABLED` | `false` | LLM-generated context prefix per new chunk at index time (Anthropic-style contextual retrieval); toggling forces a one-time index rebuild |
+| `CHUNK_CONTEXT_DOCUMENT_EXCERPT_CHARS` | `6000` | Document excerpt sent to the prefix-generation LLM for situating each chunk |
+| `CHUNK_CONTEXT_MAX_PREFIX_CHARS` | `200` | Character cap on one generated chunk prefix |
+| `CHUNK_CONTEXT_MAX_CONCURRENCY` | `4` | Parallel prefix-generation calls; unchanged chunks reuse a content-hash disk cache in `CHROMA_DIR` |
+| `AGENT_PERSONA_STYLE` | `trump` | Prompt prose persona: `trump` or `none`; style only, never changes tool-use or factual rules |
 | `MEMORY_ENABLED` | `false` | Enable long-term memory tools (save/recall/forget) and auto-recall injection |
 | `MEMORY_STORE_PATH` | - | Memory store file path; defaults to `memory/long_term_memory.json` relative to working directory |
 | `MEMORY_MAX_RECORDS` | `500` | Total records kept across all scopes (1–10000); oldest by last-recall time evicted first |

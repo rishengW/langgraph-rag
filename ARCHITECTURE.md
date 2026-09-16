@@ -36,7 +36,6 @@ memory saver for restart-safe multi-turn state.
 | `src/frontend/api/` | FastAPI dependency setup, shared models, typed error handlers, and SSE formatting. |
 | `src/frontend/chat/` | Chat CLI, API factory, session integration, static UI, and compatibility wrappers. |
 | `src/backend/sessions/` | Chat session model, registry, Chroma isolation, SQLite metadata storage, and checkpoint persistence. |
-| `src/backend/core/` | Backward-compatible import facades for older code paths. |
 
 ## Request Flow
 

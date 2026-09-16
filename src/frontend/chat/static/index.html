@@ -82,6 +82,7 @@
         }
 
         .session-item {
+            position: relative;
             text-align: left;
             border: 1px solid transparent;
             background: transparent;
@@ -114,16 +115,99 @@
             align-items: center;
         }
 
-        .session-item-delete {
+        .session-item-more {
             border: none;
             background: transparent;
             color: #9ca3af;
             cursor: pointer;
-            font-size: 13px;
-            padding: 0 4px;
+            font-size: 14px;
+            line-height: 1;
+            padding: 0 6px;
+            letter-spacing: 1px;
         }
 
-        .session-item-delete:hover { color: #991b1b; }
+        .session-item-more:hover { color: #1f2937; }
+
+        .session-item-menu {
+            position: absolute;
+            right: 8px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+            min-width: 90px;
+            overflow: hidden;
+            z-index: 30;
+        }
+
+        .session-item-menu button {
+            display: block;
+            width: 100%;
+            border: none;
+            background: transparent;
+            color: #ef4444;
+            cursor: pointer;
+            font-size: 13px;
+            text-align: left;
+            padding: 8px 12px;
+        }
+
+        .session-item-menu button:hover { background: #fef2f2; }
+
+        .confirm-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(17, 24, 39, 0.45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .confirm-overlay.hidden { display: none; }
+
+        .confirm-dialog {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 20px 24px;
+            min-width: 280px;
+            max-width: 90vw;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+        }
+
+        .confirm-dialog p {
+            margin: 0 0 18px;
+            font-size: 14px;
+            color: #1f2937;
+        }
+
+        .confirm-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .confirm-actions button {
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 8px 16px;
+        }
+
+        .confirm-cancel {
+            background: #e5e7eb;
+            color: #1f2937;
+        }
+
+        .confirm-cancel:hover { background: #d1d5db; }
+
+        .confirm-ok {
+            background: #ef4444;
+            color: #ffffff;
+        }
+
+        .confirm-ok:hover { background: #dc2626; }
 
         @media (min-width: 900px) {
             /* Docked mode: the sidebar is a permanent left column on wide
@@ -792,6 +876,15 @@
                 <div class="session-list-empty">No chat history yet</div>
             </div>
         </aside>
+        <div id="confirmOverlay" class="confirm-overlay hidden">
+            <div class="confirm-dialog" role="dialog" aria-modal="true">
+                <p>Are you sure you want to delete this chat?</p>
+                <div class="confirm-actions">
+                    <button id="confirmCancelBtn" class="confirm-cancel" type="button">Cancel</button>
+                    <button id="confirmOkBtn" class="confirm-ok" type="button">Delete</button>
+                </div>
+            </div>
+        </div>
         <header>
             <div>
                 <h1>OnlySubscriber</h1>

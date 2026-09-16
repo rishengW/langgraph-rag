@@ -1813,16 +1813,22 @@ messageInput.addEventListener("input", autoresize);
 // ---- new chat / reset --------------------------------------------------
 
 newChatBtn.addEventListener("click", async () => {
-    if (threadId) {
-        try {
-            await apiDelete(`/chat/${threadId}`);
-        } catch (_) {
-            // best-effort; session may already be gone
-        }
+    // Create the new session up front so the sidebar immediately gains a
+    // "New Chat" entry; the first user query later renames it via set_title.
+    try {
+        const data = await apiPost("/chat", { seed_question: null });
+        threadId = data.thread_id;
+        localStorage.setItem(STORAGE_KEY, threadId);
+        pendingThreadSource = {
+            source_urls: data.source_urls || [],
+            source_mode: data.source_mode,
+        };
+    } catch (_) {
+        // Fall back to lazy creation on the first message if the POST fails.
+        threadId = null;
+        localStorage.removeItem(STORAGE_KEY);
+        pendingThreadSource = null;
     }
-    localStorage.removeItem(STORAGE_KEY);
-    threadId = null;
-    pendingThreadSource = null;
     clearTranscript();
     clearError();
     if (attachments) {
@@ -1835,6 +1841,7 @@ newChatBtn.addEventListener("click", async () => {
     }
     currentAttachments = [];
     seedField.value = "";
+    refreshSessionList();
     showStart();
 });
 
@@ -1876,7 +1883,7 @@ function sessionLabel(summary) {
     if (summary.source_urls && summary.source_urls.length > 0) {
         return summary.source_urls[0];
     }
-    return "Chat " + summary.thread_id.slice(0, 8);
+    return "New Chat";
 }
 
 function renderSessionList(sessions) {
@@ -1901,30 +1908,19 @@ function renderSessionList(sessions) {
         meta.className = "session-item-meta";
         const time = document.createElement("span");
         time.textContent = formatSessionTime(summary.last_accessed_at);
-        const del = document.createElement("span");
-        del.className = "session-item-delete";
-        del.textContent = "Delete";
-        del.setAttribute("role", "button");
-        del.addEventListener("click", async (event) => {
+        // The delete action is hidden behind a "..." menu; the confirmation
+        // dialog lives below (confirmOverlay).
+        const more = document.createElement("span");
+        more.className = "session-item-more";
+        more.textContent = "…";
+        more.setAttribute("role", "button");
+        more.setAttribute("aria-label", "Session actions");
+        more.addEventListener("click", (event) => {
             event.stopPropagation();
-            if (!window.confirm("Delete this session?")) return;
-            try {
-                await apiDelete(`/chat/${summary.thread_id}`);
-            } catch (_) {
-                // best-effort; refresh below reflects the real state
-            }
-            if (summary.thread_id === threadId) {
-                localStorage.removeItem(STORAGE_KEY);
-                threadId = null;
-                pendingThreadSource = null;
-                clearTranscript();
-                clearError();
-                showStart();
-            }
-            await refreshSessionList();
+            openSessionMenu(item, summary);
         });
         meta.appendChild(time);
-        meta.appendChild(del);
+        meta.appendChild(more);
 
         item.appendChild(title);
         item.appendChild(meta);
@@ -1946,6 +1942,73 @@ async function refreshSessionList() {
     }
 }
 
+// ---- session "..." menu + delete confirmation ----------------------------
+
+const confirmOverlay = document.getElementById("confirmOverlay");
+const confirmOkBtn = document.getElementById("confirmOkBtn");
+const confirmCancelBtn = document.getElementById("confirmCancelBtn");
+
+function closeSessionMenu() {
+    const menu = sessionList.querySelector(".session-item-menu");
+    if (menu) menu.remove();
+}
+
+function openSessionMenu(item, summary) {
+    closeSessionMenu();
+    const menu = document.createElement("div");
+    menu.className = "session-item-menu";
+    const del = document.createElement("button");
+    del.type = "button";
+    del.textContent = "Delete";
+    del.addEventListener("click", (event) => {
+        event.stopPropagation();
+        closeSessionMenu();
+        openDeleteConfirm(summary);
+    });
+    menu.appendChild(del);
+    item.appendChild(menu);
+}
+
+function openDeleteConfirm(summary) {
+    confirmOverlay.classList.remove("hidden");
+    confirmOkBtn.onclick = async () => {
+        confirmOverlay.classList.add("hidden");
+        try {
+            await apiDelete(`/chat/${summary.thread_id}`);
+        } catch (_) {
+            // best-effort; refresh below reflects the real state
+        }
+        if (summary.thread_id === threadId) {
+            localStorage.removeItem(STORAGE_KEY);
+            threadId = null;
+            pendingThreadSource = null;
+            clearTranscript();
+            clearError();
+            showStart();
+        }
+        await refreshSessionList();
+    };
+    confirmCancelBtn.onclick = () => {
+        // Dismiss without doing anything.
+        confirmOverlay.classList.add("hidden");
+    };
+}
+
+// Click outside the dialog or pressing Escape also cancels.
+confirmOverlay.addEventListener("click", (event) => {
+    if (event.target === confirmOverlay) {
+        confirmOverlay.classList.add("hidden");
+    }
+});
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !confirmOverlay.classList.contains("hidden")) {
+        confirmOverlay.classList.add("hidden");
+    }
+});
+
+// Clicking anywhere else in the sidebar closes an open "..." menu.
+sessionList.addEventListener("click", closeSessionMenu);
+
 async function restoreSpecificSession(targetThreadId) {
     try {
         const history = await apiGet(`/chat/${targetThreadId}/history`);
@@ -1959,6 +2022,9 @@ async function restoreSpecificSession(targetThreadId) {
             appendTurn(turn.role, turn.content, { artifacts: turn.artifacts });
         }
         showChat();
+        // The history request touches the session server-side, so re-render
+        // the list to move this entry to the top (recently-used order).
+        refreshSessionList();
     } catch (err) {
         showError(`Could not open session: ${err.message}`);
         await refreshSessionList();

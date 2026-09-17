@@ -77,9 +77,10 @@ web_search_lightweight: true
 web_search_max_page_tokens: 8000
 web_search_min_page_chars: 200
 web_search_min_page_tokens: 50
-web_search_js_fallback_enabled: false
+web_search_js_fallback_enabled: true
 web_search_js_fallback_domains:
   - baike.baidu.com
+  - baijiahao.baidu.com
   - zhuanlan.zhihu.com
   - apps.microsoft.com
   - deepseek.net

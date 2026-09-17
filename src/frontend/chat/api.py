@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import re
 from collections.abc import AsyncIterator, Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -356,6 +357,18 @@ def _graph_inputs_for_turn(
         and settings is not None
         and settings.web_search_lightweight
     ):
+        # URL-direct turns: when the message is dominated by a URL ("what
+        # does this link say?"), skip the search fan-out and ground the
+        # answer on the linked page instead.
+        direct_urls = _direct_fetch_urls(message)
+        if direct_urls:
+            inputs["direct_fetch_urls"] = direct_urls
+            inputs["source_urls"] = direct_urls
+            inputs["source_mode"] = "web_search"
+            inputs["web_answer_attempts"] = 0
+            inputs["web_answer_no_readable_content"] = False
+            inputs["expansion_attempted"] = True
+            return inputs
         # A web-search turn must not inherit the previous question's pages
         # from the checkpoint. The graph will populate this list from the
         # current turn's search results.
@@ -374,6 +387,59 @@ def _graph_inputs_for_turn(
         inputs["source_urls"] = list(session.source_urls)
         inputs["source_mode"] = session.source_mode
     return inputs
+
+
+# A URL-direct message is one where a link IS the question ("look at this
+# page"). Reuse the web_answer URL pattern, which already refuses URLs glued
+# to CJK prose, and require the link to sit outside the trailing prose: only
+# a short "URL, (comma) help me read it" tail is allowed after the link.
+_URL_DIRECT_RE = re.compile(
+    r"https?://[^\s<>()\[\]{}\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+"
+)
+# Reading-intent tail: a short phrase AFTER the link that asks to read it
+# ("能帮我看看这个链接里面是什么内容？"). Any link-adjacent filler plus common
+# read/summarize verbs; a tail longer than this or naming a topic (search-like)
+# keeps the normal search route.
+_URL_DIRECT_TAIL_RE = re.compile(
+    r"^[\s,，、;：:。.！!？?\-—~]*(?:帮我|请|麻烦|能|可以|看看|看一下|瞧瞧|读|看|"
+    r"这个|这个链接|链接|里面|页面|网页|内容|讲了|说|是什么|什么|吗|？|\?)*"
+    r"[\s,，、;：:。.！!？?\-—~]*$"
+)
+
+
+def _direct_fetch_urls(message: str) -> list[str]:
+    """Return the message's URL(s) when the link dominates the message.
+
+    Heuristic: the message must contain at least one http(s) URL, and the
+    text after the LAST URL must be a short reading-intent phrase (e.g.
+    "，能帮我看看这个链接里面是什么内容？"). A longer, topic-bearing
+    question after the URL means the link is an accessory to a search
+    question, not the subject.
+    """
+
+    text = (message or "").strip()
+    if "http://" not in text and "https://" not in text:
+        return []
+    matches = list(_URL_DIRECT_RE.finditer(text))
+    if not matches:
+        return []
+    # The link must BE the question, not an accessory: reject a topic-bearing
+    # head ("宇树科技最新消息 https://...") and allow only a reading-intent
+    # tail ("...，能帮我看看这个链接里面是什么内容？").
+    head = text[: matches[0].start()]
+    if head.strip() and not _URL_DIRECT_TAIL_RE.match(head):
+        return []
+    tail = text[matches[-1].end():]
+    if not _URL_DIRECT_TAIL_RE.match(tail):
+        return []
+    seen: set[str] = set()
+    urls: list[str] = []
+    for match in matches:
+        url = match.group(0).rstrip(".,;)}]")
+        if url and url not in seen:
+            seen.add(url)
+            urls.append(url)
+    return urls
 
 
 def _new_upload_context(session: ChatSession, settings: Settings) -> str | None:

@@ -30,6 +30,7 @@ from .edges import (
     route_after_lightweight_agent_with_critique,
     route_after_lightweight_tool,
     route_after_web_answer_with_fallback,
+    route_direct_fetch,
 )
 from .nodes import (
     agent_factory,
@@ -466,7 +467,11 @@ def build_lightweight_graph(
             ),
         )
 
-    workflow.add_edge(START, "planner" if planning_enabled else "agent")
+    workflow.add_conditional_edges(
+        START,
+        route_direct_fetch,
+        {"merge": "merge", "agent": "planner" if planning_enabled else "agent"},
+    )
     if planning_enabled:
         workflow.add_edge("planner", "subgoal_dispatcher")
         workflow.add_conditional_edges(

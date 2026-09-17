@@ -32,6 +32,21 @@ LIGHTWEIGHT_TOOL_EDGE_MAP: dict[Hashable, str] = {
 
 WEB_SEARCH_TOOL_NAME = "live_web_search"
 
+
+def route_direct_fetch(state: Any) -> str:
+    """Route at graph start: skip the search fan-out for URL-direct turns.
+
+    When the chat entry point detected that the user's message is dominated
+    by a URL ("what does this link say?"), it injected the URL(s) into
+    ``direct_fetch_urls``. Those turns go straight to ``merge`` -> ``web_answer``
+    (merge preserves the injected source set), grounding the answer on the
+    linked page instead of searching the web for it.
+    """
+
+    if state.get("direct_fetch_urls"):
+        return "merge"
+    return "agent"
+
 # REFACTOR: After ``web_answer`` runs, decide whether to terminate the
 # lightweight graph (the fetched pages grounded a real answer), retry via
 # conditional expansion (one-shot decompose -> N x k search -> merge ->
@@ -235,4 +250,5 @@ __all__ = [
     "route_after_lightweight_tool",
     "route_after_web_answer",
     "route_after_web_answer_with_fallback",
+    "route_direct_fetch",
 ]

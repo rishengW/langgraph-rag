@@ -143,21 +143,30 @@ def web_answer_factory(
                     structure.link_density,
                     structure.content_words,
                 )
-        topical_pages = [
-            page
-            for page in structural_pages
-            if is_page_text_relevant(
-                page.text or "",
+        # URL-direct turns ("what does this link say?") inject the user's
+        # own link; relevance/year gates exist to reject off-topic SEARCH
+        # results and do not apply to a page the user explicitly named, so
+        # they are skipped and every structurally-readable page is admitted.
+        direct_fetch = bool(state.get("direct_fetch_urls"))
+        if direct_fetch:
+            topical_pages = list(structural_pages)
+        else:
+            topical_pages = [
+                page
+                for page in structural_pages
+                if is_page_text_relevant(
+                    page.text or "",
+                    question,
+                    title=page.title or "",
+                )
+            ]
+        if not direct_fetch:
+            topical_pages = _rescue_semantically_relevant_pages(
+                structural_pages,
+                topical_pages,
                 question,
-                title=page.title or "",
+                settings,
             )
-        ]
-        topical_pages = _rescue_semantically_relevant_pages(
-            structural_pages,
-            topical_pages,
-            question,
-            settings,
-        )
         date_ranked_pages, date_conflict_urls = _rank_pages_by_publication_date(
             topical_pages,
             question,
@@ -174,7 +183,7 @@ def web_answer_factory(
                 ", ".join(duplicate_urls),
             )
         missing_years = _missing_year_evidence(relevant_pages, question)
-        if missing_years:
+        if missing_years and not direct_fetch:
             logger.info(
                 "Filtered web sources without complete requested-year coverage: years=%s",
                 ", ".join(missing_years),

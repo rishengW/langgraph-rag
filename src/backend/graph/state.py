@@ -83,6 +83,11 @@ class RAGState(TypedDict, total=False):
     # the graph with the grounded refusal.
     web_answer_attempts: int
     web_answer_no_readable_content: bool
+    # URL-direct-fetch switch. The chat entry point sets this when the user's
+    # message is dominated by a URL ("what does this link say?"): the graph
+    # skips the search fan-out entirely and grounds the answer on the injected
+    # ``source_urls`` instead.
+    direct_fetch_urls: list[str]
     # REFACTOR: Conditional-expansion one-shot switch. When the first
     # single-query ``web_answer`` run produces no readable content and this
     # flag is False, the post-``web_answer`` edge routes to ``expand`` (and

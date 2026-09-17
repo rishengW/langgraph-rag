@@ -22,6 +22,7 @@
             border-radius: 12px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             width: 100%;
+            overflow: hidden;
             max-width: 900px;
             display: flex;
             flex-direction: column;
@@ -216,7 +217,7 @@
                 flex-direction: row;
                 max-width: 1200px;
                 display: grid;
-                grid-template-columns: 260px 1fr;
+                grid-template-columns: 260px minmax(0, 1fr);
                 grid-template-rows: auto 1fr;
             }
 
@@ -232,7 +233,7 @@
             .sidebar-close { display: none; }
             #sidebarToggleBtn { display: none; }
             header { grid-column: 2; }
-            #startScreen, #chatScreen { grid-column: 2; }
+            #startScreen, #chatScreen { grid-column: 2; min-width: 0; }
         }
 
         @media (max-width: 640px) {
@@ -339,6 +340,7 @@
             display: flex;
             gap: 10px;
             max-width: 88%;
+            min-width: 0;
         }
         .turn .bubble {
             padding: 10px 14px;
@@ -442,7 +444,10 @@
             border-collapse: collapse;
             margin: 0 0 10px;
             width: 100%;
+            max-width: 100%;
             font-size: 13px;
+            display: block;
+            overflow-x: auto;
         }
         .markdown-preview th,
         .markdown-preview td {

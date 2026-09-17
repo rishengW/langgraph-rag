@@ -10,6 +10,7 @@ from src.config import Settings
 from ..security import ResourceOwner
 
 TITLE_KEY: Final[str] = "session_title"
+LAST_MESSAGE_KEY: Final[str] = "session_last_message_at"
 
 
 @dataclass
@@ -24,6 +25,9 @@ class ChatSession:
     source_mode: str = "defaults"
     created_at: float = field(default_factory=time.time)
     last_accessed_at: float | None = None
+    # Time of the last user message sent in this session; drives the sidebar
+    # timestamp and ordering. Falls back to created_at when no message exists.
+    last_message_at: float | None = None
     isolated_chroma: bool = False
     # Sidebar label: the first user query of the thread, set once and reused
     # across restarts through SessionMetadata.config.
@@ -31,6 +35,9 @@ class ChatSession:
     # Tool-ready relative paths already injected into the conversation as an
     # upload-context note, so later turns do not re-announce the same files.
     announced_uploads: set[str] = field(default_factory=set)
+    # Upload snapshots queued by the upload endpoint and consumed by the next
+    # turn, whose human message then carries them into the checkpoint.
+    pending_turn_attachments: list[dict[str, Any]] = field(default_factory=list)
     extraction_watermark: int = 0
     # Serializes graph execution and rollback for this checkpoint thread.
     turn_lock: threading.Lock = field(
@@ -61,3 +68,4 @@ class SessionSummary:
     source_mode: str
     source_urls: list[str] = field(default_factory=list)
     title: str | None = None
+    last_message_at: float | None = None

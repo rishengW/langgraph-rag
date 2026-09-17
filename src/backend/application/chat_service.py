@@ -116,13 +116,19 @@ class ChatApplicationService:
         self,
         thread_id: str,
         principal: Principal | None = None,
+        *,
+        purge_unsent_attachments: bool = False,
     ) -> SessionHistory:
         """Return visible history only to its owner under a request quota."""
 
         trusted_principal = principal or Principal.local_process()
         self._lifecycle.require_session(thread_id, trusted_principal)
         with self._quotas.acquire(trusted_principal):
-            return await self._lifecycle.history(thread_id, trusted_principal)
+            return await self._lifecycle.history(
+                thread_id,
+                trusted_principal,
+                purge_unsent_attachments=purge_unsent_attachments,
+            )
 
     async def delete(
         self,

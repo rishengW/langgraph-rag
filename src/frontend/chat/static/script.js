@@ -65,6 +65,9 @@ let pending = false;
 // Files currently shown as chips in the input strip; snapshots of these ride
 // on the outgoing user bubble when a message is sent.
 let currentAttachments = [];
+// Filenames already sent with an earlier turn; upload responses return the
+// session's full file list, so these are filtered out of the input strip.
+const sentAttachmentKeys = new Set();
 // Source metadata captured when a session is created lazily (a file is
 // attached from the start screen before "Start chat" is clicked) so the start
 // button can reuse that session without a second POST /chat.
@@ -1252,12 +1255,18 @@ async function restoreSession() {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return;
     try {
-        const history = await apiGet(`/chat/${stored}/history`);
+        const history = await apiGet(`/chat/${stored}/history?purge_unsent=1`);
         threadId = stored;
         clearTranscript();
         renderSessionInfo(history.source_urls, history.source_mode);
         for (const turn of history.turns || []) {
-            appendTurn(turn.role, turn.content, { artifacts: turn.artifacts });
+            // Rebuild the sent-attachment set from history so a later upload
+            // response does not repaint old files into the input strip.
+            for (const a of turn.attachments || []) sentAttachmentKeys.add(attachmentKey(a));
+            appendTurn(turn.role, turn.content, {
+                artifacts: turn.artifacts,
+                attachments: turn.attachments,
+            });
         }
         showChat();
     } catch (err) {
@@ -1327,6 +1336,7 @@ async function sendMessage(text) {
     // user bubble, then clear the input strip of chips.
     const sentAttachments = currentAttachments;
     currentAttachments = [];
+    for (const f of sentAttachments) sentAttachmentKeys.add(attachmentKey(f));
     attachments.innerHTML = "";
     attachments.classList.add("hidden");
     if (startAttachments) {
@@ -1683,12 +1693,21 @@ function buildFileChip(file, { removable = true } = {}) {
     return chip;
 }
 
+function attachmentKey(file) {
+    // relative_path is unique per session; filename is the fallback.
+    return String(file.relative_path || file.filename || "").toLowerCase();
+}
+
 function renderAttachmentChips(files, errors) {
-    currentAttachments = Array.from(files || []);
+    // The upload endpoint returns the session's FULL file list, but files
+    // already sent with an earlier message live in the transcript as turn
+    // chips — only pending (unsent) files belong in the input strip.
+    const pending = (files || []).filter((f) => !sentAttachmentKeys.has(attachmentKey(f)));
+    currentAttachments = pending;
     const renderInto = (container) => {
         if (!container) return;
         container.innerHTML = "";
-        for (const f of files || []) {
+        for (const f of pending) {
             container.appendChild(buildFileChip(f));
         }
         for (const err of errors || []) {
@@ -1907,7 +1926,7 @@ function renderSessionList(sessions) {
         const meta = document.createElement("span");
         meta.className = "session-item-meta";
         const time = document.createElement("span");
-        time.textContent = formatSessionTime(summary.last_accessed_at);
+        time.textContent = formatSessionTime(summary.last_message_at || summary.created_at);
         // The delete action is hidden behind a "..." menu; the confirmation
         // dialog lives below (confirmOverlay).
         const more = document.createElement("span");
@@ -2011,15 +2030,22 @@ sessionList.addEventListener("click", closeSessionMenu);
 
 async function restoreSpecificSession(targetThreadId) {
     try {
-        const history = await apiGet(`/chat/${targetThreadId}/history`);
+        const history = await apiGet(`/chat/${targetThreadId}/history?purge_unsent=1`);
         threadId = targetThreadId;
         localStorage.setItem(STORAGE_KEY, threadId);
         pendingThreadSource = null;
+        sentAttachmentKeys.clear();
         clearTranscript();
         clearError();
         renderSessionInfo(history.source_urls, history.source_mode);
         for (const turn of history.turns || []) {
-            appendTurn(turn.role, turn.content, { artifacts: turn.artifacts });
+            // Rebuild the sent-attachment set from history so a later upload
+            // response does not repaint old files into the input strip.
+            for (const a of turn.attachments || []) sentAttachmentKeys.add(attachmentKey(a));
+            appendTurn(turn.role, turn.content, {
+                artifacts: turn.artifacts,
+                attachments: turn.attachments,
+            });
         }
         showChat();
         // The history request touches the session server-side, so re-render

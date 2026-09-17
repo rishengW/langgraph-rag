@@ -57,6 +57,7 @@ class HistoryTurn(BaseModel):
     role: str
     content: str
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class HistoryResponse(BaseModel):
@@ -78,6 +79,7 @@ class SessionSummaryItem(BaseModel):
     thread_id: str
     created_at: float
     last_accessed_at: float
+    last_message_at: float | None = None
     source_mode: str
     source_urls: list[str] = Field(default_factory=list)
     title: str | None = None

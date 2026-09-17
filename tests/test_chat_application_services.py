@@ -267,8 +267,13 @@ def test_http_chat_adapters_preserve_legacy_contracts(monkeypatch, isolated_sett
     assert history.json() == {
         "thread_id": thread_id,
         "turns": [
-            {"role": "user", "content": "hello", "artifacts": []},
-            {"role": "assistant", "content": "legacy answer", "artifacts": []},
+            {"role": "user", "content": "hello", "artifacts": [], "attachments": []},
+            {
+                "role": "assistant",
+                "content": "legacy answer",
+                "artifacts": [],
+                "attachments": [],
+            },
         ],
         "source_urls": ["https://default.test"],
         "source_mode": "defaults",

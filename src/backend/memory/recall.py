@@ -165,6 +165,7 @@ def build_turn_messages(
     thread_id: str | None,
     message: str,
     upload_note: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
     budget: MemoryCallBudget | None = None,
 ) -> list[Any]:
     """Build one chat turn's message list, memory note first.
@@ -190,7 +191,12 @@ def build_turn_messages(
     if upload_note:
         messages.append(SystemMessage(content=upload_note))
 
-    messages.append(HumanMessage(content=message))
+    # Attachment metadata rides on the human message so it is checkpointed
+    # with the turn and the history endpoint can replay the file chips.
+    kwargs: dict[str, Any] = (
+        {"attachments": list(attachments)} if attachments else {}
+    )
+    messages.append(HumanMessage(content=message, additional_kwargs=kwargs))
     return messages
 
 

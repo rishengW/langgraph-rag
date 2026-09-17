@@ -95,6 +95,8 @@ class HistoryEntry:
     role: str
     content: str
     artifacts: tuple[dict[str, Any], ...] = ()
+    # File chips sent with a user turn, replayed by the UI on session restore.
+    attachments: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

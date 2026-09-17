@@ -6,7 +6,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
 from ..security import ResourceOwner
-from .models import TITLE_KEY
+from .models import LAST_MESSAGE_KEY, TITLE_KEY
 
 if TYPE_CHECKING:
     from .models import ChatSession
@@ -51,6 +51,11 @@ class SessionMetadata:
                 "collection_name": session.settings.collection_name,
                 "extraction_watermark": int(session.extraction_watermark or 0),
                 **({TITLE_KEY: session.title} if session.title else {}),
+                **(
+                    {LAST_MESSAGE_KEY: session.last_message_at}
+                    if session.last_message_at
+                    else {}
+                ),
             },
         )
 

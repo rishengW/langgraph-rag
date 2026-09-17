@@ -13,7 +13,7 @@ from src.config import Settings
 
 from ..memory.watermark import WATERMARK_KEY, coerce_watermark
 from ..security import Principal, ResourceOwner
-from .models import TITLE_KEY, ChatSession, SessionSummary
+from .models import LAST_MESSAGE_KEY, TITLE_KEY, ChatSession, SessionSummary
 from .storage import SessionMetadata, StorageBackend
 
 logger = logging.getLogger(__name__)
@@ -171,6 +171,7 @@ class ChatSessionRegistry:
             isolated_chroma=metadata.isolated_chroma,
             extraction_watermark=coerce_watermark(metadata.config.get(WATERMARK_KEY)),
             title=_optional_title(metadata.config.get(TITLE_KEY)),
+            last_message_at=_optional_timestamp(metadata.config.get(LAST_MESSAGE_KEY)),
         )
         with self._lock:
             self._sessions[session.thread_id] = session
@@ -296,6 +297,7 @@ class ChatSessionRegistry:
                     source_mode=session.source_mode,
                     source_urls=list(session.source_urls),
                     title=session.title,
+                    last_message_at=session.last_message_at,
                 )
                 for session in self._sessions.values()
                 if session.owner is not None and session.owner.authorizes(principal)
@@ -322,6 +324,23 @@ class ChatSessionRegistry:
             session_to_save = session
         self._save_metadata(session_to_save)
         return True
+
+    def record_message(self, thread_id: str) -> None:
+        """Stamp ``last_message_at`` with the current time and persist it.
+
+        Called only when a user message is actually sent, so the sidebar
+        timestamp reflects the last conversation activity rather than mere
+        browsing.
+        """
+
+        session_to_save: ChatSession | None = None
+        with self._lock:
+            session = self._sessions.get(thread_id)
+            if session is None:
+                return
+            session.last_message_at = self._time()
+            session_to_save = session
+        self._save_metadata(session_to_save)
 
     def cleanup_expired(self) -> int:
         if self._ttl_seconds is None:
@@ -421,6 +440,12 @@ class ChatSessionRegistry:
 
 def _optional_title(value: object) -> str | None:
     return str(value) if isinstance(value, str) and value.strip() else None
+
+
+def _optional_timestamp(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if value > 0 else None
 
 
 __all__ = [

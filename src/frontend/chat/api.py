@@ -175,6 +175,7 @@ def _serialize_messages(messages: Iterable[Any]) -> list[HistoryTurn]:
             role=turn.role,
             content=turn.content,
             artifacts=list(turn.artifacts),
+            attachments=list(turn.attachments),
         )
         for turn in serialize_history(messages)
     ]
@@ -331,6 +332,12 @@ def _graph_inputs_for_turn(
     from the transcript the history endpoint returns.
     """
 
+    # Consume the queued upload snapshots: they ride on this turn's human
+    # message (checkpointed), so later turns must not repeat them.
+    turn_attachments = list(getattr(session, "pending_turn_attachments", []) or [])
+    if turn_attachments:
+        session.pending_turn_attachments = []
+
     turn_messages: list[Any] = []
     if settings is not None:
         turn_messages = build_turn_messages(
@@ -338,6 +345,7 @@ def _graph_inputs_for_turn(
             thread_id=getattr(session, "thread_id", None),
             message=message,
             upload_note=_new_upload_context(session, settings),
+            attachments=turn_attachments,
         )
     else:
         turn_messages.append(HumanMessage(content=message))
@@ -811,6 +819,7 @@ def create_app(
         # Sidebar label: the first user query of the thread wins; later turns
         # are no-ops inside set_title.
         sessions.set_title(thread_id, request.message)
+        sessions.record_message(thread_id)
         settings = get_config(fastapi_request)
         service = _build_chat_application_service(
             settings=settings,
@@ -856,6 +865,7 @@ def create_app(
         if sessions.get_owned(thread_id, principal) is None:
             raise ResourceNotFoundError("Resource not found.")
         sessions.set_title(thread_id, request.message)
+        sessions.record_message(thread_id)
         service = _build_chat_application_service(
             settings=get_config(fastapi_request),
             sessions=sessions,
@@ -895,6 +905,7 @@ def create_app(
         sessions: SessionRegistryDep,
         principal: PrincipalDep,
         quotas: QuotaManagerDep,
+        purge_unsent: bool = False,
     ) -> HistoryResponse:
         if sessions.get_owned(thread_id, principal) is None:
             raise ResourceNotFoundError("Resource not found.")
@@ -910,7 +921,11 @@ def create_app(
             ),
             quotas=quotas,
         )
-        result = await service.history(thread_id, principal)
+        result = await service.history(
+            thread_id,
+            principal,
+            purge_unsent_attachments=purge_unsent,
+        )
         return HistoryResponse(
             thread_id=result.thread_id,
             turns=[
@@ -918,6 +933,7 @@ def create_app(
                     role=turn.role,
                     content=turn.content,
                     artifacts=list(turn.artifacts),
+                    attachments=list(turn.attachments),
                 )
                 for turn in result.turns
             ],
@@ -991,6 +1007,21 @@ def create_app(
         finally:
             lease.release()
         errors = [error for _, error in results if error is not None]
+        # Queue successful uploads as attachment snapshots for the next turn;
+        # the turn's human message carries them into the checkpoint so history
+        # can replay the file chips after a reload.
+        uploaded_now = [uploaded for uploaded, error in results if uploaded is not None]
+        if uploaded_now:
+            session_obj = sessions.get(thread_id)
+            if session_obj is not None:
+                session_obj.pending_turn_attachments.extend(
+                    {
+                        "filename": uploaded.filename,
+                        "relative_path": uploaded.relative_path,
+                        "size_bytes": uploaded.size_bytes,
+                    }
+                    for uploaded in uploaded_now
+                )
         # Return the session's full file list (filesystem = source of truth) so
         # the client can re-render the whole attachment strip. This mirrors the
         # DELETE endpoint: returning only this batch would wipe the chips from
@@ -1120,6 +1151,7 @@ def create_app(
                     thread_id=item.thread_id,
                     created_at=item.created_at,
                     last_accessed_at=item.last_accessed_at,
+                    last_message_at=item.last_message_at,
                     source_mode=item.source_mode,
                     source_urls=list(item.source_urls),
                     title=item.title,

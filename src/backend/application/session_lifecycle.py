@@ -294,10 +294,19 @@ class SessionLifecycleService:
         self,
         thread_id: str,
         principal: Principal | None = None,
+        *,
+        purge_unsent_attachments: bool = False,
     ) -> SessionHistory:
-        """Return visible checkpoint history for one authorized session."""
+        """Return visible checkpoint history for one authorized session.
+
+        With ``purge_unsent_attachments``, uploads that were stored but never
+        sent with a turn (queued snapshots plus their files on disk) are
+        deleted first, so a restored session starts with a clean input strip.
+        """
 
         session = self.require_session(thread_id, principal)
+        if purge_unsent_attachments:
+            self._purge_unsent_attachments(session)
         config = {"configurable": {"thread_id": thread_id}}
         snapshot = await asyncio.to_thread(session.graph.get_state, config)
         values = getattr(snapshot, "values", {}) or {}
@@ -308,6 +317,30 @@ class SessionLifecycleService:
             source_urls=tuple(session.source_urls),
             source_mode=session.source_mode,
         )
+
+    def _purge_unsent_attachments(self, session: Any) -> None:
+        """Delete queued-but-unsent upload snapshots and their files."""
+
+        pending = list(getattr(session, "pending_turn_attachments", []) or [])
+        session.pending_turn_attachments = []
+        if not pending or self._dependencies.upload_directory is None:
+            return
+        upload_dir = self._dependencies.upload_directory(self._settings, session.thread_id)
+        for item in pending:
+            filename = item.get("filename") if isinstance(item, dict) else None
+            if not filename:
+                continue
+            target = upload_dir / filename
+            try:
+                if target.is_file():
+                    target.unlink()
+            except OSError as exc:
+                logger.warning(
+                    "Could not purge unsent upload %r for %s: %s",
+                    filename,
+                    session.thread_id,
+                    exc,
+                )
 
     async def delete(
         self,
@@ -482,6 +515,7 @@ def serialize_history(messages: Iterable[Any]) -> tuple[HistoryEntry, ...]:
 
     turns: list[HistoryEntry] = []
     pending_artifacts: list[dict[str, Any]] = []
+    pending_attachments: tuple[dict[str, Any], ...] = ()
     for message in messages:
         kind = getattr(message, "type", None) or message.__class__.__name__.lower()
         content = getattr(message, "content", str(message))
@@ -502,6 +536,15 @@ def serialize_history(messages: Iterable[Any]) -> tuple[HistoryEntry, ...]:
             continue
         if role == "user":
             pending_artifacts = []
+            # Attachment snapshots ride on the human message's additional
+            # kwargs (queued by the upload endpoint); replay them as chips.
+            pending_attachments = tuple(
+                item
+                for item in (
+                    getattr(message, "additional_kwargs", {}) or {}
+                ).get("attachments", ())
+                if isinstance(item, dict)
+            )
         if role == "assistant" and (
             getattr(message, "tool_calls", None) or not str(content or "").strip()
         ):
@@ -511,6 +554,7 @@ def serialize_history(messages: Iterable[Any]) -> tuple[HistoryEntry, ...]:
                 role=role,
                 content=content if isinstance(content, str) else str(content),
                 artifacts=tuple(pending_artifacts) if role == "assistant" else (),
+                attachments=pending_attachments if role == "user" else (),
             )
         )
         if role == "assistant":

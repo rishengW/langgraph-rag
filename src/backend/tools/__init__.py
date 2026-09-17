@@ -128,6 +128,19 @@ from .sql_file import build_sql_file_tool
 from .statistics_tool import StatisticsInput, build_statistics_tool
 from .stock import StockInput, build_stock_tool
 from .summarize_tool import SummarizeUrlInput, build_summarize_url_tool
+from .toml_edit import (
+    TomlCreateInput,
+    TomlEditError,
+    TomlEditInput,
+    TomlEditOperation,
+    TomlInspectInput,
+    build_toml_edit_tools,
+    create_toml_file,
+    dump_toml,
+    edit_toml_file,
+    inspect_toml_file,
+)
+from .toml_file import TomlFileInput, build_toml_file_tool
 from .web_fetch_tool import WebFetchInput, build_web_fetch_tool
 from .swift_edit import build_swift_edit_tools
 from .swift_file import build_swift_file_tool
@@ -310,6 +323,8 @@ __all__ = [
     "build_stock_tool",
     "build_swift_edit_tools",
     "build_swift_file_tool",
+    "build_toml_edit_tools",
+    "build_toml_file_tool",
     "build_summarize_url_tool",
     "build_web_fetch_tool",
     "build_text_edit_tools",

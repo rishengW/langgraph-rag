@@ -157,6 +157,18 @@ from .xml_edit import (
     inspect_xml_file,
 )
 from .xml_file import XmlFileInput, build_xml_file_tool
+from .env_edit import (
+    EnvCreateInput,
+    EnvEditError,
+    EnvEditInput,
+    EnvEditOperation,
+    EnvInspectInput,
+    build_env_edit_tools,
+    create_env_file,
+    edit_env_file,
+    inspect_env_file,
+)
+from .env_file import EnvFileInput, build_env_file_tool
 from .swift_edit import build_swift_edit_tools
 from .swift_file import build_swift_file_tool
 from .text_edit import (
@@ -342,6 +354,8 @@ __all__ = [
     "build_toml_file_tool",
     "build_xml_edit_tools",
     "build_xml_file_tool",
+    "build_env_edit_tools",
+    "build_env_file_tool",
     "build_summarize_url_tool",
     "build_web_fetch_tool",
     "build_text_edit_tools",

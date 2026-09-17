@@ -198,6 +198,10 @@ class Settings:
     # with expected-value guards), layered on top of file_read_enabled.
     # Parsing uses the stdlib tomllib (Python 3.11+).
     toml_edit_enabled: bool = False
+    # XML .xml creation and structured editing (path-based set/delete/append
+    # with expected-value guards), layered on top of file_read_enabled.
+    # Parsing uses the stdlib xml.etree.ElementTree.
+    xml_edit_enabled: bool = False
     c_edit_enabled: bool = False
     # Per-language source creation and editing (R, Rust, Go, SQL, PHP, Ruby,
     # LaTeX, Prolog, Haskell, Lua, Julia, ...). Same session-scoped,

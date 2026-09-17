@@ -142,6 +142,21 @@ from .toml_edit import (
 )
 from .toml_file import TomlFileInput, build_toml_file_tool
 from .web_fetch_tool import WebFetchInput, build_web_fetch_tool
+from .xml_edit import (
+    XmlCreateInput,
+    XmlEditError,
+    XmlEditInput,
+    XmlEditOperation,
+    XmlInspectInput,
+    build_xml_edit_tools,
+    create_xml_file,
+    dict_to_element,
+    dump_xml,
+    edit_xml_file,
+    element_to_dict,
+    inspect_xml_file,
+)
+from .xml_file import XmlFileInput, build_xml_file_tool
 from .swift_edit import build_swift_edit_tools
 from .swift_file import build_swift_file_tool
 from .text_edit import (
@@ -325,6 +340,8 @@ __all__ = [
     "build_swift_file_tool",
     "build_toml_edit_tools",
     "build_toml_file_tool",
+    "build_xml_edit_tools",
+    "build_xml_file_tool",
     "build_summarize_url_tool",
     "build_web_fetch_tool",
     "build_text_edit_tools",

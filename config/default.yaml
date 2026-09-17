@@ -140,6 +140,9 @@ yaml_edit_enabled: false
 # TOML .toml creation and structured path-based editing. Needs
 # file_read_enabled too; session-scoped, never overwrites an existing file.
 toml_edit_enabled: false
+# XML .xml creation and structured path-based editing. Needs
+# file_read_enabled too; session-scoped, never overwrites an existing file.
+xml_edit_enabled: false
 # R / Rust / Go / SQL / PHP / Ruby / LaTeX source creation and editing.
 # Needs file_read_enabled too; same session-scoped, never-overwrite model as
 # the .txt editor.

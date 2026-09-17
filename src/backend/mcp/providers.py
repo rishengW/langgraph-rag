@@ -166,6 +166,7 @@ class BuiltinToolProvider(FactoryToolProvider):
                 (settings.number_theory_enabled, tools.build_number_theory_tool),
                 (settings.datetime_enabled, tools.build_datetime_tool),
                 (settings.summarize_url_enabled, tools.build_summarize_url_tool),
+                (settings.web_fetch_enabled, tools.build_web_fetch_tool),
             )
             for enabled, factory in factories:
                 if enabled:

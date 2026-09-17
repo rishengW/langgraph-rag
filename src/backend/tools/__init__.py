@@ -121,6 +121,7 @@ from .sql_file import build_sql_file_tool
 from .statistics_tool import StatisticsInput, build_statistics_tool
 from .stock import StockInput, build_stock_tool
 from .summarize_tool import SummarizeUrlInput, build_summarize_url_tool
+from .web_fetch_tool import WebFetchInput, build_web_fetch_tool
 from .swift_edit import build_swift_edit_tools
 from .swift_file import build_swift_file_tool
 from .text_edit import (
@@ -201,6 +202,7 @@ __all__ = [
     "SpreadsheetSheet",
     "StockInput",
     "SummarizeUrlInput",
+    "WebFetchInput",
     "TextCreateInput",
     "TextEditInput",
     "TextEditOperation",
@@ -299,6 +301,7 @@ __all__ = [
     "build_swift_edit_tools",
     "build_swift_file_tool",
     "build_summarize_url_tool",
+    "build_web_fetch_tool",
     "build_text_edit_tools",
     "build_markdown_edit_tools",
     "create_text_file",

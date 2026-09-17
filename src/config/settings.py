@@ -147,6 +147,7 @@ class Settings:
     number_theory_enabled: bool = False
     datetime_enabled: bool = False
     summarize_url_enabled: bool = False
+    web_fetch_enabled: bool = False
     file_read_enabled: bool = False
     file_read_root: str = "."
     file_read_max_bytes: int = 5_000_000

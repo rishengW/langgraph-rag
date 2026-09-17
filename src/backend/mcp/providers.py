@@ -186,6 +186,7 @@ class DocumentToolProvider(FactoryToolProvider):
             if not settings.file_read_enabled:
                 return ()
             return (
+                tools.build_list_files_tool(settings),
                 tools.build_c_file_tool(settings),
                 tools.build_text_file_tool(settings),
                 tools.build_markdown_file_tool(settings),
@@ -237,6 +238,9 @@ class SessionEditingToolProvider(FactoryToolProvider):
             return (
                 *tools.build_c_edit_tools(settings, session_root=session_root, thread_id=thread_id),
                 *tools.build_word_edit_tools(
+                    settings, session_root=session_root, thread_id=thread_id
+                ),
+                *tools.build_pdf_edit_tools(
                     settings, session_root=session_root, thread_id=thread_id
                 ),
                 *tools.build_text_edit_tools(

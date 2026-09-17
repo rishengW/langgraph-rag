@@ -56,6 +56,7 @@ from .json_edit import (
 from .json_file import JsonFileInput, build_json_file_tool
 from .jsonl_edit import build_jsonl_edit_tools
 from .julia_edit import build_julia_edit_tools
+from .list_files import ListFilesInput, build_list_files_tool
 from .julia_file import build_julia_file_tool
 from .latex_edit import build_latex_edit_tools
 from .latex_file import build_latex_file_tool
@@ -93,6 +94,12 @@ from .memory_tool import (
     build_save_memory_tool,
 )
 from .number_theory_tool import NumberTheoryInput, build_number_theory_tool
+from .pdf_edit import (
+    PdfEditInput,
+    PdfEditOperation,
+    build_pdf_edit_tools,
+    edit_pdf_document,
+)
 from .pdf_file import PdfFileInput, build_pdf_tool
 from .php_edit import build_php_edit_tools
 from .php_file import build_php_file_tool
@@ -187,6 +194,7 @@ __all__ = [
     "ExcelInspectInput",
     "ForgetMemoryInput",
     "LinearAlgebraInput",
+    "ListFilesInput",
     "MapInput",
     "MathInput",
     "NumberTheoryInput",
@@ -284,6 +292,7 @@ __all__ = [
     "build_excel_edit_tools",
     "build_forget_memory_tool",
     "build_linalg_tool",
+    "build_list_files_tool",
     "build_log_edit_tools",
     "build_log_file_tool",
     "build_map_tool",
@@ -294,6 +303,7 @@ __all__ = [
     "build_number_theory_tool",
     "build_recall_memory_tool",
     "build_save_memory_tool",
+    "build_pdf_edit_tools",
     "build_pdf_tool",
     "build_powerpoint_edit_tools",
     "build_statistics_tool",

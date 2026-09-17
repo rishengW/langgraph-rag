@@ -156,6 +156,10 @@ class Settings:
     # upload directory and never overwrite an existing file.
     word_edit_enabled: bool = False
     powerpoint_edit_enabled: bool = False
+    # PDF editing (annotations, watermarks, merge/extract, form fill). Off by
+    # default and opt-in on top of file_read_enabled. Like the other editors it
+    # writes a session-scoped copy and never overwrites the uploaded source.
+    pdf_edit_enabled: bool = False
     # Excel .xlsx creation. Uses a configured Node runtime and node_modules
     # directory containing @oai/artifact-tool; output stays session-scoped.
     excel_create_enabled: bool = False

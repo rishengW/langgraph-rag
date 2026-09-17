@@ -74,6 +74,8 @@ _AGENT_PROMPT_BODY = (
     "eigenvalues and solving Ax=b.\n"
     "- number_theory: prime factorization, primality, GCD/LCM, and base "
     "conversion.\n"
+    "- list_files: list the files and folders of the local document directory; "
+    "use before reading when the exact file name is unknown.\n"
     "- read_text_file: read a local .txt/.md/.log/.csv file's contents.\n"
     "- read_markdown_file: read a local Markdown .md file's contents.\n"
     "- read_word_document: extract text from a local Word .docx file.\n"

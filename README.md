@@ -176,10 +176,11 @@ Key settings:
 | `NUMBER_THEORY_ENABLED` | `false` | Number theory tool: factors, primes, GCD/LCM, bases (SymPy) |
 | `DATETIME_ENABLED` | `false` | Date math / timezone tool (stdlib) |
 | `SUMMARIZE_URL_ENABLED` | `false` | Single-URL fetch + summarize tool |
-| `FILE_READ_ENABLED` | `false` | Local file-reading tools (.txt/.md/.log/.csv, .docx, .xlsx, .pdf) + chat uploads; `.pptx` uploads also require `POWERPOINT_EDIT_ENABLED` |
+| `FILE_READ_ENABLED` | `false` | Local file-reading tools (.txt/.md/.log/.csv, .docx, .xlsx, .pdf) incl. `list_files` directory listing + chat uploads; `.pptx` uploads also require `POWERPOINT_EDIT_ENABLED` |
 | `FILE_READ_ROOT` | `.` | Root directory the file tools and uploads are confined to |
 | `FILE_READ_MAX_BYTES` | `5000000` | Maximum readable/uploadable file size in bytes |
 | `WORD_EDIT_ENABLED` | `false` | Word .docx creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
+| `PDF_EDIT_ENABLED` | `false` | PDF editing (annotations, watermarks, merge/extract, form fill, metadata); needs FILE_READ_ENABLED too; files stay in session uploads; watermark needs `reportlab` |
 | `POWERPOINT_EDIT_ENABLED` | `false` | PowerPoint .pptx inspection/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `EXCEL_CREATE_ENABLED` | `false` | Excel .xlsx creation; needs FILE_READ_ENABLED and the artifact-tool Node runtime |
 | `EXCEL_EDIT_ENABLED` | `false` | Excel .xlsx editing (openpyxl); needs FILE_READ_ENABLED too; files stay in session uploads |
@@ -360,6 +361,7 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `inspect_excel_spreadsheet` | `src/backend/tools/excel_edit.py` | `FILE_READ_ENABLED=true` and `EXCEL_EDIT_ENABLED=true` | List worksheets, cells, values, and formulas of a session-uploaded .xlsx |
 | `edit_excel_spreadsheet` | `src/backend/tools/excel_edit.py` | `FILE_READ_ENABLED=true` and `EXCEL_EDIT_ENABLED=true` | Apply expected-value-checked cell, formula, row/column, worksheet, and format edits to a session-uploaded .xlsx; creates a new file |
 | `read_pdf` | `src/backend/tools/pdf_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .pdf in `FILE_READ_ROOT` (needs `pypdf`) |
+| `edit_pdf_document` | `src/backend/tools/pdf_edit.py` | `FILE_READ_ENABLED=true` and `PDF_EDIT_ENABLED=true` | Create an edited copy of a session-uploaded .pdf: annotations, diagonal text watermark (needs `reportlab`), merge another PDF, extract pages, fill AcroForm fields, set metadata |
 | `create_word_document` | `src/backend/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Create a formatted .docx in the current session with headings, lists, and tables |
 | `inspect_word_document` | `src/backend/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | List numbered paragraphs and table cells of a session-uploaded .docx |
 | `edit_word_document` | `src/backend/tools/word_edit.py` | `FILE_READ_ENABLED=true` and `WORD_EDIT_ENABLED=true` | Apply structured edits to a session-uploaded .docx; creates a new file |

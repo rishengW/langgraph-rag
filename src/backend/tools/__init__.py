@@ -185,6 +185,22 @@ from .properties_file import (
     build_properties_file_tool,
     read_properties_file,
 )
+from .ini_edit import (
+    IniCreateInput,
+    IniEditError,
+    IniEditInput,
+    IniEditOperation,
+    IniInspectInput,
+    build_ini_edit_tools,
+    create_ini_file,
+    edit_ini_file,
+    inspect_ini_file,
+)
+from .ini_file import (
+    IniFileInput,
+    build_ini_file_tool,
+    read_ini_file,
+)
 from .swift_edit import build_swift_edit_tools
 from .swift_file import build_swift_file_tool
 from .text_edit import (
@@ -374,6 +390,8 @@ __all__ = [
     "build_env_file_tool",
     "build_properties_edit_tools",
     "build_properties_file_tool",
+    "build_ini_edit_tools",
+    "build_ini_file_tool",
     "build_summarize_url_tool",
     "build_web_fetch_tool",
     "build_text_edit_tools",

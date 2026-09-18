@@ -149,6 +149,9 @@ env_edit_enabled: false
 # Java .properties creation and key-based editing. Needs
 # file_read_enabled too; session-scoped, never overwrites an existing file.
 properties_edit_enabled: false
+# INI .ini/.cfg/.conf creation and section.key-based editing. Needs
+# file_read_enabled too; session-scoped, never overwrites an existing file.
+ini_edit_enabled: false
 # R / Rust / Go / SQL / PHP / Ruby / LaTeX source creation and editing.
 # Needs file_read_enabled too; same session-scoped, never-overwrite model as
 # the .txt editor.

@@ -211,6 +211,11 @@ class Settings:
     # grammar: key=value / key:value with # and ! comments; formatting and
     # comments are preserved.
     properties_edit_enabled: bool = False
+    # INI (.ini/.cfg/.conf) creation and section.key-based editing
+    # (set/delete with expected-value guards), layered on top of
+    # file_read_enabled. Line grammar: [section] headers, key=value or
+    # key:value pairs, # and ; comments; formatting is preserved.
+    ini_edit_enabled: bool = False
     c_edit_enabled: bool = False
     # Per-language source creation and editing (R, Rust, Go, SQL, PHP, Ruby,
     # LaTeX, Prolog, Haskell, Lua, Julia, ...). Same session-scoped,

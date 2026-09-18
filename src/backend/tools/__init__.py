@@ -169,6 +169,22 @@ from .env_edit import (
     inspect_env_file,
 )
 from .env_file import EnvFileInput, build_env_file_tool
+from .properties_edit import (
+    PropertiesCreateInput,
+    PropertiesEditError,
+    PropertiesEditInput,
+    PropertiesEditOperation,
+    PropertiesInspectInput,
+    build_properties_edit_tools,
+    create_properties_file,
+    edit_properties_file,
+    inspect_properties_file,
+)
+from .properties_file import (
+    PropertiesFileInput,
+    build_properties_file_tool,
+    read_properties_file,
+)
 from .swift_edit import build_swift_edit_tools
 from .swift_file import build_swift_file_tool
 from .text_edit import (
@@ -356,6 +372,8 @@ __all__ = [
     "build_xml_file_tool",
     "build_env_edit_tools",
     "build_env_file_tool",
+    "build_properties_edit_tools",
+    "build_properties_file_tool",
     "build_summarize_url_tool",
     "build_web_fetch_tool",
     "build_text_edit_tools",

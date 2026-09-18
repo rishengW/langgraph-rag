@@ -206,6 +206,11 @@ class Settings:
     # guards), layered on top of file_read_enabled. Line grammar:
     # KEY=VALUE with # comments; formatting and comments are preserved.
     env_edit_enabled: bool = False
+    # Java .properties creation and key-based editing (set/delete with
+    # expected-value guards), layered on top of file_read_enabled. Line
+    # grammar: key=value / key:value with # and ! comments; formatting and
+    # comments are preserved.
+    properties_edit_enabled: bool = False
     c_edit_enabled: bool = False
     # Per-language source creation and editing (R, Rust, Go, SQL, PHP, Ruby,
     # LaTeX, Prolog, Haskell, Lua, Julia, ...). Same session-scoped,

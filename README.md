@@ -195,6 +195,7 @@ Key settings:
 | `TOML_EDIT_ENABLED` | `false` | TOML .toml creation and structured path-based editing (stdlib tomllib); needs FILE_READ_ENABLED too |
 | `XML_EDIT_ENABLED` | `false` | XML .xml creation and structured path-based editing (stdlib ElementTree; attributes as `@name`, text as `#text`); needs FILE_READ_ENABLED too |
 | `ENV_EDIT_ENABLED` | `false` | .env/.env.local/.env.example creation and key-based editing (comments and formatting preserved); needs FILE_READ_ENABLED too |
+| `PROPERTIES_EDIT_ENABLED` | `false` | Java .properties creation and key-based editing (`#`/`!` comments, `key=value` or `key:value`; comments and formatting preserved); needs FILE_READ_ENABLED too |
 | `R_EDIT_ENABLED` | `false` | R .r creation/editing; needs FILE_READ_ENABLED too |
 | `RUST_EDIT_ENABLED` | `false` | Rust .rs creation/editing; needs FILE_READ_ENABLED too |
 | `GO_EDIT_ENABLED` | `false` | Go .go creation/editing; needs FILE_READ_ENABLED too |

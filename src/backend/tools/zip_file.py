@@ -21,7 +21,7 @@ from ._files import FileAccessError, resolve_safe_path
 if TYPE_CHECKING:
     from src.config import Settings
 
-_SUFFIXES = (".zip",)
+_SUFFIXES = (".zip", ".whl")
 # Cap returned characters so a large entry does not blow up the LLM context.
 _MAX_CHARS = 20_000
 # Upper bound on the entry listing so a huge archive stays bounded.
@@ -37,9 +37,9 @@ class ZipFileInput(BaseModel):
         ...,
         min_length=1,
         description=(
-            "Path to a .zip archive, relative to the configured file-read "
-            "root directory. This also covers archives uploaded to the "
-            "current chat session (under chat_uploads/<thread-id>/)."
+            "Path to a .zip or .whl archive, relative to the configured "
+            "file-read root directory. This also covers archives uploaded "
+            "to the current chat session (under chat_uploads/<thread-id>/)."
         ),
     )
     max_chars: int = Field(
@@ -57,9 +57,9 @@ class ZipEntryInput(BaseModel):
         ...,
         min_length=1,
         description=(
-            "Path to a .zip archive, relative to the configured file-read "
-            "root directory (including files uploaded to the current chat "
-            "session)."
+            "Path to a .zip or .whl archive, relative to the configured "
+            "file-read root directory (including files uploaded to the "
+            "current chat session)."
         ),
     )
     entry: str = Field(
@@ -106,7 +106,7 @@ def build_zip_tools(
         func=_run_inspect,
         name="inspect_zip_file",
         description=(
-            "List the entries of a .zip archive from the local document "
+            "List the entries of a .zip or .whl archive from the local document "
             "directory (including files uploaded to the current chat "
             "session), with sizes. Call this before read_zip_entry to get "
             "the exact entry names."
@@ -117,7 +117,7 @@ def build_zip_tools(
         func=_run_read,
         name="read_zip_entry",
         description=(
-            "Read one text entry from inside a .zip archive without "
+            "Read one text entry from inside a .zip or .whl archive without "
             "extracting it. Pass the exact entry name shown by "
             "inspect_zip_file. Binary entries (images, executables, "
             "office documents) are described but not shown. Returns the "

@@ -358,8 +358,8 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `read_julia_file` | `src/backend/tools/julia_file.py` | `FILE_READ_ENABLED=true` | Read a Julia .jl file from `FILE_READ_ROOT` (including session uploads) |
 | `read_shell_file` | `src/backend/tools/shell_file.py` | `FILE_READ_ENABLED=true` | Read a shell .sh/.bash script from `FILE_READ_ROOT` (including session uploads) |
 | `read_matlab_file` | `src/backend/tools/matlab_file.py` | `FILE_READ_ENABLED=true` | Read a MATLAB .m file from `FILE_READ_ROOT` (including session uploads) |
-| `inspect_zip_file` | `src/backend/tools/zip_file.py` | `FILE_READ_ENABLED=true` | List entries (with sizes) of a .zip archive from `FILE_READ_ROOT` (including session uploads) |
-| `read_zip_entry` | `src/backend/tools/zip_file.py` | `FILE_READ_ENABLED=true` | Read one text entry from inside a .zip without extracting it; bomb-guarded, binary entries described not shown |
+| `inspect_zip_file` | `src/backend/tools/zip_file.py` | `FILE_READ_ENABLED=true` | List entries (with sizes) of a .zip or .whl archive from `FILE_READ_ROOT` (including session uploads) |
+| `read_zip_entry` | `src/backend/tools/zip_file.py` | `FILE_READ_ENABLED=true` | Read one text entry from inside a .zip or .whl without extracting it; bomb-guarded, binary entries described not shown |
 | `read_word_document` | `src/backend/tools/word_file.py` | `FILE_READ_ENABLED=true` | Extract text from a .docx in `FILE_READ_ROOT` |
 | `read_excel_spreadsheet` | `src/backend/tools/excel_file.py` | `FILE_READ_ENABLED=true` | Read .xlsx rows from `FILE_READ_ROOT` (needs `openpyxl`) |
 | `create_excel_spreadsheet` | `src/backend/tools/excel_create.py` | `FILE_READ_ENABLED=true` and `EXCEL_CREATE_ENABLED=true` | Create a styled, formula-capable .xlsx workbook in the current session |
@@ -508,7 +508,7 @@ Chat sessions survive app restarts. Sessions with explicit URLs use isolated per
 
 ## File Uploads and Reading
 
-Chat mode can read local files through the file-reading agent tools — plain text, Markdown, Word, Excel, and PDF readers, plus per-language source readers (TypeScript, JSON/JSONL, YAML, C, Python, Java, JavaScript, HTML, R, Rust, Go, Groovy, SQL, Swift, PHP, Ruby, LaTeX, Prolog, Haskell, Lua, Julia, shell, MATLAB, log) and zip archives. When PowerPoint editing is enabled, the chat UI can also upload `.pptx` files for the `inspect_powerpoint` and `edit_powerpoint` tools. File uploads are gated by `FILE_READ_ENABLED` (default `false`), and `.pptx` uploads additionally require `POWERPOINT_EDIT_ENABLED=true`.
+Chat mode can read local files through the file-reading agent tools — plain text, Markdown, Word, Excel, and PDF readers, plus per-language source readers (TypeScript, JSON/JSONL, YAML, C, Python, Java, JavaScript, HTML, R, Rust, Go, Groovy, SQL, Swift, PHP, Ruby, LaTeX, Prolog, Haskell, Lua, Julia, shell, MATLAB, log) and zip archives (.zip, .whl). When PowerPoint editing is enabled, the chat UI can also upload `.pptx` files for the `inspect_powerpoint` and `edit_powerpoint` tools. File uploads are gated by `FILE_READ_ENABLED` (default `false`), and `.pptx` uploads additionally require `POWERPOINT_EDIT_ENABLED=true`.
 
 ### Enabling
 

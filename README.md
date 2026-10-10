@@ -37,7 +37,7 @@ langgraph-rag/
 |   |   |-- rag/                  # Chroma retriever, embeddings (DashScope, HuggingFace), document loader/quality
 |   |   |-- security/             # Principals, quota budgets and manager
 |   |   |-- sessions/             # Chat session registry, SQLite metadata + checkpoint persistence
-|   |   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, live web search, file readers, document editors, long-term memory) + shared HTTP and geocoding helpers
+|   |   |-- tools/                # Optional agent tools (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, web-fetch, live web search, file readers, document editors, long-term memory) + shared HTTP and geocoding helpers
 |   |   |-- web_search/           # Search APIs + HTML fallbacks, discovery, ranking, fetching (HTML/PDF/JS), structural + semantic filtering, domain reputation
 |   |-- frontend/
 |       |-- api/                  # Shared FastAPI helpers (auth, CORS, errors, streaming, AMap proxy)
@@ -176,7 +176,8 @@ Key settings:
 | `NUMBER_THEORY_ENABLED` | `false` | Number theory tool: factors, primes, GCD/LCM, bases (SymPy) |
 | `DATETIME_ENABLED` | `false` | Date math / timezone tool (stdlib) |
 | `SUMMARIZE_URL_ENABLED` | `false` | Single-URL fetch + summarize tool |
-| `FILE_READ_ENABLED` | `false` | Local file-reading tools (.txt/.md/.log/.csv, .docx, .xlsx, .pdf) incl. `list_files` directory listing + chat uploads; `.pptx` uploads also require `POWERPOINT_EDIT_ENABLED` |
+| `WEB_FETCH_ENABLED` | `false` | Single-URL fetch tool returning the page's readable content directly (no LLM pass) |
+| `FILE_READ_ENABLED` | `false` | Local file-reading tools (text, office, PDF, per-language source, structured-config, and zip readers) incl. `list_files` directory listing + chat uploads; `.pptx` uploads also require `POWERPOINT_EDIT_ENABLED` |
 | `FILE_READ_ROOT` | `.` | Root directory the file tools and uploads are confined to |
 | `FILE_READ_MAX_BYTES` | `5000000` | Maximum readable/uploadable file size in bytes |
 | `WORD_EDIT_ENABLED` | `false` | Word .docx creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
@@ -188,6 +189,7 @@ Key settings:
 | `EXCEL_NODE_MODULES_PATH` | - | Loader-provided `node_modules` directory containing `@oai/artifact-tool` |
 | `TEXT_EDIT_ENABLED` | `false` | Plain-text .txt creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `MARKDOWN_EDIT_ENABLED` | `false` | Markdown .md creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
+| `CSV_EDIT_ENABLED` | `false` | CSV .csv creation/editing with row/cell operations (stdlib `csv` quoting); needs FILE_READ_ENABLED too; files stay in session uploads |
 | `TYPESCRIPT_EDIT_ENABLED` | `false` | TypeScript .ts/.tsx creation/editing; needs FILE_READ_ENABLED too; files stay in session uploads |
 | `JSON_EDIT_ENABLED` | `false` | JSON .json creation and structured path-based editing; needs FILE_READ_ENABLED too |
 | `JSONL_EDIT_ENABLED` | `false` | JSONL .jsonl creation/editing (every line must parse as JSON); needs FILE_READ_ENABLED too |
@@ -332,16 +334,22 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `number_theory` | `src/backend/tools/number_theory_tool.py` | `NUMBER_THEORY_ENABLED=true` | Factorization, primality, GCD/LCM, base conversion (SymPy) |
 | `calculate_datetime` | `src/backend/tools/datetime_tool.py` | `DATETIME_ENABLED=true` | Date math, timezone conversion, weekdays (stdlib), no API key |
 | `summarize_url` | `src/backend/tools/summarize_tool.py` | `SUMMARIZE_URL_ENABLED=true` | Fetch one URL and summarize it (reuses web-search fetcher + LLM) |
+| `web_fetch` | `src/backend/tools/web_fetch_tool.py` | `WEB_FETCH_ENABLED=true` | Fetch one URL and return its readable content directly, no LLM pass (reuses the web-search fetcher) |
 | `read_text_file` | `src/backend/tools/text_file.py` | `FILE_READ_ENABLED=true` | Read .txt/.md/.log/.csv from `FILE_READ_ROOT` |
 | `read_markdown_file` | `src/backend/tools/markdown_file.py` | `FILE_READ_ENABLED=true` | Read a Markdown .md from `FILE_READ_ROOT` (including session uploads) |
 | `read_typescript_file` | `src/backend/tools/typescript_file.py` | `FILE_READ_ENABLED=true` | Read a TypeScript .ts/.tsx from `FILE_READ_ROOT` (including session uploads) |
 | `read_json_file` | `src/backend/tools/json_file.py` | `FILE_READ_ENABLED=true` | Read a .json or .jsonl from `FILE_READ_ROOT` (including session uploads) |
 | `read_yaml_file` | `src/backend/tools/yaml_file.py` | `FILE_READ_ENABLED=true` | Read a .yaml or .yml from `FILE_READ_ROOT` (including session uploads) |
-| `read_c_file` | `src/backend/tools/c_file.py` | `FILE_READ_ENABLED=true` | Read a C .c/.h file from `FILE_READ_ROOT` (including session uploads) |
-| `read_python_file` | `src/backend/tools/python_file.py` | `FILE_READ_ENABLED=true` | Read a Python .py file from `FILE_READ_ROOT` (including session uploads) |
-| `read_java_file` | `src/backend/tools/java_file.py` | `FILE_READ_ENABLED=true` | Read a Java .java file from `FILE_READ_ROOT` (including session uploads) |
-| `read_javascript_file` | `src/backend/tools/javascript_file.py` | `FILE_READ_ENABLED=true` | Read a JavaScript .js/.mjs/.cjs file from `FILE_READ_ROOT` (including session uploads) |
-| `read_html_file` | `src/backend/tools/html_file.py` | `FILE_READ_ENABLED=true` | Read an HTML .html/.htm file from `FILE_READ_ROOT` (including session uploads) |
+| `read_toml_file` | `src/backend/tools/toml_file.py` | `FILE_READ_ENABLED=true` | Read a TOML .toml file from `FILE_READ_ROOT` |
+| `read_xml_file` | `src/backend/tools/xml_file.py` | `FILE_READ_ENABLED=true` | Read an XML .xml file from `FILE_READ_ROOT` |
+| `read_env_file` | `src/backend/tools/env_file.py` | `FILE_READ_ENABLED=true` | Read a .env-style file (.env/.env.local/.env.example) from `FILE_READ_ROOT`; the protected exact names `.env`/`.env.local` stay refused |
+| `read_properties_file` | `src/backend/tools/properties_file.py` | `FILE_READ_ENABLED=true` | Read a Java .properties file from `FILE_READ_ROOT` |
+| `read_ini_file` | `src/backend/tools/ini_file.py` | `FILE_READ_ENABLED=true` | Read an INI .ini/.cfg/.conf file from `FILE_READ_ROOT` |
+| `read_c_file` | `src/backend/tools/c_file.py` | `FILE_READ_ENABLED=true` | Read a C .c/.h file from `FILE_READ_ROOT` |
+| `read_python_file` | `src/backend/tools/python_file.py` | `FILE_READ_ENABLED=true` | Read a Python .py file from `FILE_READ_ROOT` |
+| `read_java_file` | `src/backend/tools/java_file.py` | `FILE_READ_ENABLED=true` | Read a Java .java file from `FILE_READ_ROOT` |
+| `read_javascript_file` | `src/backend/tools/javascript_file.py` | `FILE_READ_ENABLED=true` | Read a JavaScript .js/.mjs/.cjs file from `FILE_READ_ROOT` |
+| `read_html_file` | `src/backend/tools/html_file.py` | `FILE_READ_ENABLED=true` | Read an HTML .html/.htm file from `FILE_READ_ROOT` |
 | `read_r_file` | `src/backend/tools/r_file.py` | `FILE_READ_ENABLED=true` | Read an R .r file from `FILE_READ_ROOT` (including session uploads) |
 | `read_rust_file` | `src/backend/tools/rust_file.py` | `FILE_READ_ENABLED=true` | Read a Rust .rs file from `FILE_READ_ROOT` (including session uploads) |
 | `read_go_file` | `src/backend/tools/go_file.py` | `FILE_READ_ENABLED=true` | Read a Go .go file from `FILE_READ_ROOT` (including session uploads) |
@@ -390,6 +398,12 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `inspect_yaml_file` | `src/backend/tools/yaml_edit.py` | `FILE_READ_ENABLED=true` and `YAML_EDIT_ENABLED=true` | List documented paths and values of a session-uploaded .yaml/.yml |
 | `edit_yaml_file` | `src/backend/tools/yaml_edit.py` | `FILE_READ_ENABLED=true` and `YAML_EDIT_ENABLED=true` | Apply expected-checked path-based set/delete/append edits to a session-uploaded .yaml/.yml; creates a new file |
 | `create_yaml_file` | `src/backend/tools/yaml_edit.py` | `FILE_READ_ENABLED=true` and `YAML_EDIT_ENABLED=true` | Create a new UTF-8 .yaml/.yml (must parse as valid YAML) in the current chat session |
+| `inspect_csv_file` / `edit_csv_file` / `create_csv_file` | `src/backend/tools/csv_edit.py` | `FILE_READ_ENABLED=true` and `CSV_EDIT_ENABLED=true` | Row/cell-oriented create/inspect/edit for session-uploaded .csv files (stdlib `csv` quoting); creates a new file |
+| `inspect_toml_file` / `edit_toml_file` / `create_toml_file` | `src/backend/tools/toml_edit.py` | `FILE_READ_ENABLED=true` and `TOML_EDIT_ENABLED=true` | Structured path-based create/inspect/edit for .toml (stdlib tomllib); creates a new file |
+| `inspect_xml_file` / `edit_xml_file` / `create_xml_file` | `src/backend/tools/xml_edit.py` | `FILE_READ_ENABLED=true` and `XML_EDIT_ENABLED=true` | Structured path-based create/inspect/edit for .xml (stdlib ElementTree; attributes as `@name`, text as `#text`); creates a new file |
+| `inspect_env_file` / `edit_env_file` / `create_env_file` | `src/backend/tools/env_edit.py` | `FILE_READ_ENABLED=true` and `ENV_EDIT_ENABLED=true` | Key-based create/inspect/edit for .env-style files (`KEY=VALUE`, `#` comments); comments and formatting preserved; creates a new file |
+| `inspect_properties_file` / `edit_properties_file` / `create_properties_file` | `src/backend/tools/properties_edit.py` | `FILE_READ_ENABLED=true` and `PROPERTIES_EDIT_ENABLED=true` | Key-based create/inspect/edit for Java .properties (`#`/`!` comments, `key=value` or `key:value`); creates a new file |
+| `inspect_ini_file` / `edit_ini_file` / `create_ini_file` | `src/backend/tools/ini_edit.py` | `FILE_READ_ENABLED=true` and `INI_EDIT_ENABLED=true` | Section.key-based create/inspect/edit for .ini/.cfg/.conf (`#`/`;` comments); creates a new file |
 | `inspect_r_file` / `edit_r_file` / `create_r_file` | `src/backend/tools/r_edit.py` | `FILE_READ_ENABLED=true` and `R_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .r files; creates a new file |
 | `inspect_rust_file` / `edit_rust_file` / `create_rust_file` | `src/backend/tools/rust_edit.py` | `FILE_READ_ENABLED=true` and `RUST_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .rs files; creates a new file |
 | `inspect_go_file` / `edit_go_file` / `create_go_file` | `src/backend/tools/go_edit.py` | `FILE_READ_ENABLED=true` and `GO_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .go files; creates a new file |
@@ -415,7 +429,7 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `recall_memory` | `src/backend/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Look up what is already remembered about the user by keyword; used before answering questions about the user not covered in the current conversation |
 | `forget_memory` | `src/backend/tools/memory_tool.py` | `MEMORY_ENABLED=true` | Delete stored memories by id or keyword when the user asks to forget something |
 
-When the agent calls a non-web-search tool in the lightweight graph (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, or a file reader), the post-tool edge routes back to the agent so it can synthesize the structured tool output into a final answer — bypassing the `decompose → search_queries → merge → web_answer` chain that's specific to `live_web_search`.
+When the agent calls a non-web-search tool in the lightweight graph (weather, stock, currency, Wikipedia, directions, map, math, statistics, linear algebra, number theory, datetime, summarize-url, web-fetch, or a file reader), the post-tool edge routes back to the agent so it can synthesize the structured tool output into a final answer — bypassing the `decompose → search_queries → merge → web_answer` chain that's specific to `live_web_search`.
 
 ### LLM Provider Seam
 
@@ -477,8 +491,9 @@ API endpoints:
 | `POST` | `/chat` | Create a thread |
 | `POST` | `/chat/{id}/message` | Send a turn |
 | `POST` | `/chat/{id}/message/stream` | SSE stream: node events + per-token answer deltas (`?tokens=false` for node events only) |
-| `POST` | `/chat/{id}/upload` | Upload files (.txt/.md/.log/.csv, .docx, .xlsx, .pdf; .pptx when PowerPoint editing is enabled) for the thread's file tools |
+| `POST` | `/chat/{id}/upload` | Upload files for the thread's file tools (.txt/.md/.log/.csv, .docx, .xlsx, .pdf, .zip, and the uploadable source formats; .pptx only when PowerPoint editing is enabled — exact suffix list under [File Uploads and Reading](#file-uploads-and-reading)) |
 | `GET` | `/chat/{id}/files/{filename}` | Download a session-scoped file (uploaded source or created/edited artifact) |
+| `DELETE` | `/chat/{id}/files/{filename}` | Delete one session-scoped upload so the model can no longer read it; returns the thread's remaining files |
 | `GET` | `/chat/{id}/history` | Read transcript |
 | `GET` | `/chat/sessions` | List the caller's chat sessions for the sidebar (ids, titles, timestamps, source mode/URLs), most recently used first |
 | `DELETE` | `/chat/{id}` | Delete a thread (also removes the thread's uploaded files) |
@@ -508,7 +523,9 @@ Chat sessions survive app restarts. Sessions with explicit URLs use isolated per
 
 ## File Uploads and Reading
 
-Chat mode can read local files through the file-reading agent tools — plain text, Markdown, Word, Excel, and PDF readers, plus per-language source readers (TypeScript, JSON/JSONL, YAML, C, Python, Java, JavaScript, HTML, R, Rust, Go, Groovy, SQL, Swift, PHP, Ruby, LaTeX, Prolog, Haskell, Lua, Julia, shell, MATLAB, log) and zip archives (.zip, .whl). When PowerPoint editing is enabled, the chat UI can also upload `.pptx` files for the `inspect_powerpoint` and `edit_powerpoint` tools. File uploads are gated by `FILE_READ_ENABLED` (default `false`), and `.pptx` uploads additionally require `POWERPOINT_EDIT_ENABLED=true`.
+Chat mode can read local files through the file-reading agent tools — plain text, Markdown, Word, Excel, and PDF readers, per-language source readers (TypeScript, JSON/JSONL, YAML, C, Python, Java, JavaScript, HTML, R, Rust, Go, Groovy, SQL, Swift, PHP, Ruby, LaTeX, Prolog, Haskell, Lua, Julia, shell, MATLAB, log), structured-config readers (TOML, XML, .env-style, Java .properties, INI), and zip archives (.zip, .whl). When PowerPoint editing is enabled, the chat UI can also upload `.pptx` files for the `inspect_powerpoint` and `edit_powerpoint` tools. File uploads are gated by `FILE_READ_ENABLED` (default `false`), and `.pptx` uploads additionally require `POWERPOINT_EDIT_ENABLED=true`.
+
+The upload endpoint accepts `.txt`, `.md`, `.log`, `.csv`, `.docx`, `.xlsx`, `.pdf`, `.zip`, and the source formats `.ts`/`.tsx`, `.json`/`.jsonl`, `.yaml`/`.yml`, `.r`, `.rs`, `.go`, `.sql`, `.php`, `.rb`, `.tex`, `.pl`, `.hs`, `.lua`, `.jl`, `.sh`/`.bash`, `.m`, `.groovy`, `.swift` (plus `.pptx` when enabled). The remaining readable types — `.toml`, `.xml`, `.env`-style, `.properties`, `.ini`/`.cfg`/`.conf`, `.whl`, and the C/Python/Java/JavaScript/HTML sources (`.c`/`.h`, `.py`, `.java`, `.js`/`.mjs`/`.cjs`, `.html`/`.htm`) — are not accepted for upload; place them under `FILE_READ_ROOT` and reference them by path instead.
 
 ### Enabling
 
@@ -517,16 +534,29 @@ FILE_READ_ENABLED=true
 FILE_READ_ROOT=./uploads        # directory the tools and uploads are confined to
 FILE_READ_MAX_BYTES=5000000     # per-file size cap
 WORD_EDIT_ENABLED=true          # optional session-scoped .docx creation/editing
+PDF_EDIT_ENABLED=true           # optional session-scoped .pdf editing
 POWERPOINT_EDIT_ENABLED=true    # optional session-scoped .pptx inspection/editing
 EXCEL_CREATE_ENABLED=true       # optional session-scoped .xlsx creation
 EXCEL_NODE_EXECUTABLE=/path/to/loader/node
 EXCEL_NODE_MODULES_PATH=/path/to/loader/node_modules
+EXCEL_EDIT_ENABLED=true         # optional session-scoped .xlsx editing
 TEXT_EDIT_ENABLED=true          # optional session-scoped .txt creation/editing
 MARKDOWN_EDIT_ENABLED=true      # optional session-scoped .md creation/editing
+CSV_EDIT_ENABLED=true           # optional session-scoped .csv creation/editing
 TYPESCRIPT_EDIT_ENABLED=true    # optional session-scoped .ts/.tsx creation/editing
 JSON_EDIT_ENABLED=true          # optional session-scoped .json creation/editing
 JSONL_EDIT_ENABLED=true         # optional session-scoped .jsonl creation/editing
-YAML_EDIT_ENABLED=true           # optional session-scoped .yaml/.yml creation/editing
+YAML_EDIT_ENABLED=true          # optional session-scoped .yaml/.yml creation/editing
+TOML_EDIT_ENABLED=true          # optional session-scoped .toml creation/editing
+XML_EDIT_ENABLED=true           # optional session-scoped .xml creation/editing
+ENV_EDIT_ENABLED=true           # optional session-scoped .env-style creation/editing
+PROPERTIES_EDIT_ENABLED=true    # optional session-scoped .properties creation/editing
+INI_EDIT_ENABLED=true           # optional session-scoped .ini/.cfg/.conf creation/editing
+C_EDIT_ENABLED=true             # optional session-scoped .c/.h creation/editing
+PYTHON_EDIT_ENABLED=true        # optional session-scoped .py creation/editing
+JAVA_EDIT_ENABLED=true          # optional session-scoped .java creation/editing
+JAVASCRIPT_EDIT_ENABLED=true    # optional session-scoped .js/.mjs/.cjs creation/editing
+HTML_EDIT_ENABLED=true          # optional session-scoped .html/.htm creation/editing
 R_EDIT_ENABLED=true             # optional session-scoped .r creation/editing
 RUST_EDIT_ENABLED=true          # optional session-scoped .rs creation/editing
 GO_EDIT_ENABLED=true            # optional session-scoped .go creation/editing
@@ -556,6 +586,12 @@ Set `FILE_READ_ROOT` to a dedicated directory rather than the project root so th
 | `read_word_document` | `.docx` (legacy binary `.doc` is not supported) |
 | `read_excel_spreadsheet` | `.xlsx` (legacy `.xls` is not supported) |
 | `read_pdf` | `.pdf` (scanned/image-only PDFs without a text layer cannot be read) |
+| `read_toml_file` | `.toml` (not uploadable; read from `FILE_READ_ROOT`) |
+| `read_xml_file` | `.xml` (not uploadable; read from `FILE_READ_ROOT`) |
+| `read_env_file` | `.env`, `.env.local`, `.env.example` (not uploadable; read from `FILE_READ_ROOT`) |
+| `read_properties_file` | `.properties` (not uploadable; read from `FILE_READ_ROOT`) |
+| `read_ini_file` | `.ini`, `.cfg`, `.conf` (not uploadable; read from `FILE_READ_ROOT`) |
+| `inspect_zip_file` / `read_zip_entry` | `.zip`, `.whl` (only `.zip` is uploadable) |
 | `inspect_powerpoint` / `edit_powerpoint` | `.pptx` (session-scoped inspection/editing when enabled) |
 
 `read_pdf` is for local files only and refuses URLs. PDFs found on the web are handled by the web-search fetch path and the `summarize_url` tool instead, which download and extract them with the same `pypdf` backend.
@@ -578,7 +614,7 @@ Shape locations are zero-based paths. A top-level shape is addressed as `shape_p
 ### Security model
 
 - Uploads and reads require `FILE_READ_ENABLED=true`; otherwise both are refused.
-- Word creation and edits additionally require `WORD_EDIT_ENABLED=true`; PowerPoint uploads and edits require `POWERPOINT_EDIT_ENABLED=true`; Excel creation requires `EXCEL_CREATE_ENABLED=true`; text creation and edits require `TEXT_EDIT_ENABLED=true`; Markdown creation and edits require `MARKDOWN_EDIT_ENABLED=true`; TypeScript creation and edits require `TYPESCRIPT_EDIT_ENABLED=true`; JSON requires `JSON_EDIT_ENABLED=true`, JSONL `JSONL_EDIT_ENABLED=true`, YAML `YAML_EDIT_ENABLED=true`, and R/Rust/Go/SQL `R_EDIT_ENABLED=true` / `RUST_EDIT_ENABLED=true` / `GO_EDIT_ENABLED=true` / `SQL_EDIT_ENABLED=true`; PHP `PHP_EDIT_ENABLED=true`; Ruby `RUBY_EDIT_ENABLED=true`; LaTeX `LATEX_EDIT_ENABLED=true`; Prolog `PROLOG_EDIT_ENABLED=true`; Haskell `HASKELL_EDIT_ENABLED=true`; Lua `LUA_EDIT_ENABLED=true`; Julia `JULIA_EDIT_ENABLED=true`; shell scripts `SHELL_EDIT_ENABLED=true`; MATLAB `MATLAB_EDIT_ENABLED=true`; Groovy `GROOVY_EDIT_ENABLED=true`; Swift `SWIFT_EDIT_ENABLED=true`; log files `LOG_EDIT_ENABLED=true`. All writes are confined to the current thread and never overwrite an existing file.
+- Every write tool is double-gated on top of `FILE_READ_ENABLED=true` by its own format flag: `WORD_EDIT_ENABLED=true` for .docx, `PDF_EDIT_ENABLED=true` for .pdf, `POWERPOINT_EDIT_ENABLED=true` for .pptx (also required for .pptx uploads), `EXCEL_CREATE_ENABLED=true` / `EXCEL_EDIT_ENABLED=true` for .xlsx creation/editing, and one `<FORMAT>_EDIT_ENABLED=true` per text format — `TEXT`, `MARKDOWN`, `CSV`, `TYPESCRIPT`, `JSON`, `JSONL`, `YAML`, `TOML`, `XML`, `ENV`, `PROPERTIES`, `INI`, plus the per-language editors `C`, `PYTHON`, `JAVA`, `JAVASCRIPT`, `HTML`, `R`, `RUST`, `GO`, `SQL`, `PHP`, `RUBY`, `LATEX`, `PROLOG`, `HASKELL`, `LUA`, `JULIA`, `SHELL`, `MATLAB`, `GROOVY`, `SWIFT`, `LOG`. All writes are confined to the current thread and never overwrite an existing file.
 - Excel creation uses `@oai/artifact-tool` from the loader-provided Node runtime. Set `EXCEL_NODE_EXECUTABLE` and `EXCEL_NODE_MODULES_PATH` to those loader paths; the tool creates a task-local dependency junction, validates the exported workbook, scans formula errors, and renders every worksheet before publication. The Node adapter script ships as `src/backend/tools/excel_create.mjs` and is read at runtime from next to `excel_create.py`, so it must stay in the package.
 - All paths resolve under `FILE_READ_ROOT`; `../` traversal outside the root is denied.
 - Sensitive files (`.env`, private keys, `credentials`, etc.) are always refused even inside the root.
@@ -734,5 +770,5 @@ git diff --check                            # Whitespace check
 - The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/backend/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
 - Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.
 - Location questions route to `find_on_map` before `live_web_search`. Place lookup goes through the shared geocoder in `src/backend/tools/_geocoding.py`: request wording is stripped ("在地图上找出上海的位置" → "上海"), then AMap resolves the place in three fallback stages — POI text search first, address geocoding if that yields no confident match, administrative district lookup last — and the candidates are deduped and ranked by match score. Coordinates come back in GCJ-02, which the map artifact renders directly. Requires `AMAP_WEB_SERVICE_KEY`; with no key configured the geocoder returns no candidates. Since text-similarity geocoding can return a neighbouring or same-named place, results below the confidence threshold are labelled `APPROXIMATE MATCH` and same-name ties are labelled `AMBIGUOUS`; the agent is instructed to verify those with a web search rather than assert them.
-- Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (all file readers share `FILE_READ_ENABLED`; the per-language create/edit tools additionally need their own `_EDIT_ENABLED` flag). Most need no API key; the exceptions are `get_directions` and `find_on_map`, which require `AMAP_WEB_SERVICE_KEY`. `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.
+- Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, `web_fetch`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (all file readers share `FILE_READ_ENABLED`; the per-language create/edit tools additionally need their own `_EDIT_ENABLED` flag). Most need no API key; the exceptions are `get_directions` and `find_on_map`, which require `AMAP_WEB_SERVICE_KEY`. `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.
 - The lightweight graph's conditional expansion fires only on web-search retrieval failure — single-keyword questions that get a readable, relevant page back take the fast path with one search and one LLM call. Compound questions that decompose into multiple sub-Qs still take the fast path; expansion only fires when no fetched page yields usable evidence.

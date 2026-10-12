@@ -66,6 +66,9 @@ SKILL.md
 .claude/*
 !.claude/agents/
 
+# OpenClaw scratch (exploration reports, generated docs, tmp)
+.openclaw/
+
 # Workbench scratch
 advanced_phase1_workbench/
 advanced_phase2_interfaces_workbench/

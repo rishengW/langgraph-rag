@@ -215,6 +215,17 @@ chunk_context_enabled: false
 chunk_context_document_excerpt_chars: 6000
 chunk_context_max_prefix_chars: 200
 chunk_context_max_concurrency: 4
+# Hybrid retrieval: llama-index BM25 keyword leg fused with the vector leg
+# (reciprocal rank fusion). Retrieval-only; toggling needs no index rebuild.
+hybrid_retrieval_enabled: false
+hybrid_retrieval_fetch_multiplier: 3
+hybrid_retrieval_rrf_k: 60
+# Hierarchical parent/child chunking with auto-merging retrieval. Children are
+# embedded; dense child groups merge into their parent at query time. Changes
+# what is embedded, so toggling forces a one-time index rebuild.
+hierarchical_chunking_enabled: false
+hierarchical_parent_chunk_size: 512
+hierarchical_auto_merge_threshold: 0.5
 # Style-only persona for the agent/RAG prompts: trump or none.
 agent_persona_style: trump
 dashscope_request_timeout: 120

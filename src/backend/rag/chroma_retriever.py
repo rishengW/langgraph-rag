@@ -10,6 +10,7 @@ from typing import Any
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
+from langchain_core.retrievers import BaseRetriever as LangChainBaseRetriever
 from langchain_core.tools import BaseTool
 from langchain_core.tools.retriever import create_retriever_tool
 
@@ -24,6 +25,19 @@ from .chunk_context import (
 from .document_loader import load_and_split_documents
 from .document_quality import DocumentQualityConfig
 from .embeddings import build_embeddings
+from .llamaindex_adapter import (
+    BM25_TOP_K_CAP,
+    LLAMA_DOCSTORE_DIRNAME,
+    HierarchicalSplitConfig,
+    HybridFusionRetriever,
+    build_bm25_retriever,
+    build_corpus_nodes,
+    load_and_split_hierarchical_documents,
+    load_docstore,
+    nodes_to_documents,
+    persist_docstore,
+    retrieve_with_auto_merge,
+)
 from .retriever import Retriever
 
 try:
@@ -44,7 +58,9 @@ def _persisted_chroma_exists(chroma_dir: Path) -> bool:
     if (chroma_dir / "chroma.sqlite3").exists():
         return True
     return any(
-        child.name not in RESERVED_CHROMA_CHILD_DIRS and child.name != EMBEDDING_CONFIG_FILENAME
+        child.name not in RESERVED_CHROMA_CHILD_DIRS
+        and child.name != EMBEDDING_CONFIG_FILENAME
+        and child.name != LLAMA_DOCSTORE_DIRNAME
         for child in chroma_dir.iterdir()
     )
 
@@ -61,6 +77,10 @@ def _embedding_config(settings: Settings) -> dict[str, int | str | bool | None]:
         # feature must force a rebuild instead of mixing prefixed/unprefixed
         # embeddings in one store.
         "chunk_context_enabled": settings.chunk_context_enabled,
+        # Hierarchical chunking changes what is embedded (parent/child chunks
+        # with node ids), so toggling or resizing it must rebuild as well.
+        "hierarchical_chunking_enabled": settings.hierarchical_chunking_enabled,
+        "hierarchical_parent_chunk_size": settings.hierarchical_parent_chunk_size,
     }
 
 
@@ -190,6 +210,48 @@ def _clear_chroma_store(chroma_dir: Path) -> None:
             _unlink_with_retry(child)
 
 
+def _documents_from_vectorstore(vectorstore: Any) -> list[Document]:
+    """Read back all chunks (text + metadata) from a loaded vectorstore.
+
+    Used to rebuild the BM25 leg and parent-link corpus from a persisted
+    Chroma store without re-fetching source URLs. Corpora here are bounded
+    by the configured source URLs, so an unbounded get() stays small.
+    """
+
+    get = getattr(vectorstore, "get", None)
+    if not callable(get):
+        return []
+    try:
+        data = get()
+    except Exception as exc:
+        logger.warning("Could not read back chunks from the vectorstore: %s", exc)
+        return []
+    if not isinstance(data, dict):
+        return []
+    texts = data.get("documents") or []
+    metadatas = data.get("metadatas") or []
+    return [
+        Document(page_content=text or "", metadata=dict(metadata or {}))
+        for text, metadata in zip(texts, metadatas, strict=False)
+    ]
+
+
+class _ProviderBackedLangChainRetriever(LangChainBaseRetriever):
+    """LangChain retriever facade over a ChromaRetriever provider.
+
+    Used for the agent tool when hybrid/hierarchical retrieval is active, so
+    tool calls go through the same fused/auto-merged path as direct
+    ``retrieve()`` calls instead of bypassing it via the raw vectorstore
+    retriever.
+    """
+
+    provider: Any
+    result_k: int = 4
+
+    def _get_relevant_documents(self, query: str, *, run_manager: Any = None) -> list[Document]:
+        return self.provider.retrieve(query, k=self.result_k)
+
+
 class ChromaRetriever:
     """Retriever provider that owns the Chroma vectorstore lifecycle."""
 
@@ -205,9 +267,26 @@ class ChromaRetriever:
         self._embeddings = embeddings
         self._chroma_cls = chroma_cls or Chroma
         self._vectorstore: Any | None = None
+        # Enhanced-retrieval state (llama-index adapter): populated when
+        # hybrid and/or hierarchical retrieval is enabled and the corpus
+        # artifacts are available. Left empty on the legacy path.
+        self._corpus_nodes: dict[str, Any] | None = None
+        self._bm25_retriever: Any | None = None
+        self._parent_docstore: Any | None = None
         self._retriever = self._build_langchain_retriever(rebuild=rebuild)
 
+    @property
+    def _enhanced_retrieval_enabled(self) -> bool:
+        settings = self.settings
+        return bool(
+            getattr(settings, "hybrid_retrieval_enabled", False)
+            or getattr(settings, "hierarchical_chunking_enabled", False)
+        )
+
     def retrieve(self, query: str, k: int = 4) -> list[Document]:
+        if self._enhanced_retrieval_enabled and self._corpus_nodes:
+            return self._retrieve_enhanced(query, k)
+
         # Prefer the vectorstore directly: mutating the shared retriever's
         # ``search_kwargs`` races with concurrent tool calls on the same
         # graph (parallel tool calls, planning Send branches).
@@ -239,10 +318,59 @@ class ChromaRetriever:
 
         return list(docs)
 
+    def _retrieve_enhanced(self, query: str, k: int) -> list[Document]:
+        """Hybrid (BM25+vector RRF) and/or hierarchical auto-merged retrieval.
+
+        Heavy state (BM25 index, parent docstore) is built once per index and
+        shared read-only; the fusion/merger retriever objects are constructed
+        per call so concurrent retrieves never mutate shared search kwargs.
+        """
+
+        settings = self.settings
+        vectorstore = self._vectorstore
+        if vectorstore is None or not hasattr(vectorstore, "similarity_search"):
+            return []
+        if not self._corpus_nodes:
+            return []
+
+        fetch_k = max(
+            k * max(1, int(getattr(settings, "hybrid_retrieval_fetch_multiplier", 3))),
+            k + 2,
+        )
+        fusion = HybridFusionRetriever(
+            vector_search=lambda q, n: list(vectorstore.similarity_search(q, k=n)),
+            corpus_nodes=self._corpus_nodes,
+            bm25_retriever=(
+                self._bm25_retriever
+                if getattr(settings, "hybrid_retrieval_enabled", False)
+                else None
+            ),
+            fetch_k=fetch_k,
+            rrf_k=max(1, int(getattr(settings, "hybrid_retrieval_rrf_k", 60))),
+        )
+
+        if (
+            getattr(settings, "hierarchical_chunking_enabled", False)
+            and self._parent_docstore is not None
+        ):
+            merged = retrieve_with_auto_merge(
+                fusion,
+                self._parent_docstore,
+                query=query,
+                threshold=float(getattr(settings, "hierarchical_auto_merge_threshold", 0.5)),
+            )
+        else:
+            merged = fusion.retrieve(query)
+
+        return nodes_to_documents(merged)[: max(1, k)]
+
     def as_tool(self) -> BaseTool:
         source_count = len(self.settings.source_urls)
+        retriever: Any = self._retriever
+        if self._enhanced_retrieval_enabled and self._corpus_nodes:
+            retriever = _ProviderBackedLangChainRetriever(provider=self)
         return create_retriever_tool(
-            self._retriever,
+            retriever,
             "retrieve_source_documents",
             (
                 "Search and return relevant passages from the configured source "
@@ -281,7 +409,13 @@ class ChromaRetriever:
                     embedding_function=embeddings,
                 )
                 self._vectorstore = vectorstore
-                return vectorstore.as_retriever()
+                if self._prepare_enhanced_retrieval(
+                    vectorstore,
+                    built_documents=None,
+                    built_docstore=None,
+                ):
+                    return vectorstore.as_retriever()
+                raise RuntimeError("enhanced retrieval artifacts missing or empty")
             except Exception as exc:
                 logger.warning(
                     "Persisted Chroma store at %s could not be loaded; rebuilding: %s",
@@ -309,27 +443,56 @@ class ChromaRetriever:
                 settings.chroma_dir / CHUNK_CONTEXT_CACHE_FILENAME
             )
 
-        doc_splits = load_and_split_documents(
-            settings.source_urls,
-            page_load_timeout=settings.page_load_timeout,
-            max_concurrent_loads=settings.page_load_max_concurrency,
-            page_load_cache_ttl_seconds=settings.page_load_cache_ttl_seconds,
-            chunk_size=settings.chunk_size,
-            chunk_overlap=settings.chunk_overlap,
-            quality_config=DocumentQualityConfig(
-                enabled=settings.document_quality_filter_enabled,
-                min_text_length=settings.document_quality_min_text_length,
-                min_unique_terms=settings.document_quality_min_unique_terms,
-                relevance_query=settings.document_quality_relevance_query,
-                min_query_term_overlap=settings.document_quality_query_min_overlap,
-                min_similarity=settings.document_quality_min_similarity,
-                recency_bias_days=settings.document_quality_recency_bias_days,
-            ),
-            embeddings=embeddings,
-            chunk_context_config=chunk_context_config,
-            chat_model=chunk_context_model,
-            chunk_context_cache=chunk_context_cache,
-        )
+        built_docstore: Any | None = None
+        if settings.hierarchical_chunking_enabled:
+            # REFACTOR: Parent/child split; children are embedded, parents are
+            # persisted to a docstore for auto-merging at query time.
+            doc_splits, built_docstore = load_and_split_hierarchical_documents(
+                settings.source_urls,
+                page_load_timeout=settings.page_load_timeout,
+                max_concurrent_loads=settings.page_load_max_concurrency,
+                page_load_cache_ttl_seconds=settings.page_load_cache_ttl_seconds,
+                quality_config=DocumentQualityConfig(
+                    enabled=settings.document_quality_filter_enabled,
+                    min_text_length=settings.document_quality_min_text_length,
+                    min_unique_terms=settings.document_quality_min_unique_terms,
+                    relevance_query=settings.document_quality_relevance_query,
+                    min_query_term_overlap=settings.document_quality_query_min_overlap,
+                    min_similarity=settings.document_quality_min_similarity,
+                    recency_bias_days=settings.document_quality_recency_bias_days,
+                ),
+                embeddings=embeddings,
+                chunk_context_config=chunk_context_config,
+                chat_model=chunk_context_model,
+                chunk_context_cache=chunk_context_cache,
+                hierarchical_config=HierarchicalSplitConfig(
+                    parent_chunk_size=settings.hierarchical_parent_chunk_size,
+                    child_chunk_size=settings.chunk_size,
+                    chunk_overlap=settings.chunk_overlap,
+                ),
+            )
+        else:
+            doc_splits = load_and_split_documents(
+                settings.source_urls,
+                page_load_timeout=settings.page_load_timeout,
+                max_concurrent_loads=settings.page_load_max_concurrency,
+                page_load_cache_ttl_seconds=settings.page_load_cache_ttl_seconds,
+                chunk_size=settings.chunk_size,
+                chunk_overlap=settings.chunk_overlap,
+                quality_config=DocumentQualityConfig(
+                    enabled=settings.document_quality_filter_enabled,
+                    min_text_length=settings.document_quality_min_text_length,
+                    min_unique_terms=settings.document_quality_min_unique_terms,
+                    relevance_query=settings.document_quality_relevance_query,
+                    min_query_term_overlap=settings.document_quality_query_min_overlap,
+                    min_similarity=settings.document_quality_min_similarity,
+                    recency_bias_days=settings.document_quality_recency_bias_days,
+                ),
+                embeddings=embeddings,
+                chunk_context_config=chunk_context_config,
+                chat_model=chunk_context_model,
+                chunk_context_cache=chunk_context_cache,
+            )
 
         logger.info("BUILD CHROMA VECTORSTORE")
         vectorstore = self._chroma_cls.from_documents(
@@ -339,9 +502,74 @@ class ChromaRetriever:
             persist_directory=str(settings.chroma_dir),
         )
         _write_embedding_config(settings)
+        if built_docstore is not None:
+            persist_docstore(built_docstore, settings.chroma_dir)
 
         self._vectorstore = vectorstore
+        self._prepare_enhanced_retrieval(
+            vectorstore,
+            built_documents=doc_splits,
+            built_docstore=built_docstore,
+        )
         return vectorstore.as_retriever()
+
+    def _prepare_enhanced_retrieval(
+        self,
+        vectorstore: Any,
+        *,
+        built_documents: list[Document] | None,
+        built_docstore: Any | None,
+    ) -> bool:
+        """Build/refresh the hybrid + auto-merge state from the vectorstore.
+
+        Returns False when a required artifact is missing (caller rebuilds).
+        With both features off this is a no-op success so the legacy path is
+        untouched. An empty corpus degrades to legacy retrieval rather than
+        failing the whole provider.
+        """
+
+        self._corpus_nodes = None
+        self._bm25_retriever = None
+        self._parent_docstore = None
+        if not self._enhanced_retrieval_enabled:
+            return True
+
+        settings = self.settings
+        if built_documents is not None:
+            documents = built_documents
+        else:
+            documents = _documents_from_vectorstore(vectorstore)
+
+        if settings.hierarchical_chunking_enabled:
+            docstore = (
+                built_docstore
+                if built_docstore is not None
+                else load_docstore(settings.chroma_dir)
+            )
+            if docstore is None:
+                logger.warning(
+                    "Hierarchical chunking is enabled but no parent docstore "
+                    "exists under %s; forcing a rebuild",
+                    settings.chroma_dir,
+                )
+                return False
+            self._parent_docstore = docstore
+
+        corpus_nodes = build_corpus_nodes(documents)
+        if not corpus_nodes:
+            logger.warning(
+                "Enhanced retrieval found no chunks in the store; "
+                "falling back to plain vector retrieval"
+            )
+            return True
+        self._corpus_nodes = corpus_nodes
+
+        if settings.hybrid_retrieval_enabled:
+            self._bm25_retriever = build_bm25_retriever(
+                list(corpus_nodes.values()),
+                similarity_top_k=BM25_TOP_K_CAP,
+            )
+        return True
 
 
 def build_retriever(settings: Settings, rebuild: bool = False) -> Any:

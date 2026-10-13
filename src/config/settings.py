@@ -285,6 +285,21 @@ class Settings:
     chunk_context_document_excerpt_chars: int = 6000
     chunk_context_max_prefix_chars: int = 200
     chunk_context_max_concurrency: int = 4
+    # REFACTOR: Hybrid retrieval (llama-index BM25 keyword leg fused with the
+    # vector leg via reciprocal rank fusion). Retrieval-only: the BM25 leg is
+    # rebuilt from the persisted store contents on startup, so toggling does
+    # NOT rebuild the index. Requires llama-index-retrievers-bm25.
+    hybrid_retrieval_enabled: bool = False
+    hybrid_retrieval_fetch_multiplier: int = 3
+    hybrid_retrieval_rrf_k: int = 60
+    # REFACTOR: Hierarchical parent/child chunking with auto-merging retrieval
+    # (llama-index HierarchicalNodeParser + AutoMergingRetriever). Children are
+    # embedded; when more than the threshold fraction of a parent's children
+    # are retrieved, the whole parent replaces them. Changes what is embedded,
+    # so toggling forces a one-time index rebuild.
+    hierarchical_chunking_enabled: bool = False
+    hierarchical_parent_chunk_size: int = 512
+    hierarchical_auto_merge_threshold: float = 0.5
     dashscope_request_timeout: int = 120
     dashscope_max_retries: int = 3
     dashscope_http_base_url: str = ""

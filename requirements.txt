@@ -25,6 +25,10 @@ chromadb==0.6.3
 sentence-transformers==5.5.1
 tiktoken==0.13.0
 
+# Retrieval enhancements (hybrid BM25 leg, hierarchical auto-merging)
+llama-index-core==0.14.25
+llama-index-retrievers-bm25==0.8.0
+
 # DashScope SDK
 dashscope==1.25.21
 

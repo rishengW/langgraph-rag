@@ -33,6 +33,12 @@ SETTING_ENV_NAMES = {
     "chunk_context_document_excerpt_chars": "CHUNK_CONTEXT_DOCUMENT_EXCERPT_CHARS",
     "chunk_context_max_prefix_chars": "CHUNK_CONTEXT_MAX_PREFIX_CHARS",
     "chunk_context_max_concurrency": "CHUNK_CONTEXT_MAX_CONCURRENCY",
+    "hybrid_retrieval_enabled": "HYBRID_RETRIEVAL_ENABLED",
+    "hybrid_retrieval_fetch_multiplier": "HYBRID_RETRIEVAL_FETCH_MULTIPLIER",
+    "hybrid_retrieval_rrf_k": "HYBRID_RETRIEVAL_RRF_K",
+    "hierarchical_chunking_enabled": "HIERARCHICAL_CHUNKING_ENABLED",
+    "hierarchical_parent_chunk_size": "HIERARCHICAL_PARENT_CHUNK_SIZE",
+    "hierarchical_auto_merge_threshold": "HIERARCHICAL_AUTO_MERGE_THRESHOLD",
     "source_urls": "SOURCE_URLS",
     "langchain_tracing_v2": "LANGCHAIN_TRACING_V2",
     "langchain_api_key": "LANGCHAIN_API_KEY",
@@ -427,6 +433,9 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "chunk_context_document_excerpt_chars",
         "chunk_context_max_prefix_chars",
         "chunk_context_max_concurrency",
+        "hybrid_retrieval_fetch_multiplier",
+        "hybrid_retrieval_rrf_k",
+        "hierarchical_parent_chunk_size",
         "api_port",
         "min_keyword_matches",
         "max_rewrites",
@@ -500,6 +509,9 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
             "file_read_max_bytes",
             "chunk_context_document_excerpt_chars",
             "chunk_context_max_concurrency",
+            "hybrid_retrieval_fetch_multiplier",
+            "hybrid_retrieval_rrf_k",
+            "hierarchical_parent_chunk_size",
         ):
             return max(1, parsed)
         if name == "page_load_cache_ttl_seconds":
@@ -510,6 +522,7 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "web_search_max_link_density",
         "web_search_semantic_min_similarity",
         "planning_critic_threshold",
+        "hierarchical_auto_merge_threshold",
     ):
         return max(0.0, min(1.0, float(value)))
     if name in (
@@ -581,6 +594,8 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "memory_extraction_on_session_start",
         "document_quality_filter_enabled",
         "chunk_context_enabled",
+        "hybrid_retrieval_enabled",
+        "hierarchical_chunking_enabled",
     ):
         return parse_bool(value, bool(default))
     if name in ("web_search_provider",):

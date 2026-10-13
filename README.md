@@ -233,6 +233,12 @@ Key settings:
 | `CHUNK_CONTEXT_DOCUMENT_EXCERPT_CHARS` | `6000` | Document excerpt sent to the prefix-generation LLM for situating each chunk |
 | `CHUNK_CONTEXT_MAX_PREFIX_CHARS` | `200` | Character cap on one generated chunk prefix |
 | `CHUNK_CONTEXT_MAX_CONCURRENCY` | `4` | Parallel prefix-generation calls; unchanged chunks reuse a content-hash disk cache in `CHROMA_DIR` |
+| `HYBRID_RETRIEVAL_ENABLED` | `false` | Add a BM25 keyword leg (llama-index, CJK-aware tokenization) fused with the vector leg via reciprocal rank fusion; retrieval-only, no index rebuild to toggle. Requires `llama-index-retrievers-bm25` |
+| `HYBRID_RETRIEVAL_FETCH_MULTIPLIER` | `3` | Per-leg oversampling: each retrieval leg returns `k` × this many candidates before fusion |
+| `HYBRID_RETRIEVAL_RRF_K` | `60` | Reciprocal rank fusion constant; higher values weight leg ranks more flatly |
+| `HIERARCHICAL_CHUNKING_ENABLED` | `false` | Parent/child chunking (llama-index `HierarchicalNodeParser`): children are embedded; dense child groups merge into the whole parent at query time (`AutoMergingRetriever`). Toggling forces a one-time index rebuild |
+| `HIERARCHICAL_PARENT_CHUNK_SIZE` | `512` | Parent chunk size in llama-index token units; must exceed `CHUNK_SIZE` |
+| `HIERARCHICAL_AUTO_MERGE_THRESHOLD` | `0.5` | Fraction of a parent's retrieved children needed to swap them for the parent |
 | `AGENT_PERSONA_STYLE` | `trump` | Prompt prose persona: `trump` or `none`; style only, never changes tool-use or factual rules |
 | `MEMORY_ENABLED` | `false` | Enable long-term memory tools (save/recall/forget) and auto-recall injection |
 | `MEMORY_STORE_PATH` | - | Memory store file path; defaults to `memory/long_term_memory.json` relative to working directory |

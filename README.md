@@ -30,7 +30,7 @@ langgraph-rag/
 |   |   |-- adapters/mcp_client/  # Outbound MCP client adapter (config, lifecycle, runtime, SSRF guards)
 |   |   |-- application/          # Chat/RAG application services, turn execution, session lifecycle
 |   |   |-- graph/                # LangGraph builder, state, edges, executor, metrics
-|   |   |   |-- nodes/            # Node factories (agent, condense, decompose, bounded search, expand, generate, grade, merge, rewrite, web_answer)
+|   |   |   |-- nodes/            # Node factories (agent, condense, decompose, bounded search, expand, generate, grade, merge, rewrite, web_answer, optional planning/reflection)
 |   |   |-- llm/                  # LLM provider seam (DashScope, DeepSeek), prompts, citation sanitizer
 |   |   |-- mcp/                  # Tool catalog, policy, secrets redaction, telemetry
 |   |   |-- memory/               # Long-term memory store, recall, automatic extraction
@@ -116,7 +116,7 @@ DIRECTIONS_ENABLED=true
 
 Settings are loaded with this precedence:
 
-1. CLI flags (`--urls`, `--rebuild`, `--host`, `--port`)
+1. CLI flags (`--urls`; `--host`/`--port` only set the `serve` bind address)
 2. Process environment variables and `.env`
 3. YAML config files
 4. Built-in defaults in `src/config/settings.py`
@@ -196,7 +196,7 @@ Key settings:
 | `YAML_EDIT_ENABLED` | `false` | YAML .yaml/.yml creation and structured path-based editing; needs FILE_READ_ENABLED too |
 | `TOML_EDIT_ENABLED` | `false` | TOML .toml creation and structured path-based editing (stdlib tomllib); needs FILE_READ_ENABLED too |
 | `XML_EDIT_ENABLED` | `false` | XML .xml creation and structured path-based editing (stdlib ElementTree; attributes as `@name`, text as `#text`); needs FILE_READ_ENABLED too |
-| `ENV_EDIT_ENABLED` | `false` | .env/.env.local/.env.example creation and key-based editing (comments and formatting preserved); needs FILE_READ_ENABLED too |
+| `ENV_EDIT_ENABLED` | `false` | .env creation and key-based editing (comments and formatting preserved); needs FILE_READ_ENABLED too; the declared `.env.local`/`.env.example` suffixes are currently rejected on inspect/edit |
 | `PROPERTIES_EDIT_ENABLED` | `false` | Java .properties creation and key-based editing (`#`/`!` comments, `key=value` or `key:value`; comments and formatting preserved); needs FILE_READ_ENABLED too |
 | `INI_EDIT_ENABLED` | `false` | INI .ini/.cfg/.conf creation and section.key-based editing (`[section]` headers, `#`/`;` comments; comments and formatting preserved); needs FILE_READ_ENABLED too |
 | `R_EDIT_ENABLED` | `false` | R .r creation/editing; needs FILE_READ_ENABLED too |
@@ -228,7 +228,9 @@ Key settings:
 | `API_HOST` | `127.0.0.1` | Bind address via the settings loader; `CHAT_API_HOST` overrides the `serve` command default |
 | `API_PORT` | `8000` | Listen port via the settings loader; the `serve` command and Docker use `CHAT_API_PORT` (default `8001`) |
 | `CORS_ALLOW_ORIGINS` | empty | Comma-separated browser origins allowed to call the API |
-| `RERANK_STRATEGY` | `lexical` | `lexical`, `embedding`, or `hybrid` |
+| `RERANK_STRATEGY` | `lexical` | `lexical`, `embedding`, `hybrid`, or `cross_encoder` |
+| `RERANK_MODEL` | `gte-rerank-v2` | DashScope TextReRank model used by the `cross_encoder` strategy |
+| `RERANK_MAX_CHUNKS` | `32` | Reranked head size for `cross_encoder`; chunks beyond it keep lexical order to bound API cost |
 | `CHUNK_CONTEXT_ENABLED` | `false` | LLM-generated context prefix per new chunk at index time (Anthropic-style contextual retrieval); toggling forces a one-time index rebuild |
 | `CHUNK_CONTEXT_DOCUMENT_EXCERPT_CHARS` | `6000` | Document excerpt sent to the prefix-generation LLM for situating each chunk |
 | `CHUNK_CONTEXT_MAX_PREFIX_CHARS` | `200` | Character cap on one generated chunk prefix |
@@ -240,6 +242,10 @@ Key settings:
 | `HIERARCHICAL_PARENT_CHUNK_SIZE` | `512` | Parent chunk size in llama-index token units; must exceed `CHUNK_SIZE` |
 | `HIERARCHICAL_AUTO_MERGE_THRESHOLD` | `0.5` | Fraction of a parent's retrieved children needed to swap them for the parent |
 | `AGENT_PERSONA_STYLE` | `trump` | Prompt prose persona: `trump` or `none`; style only, never changes tool-use or factual rules |
+| `PLANNING_ENABLED` | `false` | Optional planning/reflection layer in both graphs: planner → bounded sub-goal fan-out → aggregator before the agent, plus answer self-critique with bounded revision |
+| `PLANNING_MAX_SUBGOALS` | `4` | Maximum sub-goals per plan (hard cap 8) |
+| `PLANNING_MAX_REFLECTION_RETRIES` | `1` | Bounded reflection-revision retries after a low-scoring self-critique |
+| `PLANNING_CRITIC_THRESHOLD` | `0.7` | Minimum per-dimension critique score (0-1) below which a revision is triggered |
 | `MEMORY_ENABLED` | `false` | Enable long-term memory tools (save/recall/forget) and auto-recall injection |
 | `MEMORY_STORE_PATH` | - | Memory store file path; defaults to `memory/long_term_memory.json` relative to working directory |
 | `MEMORY_MAX_RECORDS` | `500` | Total records kept across all scopes (1–10000); oldest by last-recall time evicted first |
@@ -289,7 +295,7 @@ START → agent ──(no tool)──► END                                    
                                                                                   (no readable, expanded)
                                                                                               │
                                                                                               ▼
-                                                                                             END   (grounded refusal)
+                                                                                 fallback_answer ─► END   (tool-free fallback with disclaimer)
 ```
 
 Skips Chroma, embeddings, and grading. The agent either answers directly (system prompt steers it away from tools for stable factual questions like founding dates and capitals) or calls the live web search tool, which kicks off a `decompose → search_queries → merge → web_answer` chain:
@@ -299,9 +305,21 @@ Skips Chroma, embeddings, and grading. The agent either answers directly (system
 - **merge** dedupes URLs by canonical form and ranks provider title/snippet relevance and overall quality before cross-query overlap and provider rank, keeping `web_search_top_k`.
 - **web_answer** fetches the merged URLs (HTML, PDF, or a bounded browser render), then admits pages through readability, structural measurement, query relevance, publication-date, duplicate, and evidence gates before prompting the LLM for a grounded answer. Each page's outcome is recorded against its domain for future ranking.
 
-When `web_answer` produces no readable, relevant content and expansion has not yet fired, the post-`web_answer` edge routes to **expand**, which produces bounded keyword paraphrases per sub-question. The graph re-enters `search_queries → merge → web_answer` with the broader query set; the merge stage combines the new URLs with the first attempt's URLs rather than discarding them. A second failure terminates with the grounded refusal. Web-search mode never substitutes an answer from model training knowledge when no source survives admission.
+When `web_answer` produces no readable, relevant content and expansion has not yet fired, the post-`web_answer` edge routes to **expand**, which produces bounded keyword paraphrases per sub-question. The graph re-enters `search_queries → merge → web_answer` with the broader query set; the merge stage combines the new URLs with the first attempt's URLs rather than discarding them. A second failure routes to **fallback_answer**: a tool-free node that answers the original question from model knowledge only when it is reasonably confident, always opening with a clear statement that the answer could not be verified against live web sources, and declining otherwise. It never cites or implies a web source it did not read.
 
 Provider queries use deterministic keyword cleanup by default. Relative time wording is resolved to a concrete year, so "who wins the world cup this year" searches for the current year instead of returning evergreen all-time list pages; `last year` and `next year` (and `今年`/`去年`/`明年`) resolve the same way, and an explicit year in the question always wins. Set `WEB_SEARCH_LLM_QUERY_REWRITE_ENABLED=true` only when an additional LLM rewrite call is worth its latency and cost; it is not required for ordinary chat search.
+
+### Optional planning and reflection
+
+Set `PLANNING_ENABLED=true` to insert a bounded planning layer into both graphs (off by default, so existing latency and transcript behavior are unchanged):
+
+- **planner** drafts at most `PLANNING_MAX_SUBGOALS` dependency-aware sub-goals (hard cap 8); on LLM failure it degrades to a single atomic sub-goal so the graph never stalls.
+- **subgoal_dispatcher** marks dependency-ready sub-goals in progress and fans them out as parallel LangGraph `Send` branches; failed prerequisites propagate instead of looping.
+- **execute_subgoal** workers run one branch each with the preserved original question and concise planning context.
+- **subgoal_aggregator** merges worker results, then either dispatches the next dependency-ready wave or hands control to the agent.
+- **answer_self_critique** scores the final answer on correctness, groundedness, and completeness (0-1 each); when any score falls below `PLANNING_CRITIC_THRESHOLD`, **reflection_revise** rewrites the answer, up to `PLANNING_MAX_REFLECTION_RETRIES` times.
+
+Plans, scratchpads, and critiques are persisted only as concise summaries with fixed character caps; the nodes never request or retain hidden chain-of-thought.
 
 ### Graph Nodes
 
@@ -318,7 +336,13 @@ Provider queries use deterministic keyword cleanup by default. Relative time wor
 | search_queries | `search_queries_factory` | — (bounded concurrent provider calls) |
 | merge | `merge_factory` | — (pure code: relevance-aware dedupe + rank) |
 | web_answer | `web_answer_factory` | `build_web_search_prompt` |
-| fallback_answer | `fallback_answer_factory` | inline tool-free fallback prompt |
+| fallback_answer | `fallback_answer_factory` | inline tool-free fallback prompt (answers from model knowledge with a no-live-verification disclaimer, or declines) |
+| planner | `planner_node` | inline prompt (dependency-aware sub-goals; planning mode only) |
+| subgoal_dispatcher | `subgoal_dispatcher_node` | — (pure code: dependency-ready wave selection; planning mode only) |
+| execute_subgoal | `subgoal_worker_node` | inline prompt (per-sub-goal evidence-focused result; planning mode only) |
+| subgoal_aggregator | `subgoal_aggregator_node` | — (pure code: merge worker results, advance statuses; planning mode only) |
+| answer_self_critique | `answer_self_critique_node` | inline prompt (0-1 correctness/groundedness/completeness; planning mode only) |
+| reflection_revise | `reflection_revise_node` | inline prompt (bounded revision from critic feedback; planning mode only) |
 
 ### Agent Tools
 
@@ -348,7 +372,7 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `read_yaml_file` | `src/backend/tools/yaml_file.py` | `FILE_READ_ENABLED=true` | Read a .yaml or .yml from `FILE_READ_ROOT` (including session uploads) |
 | `read_toml_file` | `src/backend/tools/toml_file.py` | `FILE_READ_ENABLED=true` | Read a TOML .toml file from `FILE_READ_ROOT` |
 | `read_xml_file` | `src/backend/tools/xml_file.py` | `FILE_READ_ENABLED=true` | Read an XML .xml file from `FILE_READ_ROOT` |
-| `read_env_file` | `src/backend/tools/env_file.py` | `FILE_READ_ENABLED=true` | Read a .env-style file (.env/.env.local/.env.example) from `FILE_READ_ROOT`; the protected exact names `.env`/`.env.local` stay refused |
+| `read_env_file` | `src/backend/tools/env_file.py` | `FILE_READ_ENABLED=true` | Read a `*.env` file (e.g. `prod.env`) from `FILE_READ_ROOT`; the protected exact names `.env`/`.env.local` stay refused, and `.env.local`/`.env.example` variants are currently rejected by the suffix check |
 | `read_properties_file` | `src/backend/tools/properties_file.py` | `FILE_READ_ENABLED=true` | Read a Java .properties file from `FILE_READ_ROOT` |
 | `read_ini_file` | `src/backend/tools/ini_file.py` | `FILE_READ_ENABLED=true` | Read an INI .ini/.cfg/.conf file from `FILE_READ_ROOT` |
 | `read_c_file` | `src/backend/tools/c_file.py` | `FILE_READ_ENABLED=true` | Read a C .c/.h file from `FILE_READ_ROOT` |
@@ -407,7 +431,7 @@ The agent can be given any combination of these tools via per-tool config flags.
 | `inspect_csv_file` / `edit_csv_file` / `create_csv_file` | `src/backend/tools/csv_edit.py` | `FILE_READ_ENABLED=true` and `CSV_EDIT_ENABLED=true` | Row/cell-oriented create/inspect/edit for session-uploaded .csv files (stdlib `csv` quoting); creates a new file |
 | `inspect_toml_file` / `edit_toml_file` / `create_toml_file` | `src/backend/tools/toml_edit.py` | `FILE_READ_ENABLED=true` and `TOML_EDIT_ENABLED=true` | Structured path-based create/inspect/edit for .toml (stdlib tomllib); creates a new file |
 | `inspect_xml_file` / `edit_xml_file` / `create_xml_file` | `src/backend/tools/xml_edit.py` | `FILE_READ_ENABLED=true` and `XML_EDIT_ENABLED=true` | Structured path-based create/inspect/edit for .xml (stdlib ElementTree; attributes as `@name`, text as `#text`); creates a new file |
-| `inspect_env_file` / `edit_env_file` / `create_env_file` | `src/backend/tools/env_edit.py` | `FILE_READ_ENABLED=true` and `ENV_EDIT_ENABLED=true` | Key-based create/inspect/edit for .env-style files (`KEY=VALUE`, `#` comments); comments and formatting preserved; creates a new file |
+| `inspect_env_file` / `edit_env_file` / `create_env_file` | `src/backend/tools/env_edit.py` | `FILE_READ_ENABLED=true` and `ENV_EDIT_ENABLED=true` | Key-based create/inspect/edit for .env files (`KEY=VALUE`, `#` comments); comments and formatting preserved; creates a new file; `.env.local`/`.env.example` suffixes are currently rejected on inspect/edit |
 | `inspect_properties_file` / `edit_properties_file` / `create_properties_file` | `src/backend/tools/properties_edit.py` | `FILE_READ_ENABLED=true` and `PROPERTIES_EDIT_ENABLED=true` | Key-based create/inspect/edit for Java .properties (`#`/`!` comments, `key=value` or `key:value`); creates a new file |
 | `inspect_ini_file` / `edit_ini_file` / `create_ini_file` | `src/backend/tools/ini_edit.py` | `FILE_READ_ENABLED=true` and `INI_EDIT_ENABLED=true` | Section.key-based create/inspect/edit for .ini/.cfg/.conf (`#`/`;` comments); creates a new file |
 | `inspect_r_file` / `edit_r_file` / `create_r_file` | `src/backend/tools/r_edit.py` | `FILE_READ_ENABLED=true` and `R_EDIT_ENABLED=true` | Line-oriented create/inspect/edit for session-uploaded .r files; creates a new file |
@@ -594,7 +618,7 @@ Set `FILE_READ_ROOT` to a dedicated directory rather than the project root so th
 | `read_pdf` | `.pdf` (scanned/image-only PDFs without a text layer cannot be read) |
 | `read_toml_file` | `.toml` (not uploadable; read from `FILE_READ_ROOT`) |
 | `read_xml_file` | `.xml` (not uploadable; read from `FILE_READ_ROOT`) |
-| `read_env_file` | `.env`, `.env.local`, `.env.example` (not uploadable; read from `FILE_READ_ROOT`) |
+| `read_env_file` | `*.env` (not uploadable; read from `FILE_READ_ROOT`; exact `.env`/`.env.local` refused, `.env.example`/`.env.local` variants rejected) |
 | `read_properties_file` | `.properties` (not uploadable; read from `FILE_READ_ROOT`) |
 | `read_ini_file` | `.ini`, `.cfg`, `.conf` (not uploadable; read from `FILE_READ_ROOT`) |
 | `inspect_zip_file` / `read_zip_entry` | `.zip`, `.whl` (only `.zip` is uploadable) |
@@ -705,9 +729,9 @@ Hard rejections are reserved for URLs that can never be sources (auth and search
 - **Document fetching** loads HTML concurrently and extracts PDF sources with `pypdf` (bounded to 30 pages / 20 MB), so official notices and vendor whitepapers stay eligible. PDFs are recognized both by a `.pdf` path and by the `%PDF-` response header, which covers extension-less endpoints like `arxiv.org/pdf/1706.03762`. Scanned PDFs without a text layer fail like any other unreadable page.
 - **Optional JS-capable fallback** (`WEB_SEARCH_JS_FALLBACK_ENABLED`) retries through a lazy headless Chromium adapter whenever an HTTP fetch returned no readable text or a login/enable-JavaScript shell — the trigger is the measurement, not a domain list. It is bounded by `WEB_SEARCH_JS_RETRY_BUDGET`, and the configured domains (`baike.baidu.com`, `zhuanlan.zhihu.com`, `apps.microsoft.com`, `deepseek.net` by default) only get priority inside that budget. Off by default; requires `playwright` plus a Chromium runtime.
 - **Pre-index document filtering** (full graph only) drops short/empty/boilerplate/low-signal pages, with an optional embedding similarity gate against the question (`document_quality_relevance_query`) and configurable recency bias from extracted publication dates.
-- **Post-retrieval re-ranking** (full graph only) scores chunks by query/document overlap, frequency, and phrase matches; `RERANK_STRATEGY` switches between lexical (default), embedding, or hybrid.
+- **Post-retrieval re-ranking** (full graph only) scores chunks by query/document overlap, frequency, and phrase matches; `RERANK_STRATEGY` switches between lexical (default), embedding, hybrid, or cross_encoder.
 
-When `web_search_lightweight` is enabled (default), the lightweight graph routes the agent's tool call through `decompose → search_queries → merge → web_answer` as described above, with one-shot conditional expansion and a grounded refusal when no evidence survives. Chat uses this as the sole web-search owner; it does not perform a preliminary provider search or recompile the graph for each turn.
+When `web_search_lightweight` is enabled (default), the lightweight graph routes the agent's tool call through `decompose → search_queries → merge → web_answer` as described above, with one-shot conditional expansion and a tool-free fallback answer (clearly disclaimed as unverified against live sources) when no evidence survives. Chat uses this as the sole web-search owner; it does not perform a preliminary provider search or recompile the graph for each turn.
 
 ## Answer citations
 
@@ -774,7 +798,7 @@ git diff --check                            # Whitespace check
 - Key-backed search APIs are preferred for Mandarin when configured. Otherwise search uses the bounded Bing/Baidu/DuckDuckGo HTML fallbacks. CAPTCHA and repeated network failures open temporary provider circuits instead of blocking every expanded query.
 - Noise filtering is measured rather than pattern-matched: structural page assessment and the learned domain prior are on by default, and semantic similarity is available as an opt-in recall layer. The tradeoff is that structural filtering needs a fetch first, so a noisy URL still costs one concurrent request.
 - The agent system prompt (`AGENT_SYSTEM_PROMPT` in `src/backend/llm/prompts.py`) tells the model to answer directly when tools aren't needed — covering math, general knowledge, programming concepts, definitions, well-established stable facts (founding dates, capitals, public figures), and chitchat — so the graph avoids unnecessary retrieval/rewrite cycles.
-- Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both.
+- Reranking (`RERANK_STRATEGY`) defaults to lexical (keyword-based); `embedding` uses cosine similarity against embedding vectors; `hybrid` combines both; `cross_encoder` reranks the head with the DashScope TextReRank API (`RERANK_MODEL`, default `gte-rerank-v2`), and chunks beyond `RERANK_MAX_CHUNKS` keep lexical order.
 - Location questions route to `find_on_map` before `live_web_search`. Place lookup goes through the shared geocoder in `src/backend/tools/_geocoding.py`: request wording is stripped ("在地图上找出上海的位置" → "上海"), then AMap resolves the place in three fallback stages — POI text search first, address geocoding if that yields no confident match, administrative district lookup last — and the candidates are deduped and ranked by match score. Coordinates come back in GCJ-02, which the map artifact renders directly. Requires `AMAP_WEB_SERVICE_KEY`; with no key configured the geocoder returns no candidates. Since text-similarity geocoding can return a neighbouring or same-named place, results below the confidence threshold are labelled `APPROXIMATE MATCH` and same-name ties are labelled `AMBIGUOUS`; the agent is instructed to verify those with a web search rather than assert them.
 - Optional agent tools (`weather`, `stock`, `currency`, `wikipedia`, `directions`, `map`, `math`, `statistics`, `linalg`, `number_theory`, `datetime`, `summarize_url`, `web_fetch`, and the file readers) are off by default. Enable them via the per-tool `_ENABLED` flag in `.env` (all file readers share `FILE_READ_ENABLED`; the per-language create/edit tools additionally need their own `_EDIT_ENABLED` flag). Most need no API key; the exceptions are `get_directions` and `find_on_map`, which require `AMAP_WEB_SERVICE_KEY`. `WIKIPEDIA_USER_AGENT` should be customized for shared deployments, and the file tools should have `FILE_READ_ROOT` pointed at a dedicated directory.
 - The lightweight graph's conditional expansion fires only on web-search retrieval failure — single-keyword questions that get a readable, relevant page back take the fast path with one search and one LLM call. Compound questions that decompose into multiple sub-Qs still take the fast path; expansion only fires when no fetched page yields usable evidence.

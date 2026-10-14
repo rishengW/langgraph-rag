@@ -3,6 +3,7 @@
 
 # Python
 .venv/
+venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -52,6 +53,12 @@ CHANGELOG.md
 PROBLEMS_DETECTED.md
 SSL_FIX.md
 MEMORY.md
+AGENTS.md
+IDENTITY.md
+SOUL.md
+USER.md
+TOOLS.md
+HEARTBEAT.md
 docs/code-review-web-search.md
 docs/rag-operations/edit_docx_plan.txt
 docs/claude_code_CLI_history.txt
@@ -68,6 +75,9 @@ SKILL.md
 
 # OpenClaw scratch (exploration reports, generated docs, tmp)
 .openclaw/
+
+# Committed subagent exploration scratch (superseded by .openclaw/tmp reports)
+docs/exploration/
 
 # Workbench scratch
 advanced_phase1_workbench/

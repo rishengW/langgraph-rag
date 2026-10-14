@@ -207,8 +207,21 @@ document_quality_relevance_query: ""
 document_quality_query_min_overlap: 1
 document_quality_min_similarity: 0.5
 document_quality_recency_bias_days: 365
-# REFACTOR: Post-retrieval reranking strategy: lexical, embedding, or hybrid.
+# REFACTOR: Post-retrieval reranking strategy: lexical, embedding, hybrid, or
+# cross_encoder (DashScope TextReRank).
 rerank_strategy: lexical
+# Source-URL provenance for RAG answers: retrieved chunks enter the prompt
+# numbered with their source URL, the model cites [n], out-of-range citations
+# are stripped, and cited URLs surface in the answer footer and API
+# source_urls. Off restores the legacy plain-context, no-citation behavior.
+rag_citations_enabled: true
+# Index uploaded session files into the session-scoped Chroma store so RAG
+# retrieval covers them (needs file_read_enabled). Off by default: uploads stay
+# editing-tool-only and indexing behavior is unchanged.
+upload_indexing_enabled: false
+# Upper bound of chunks per uploaded file; larger files are skipped with an
+# error instead of an unbounded embed pass.
+upload_indexing_max_chunks: 2000
 # REFACTOR: Optional LLM contextual chunk prefixes (Anthropic-style). Off by
 # default: no extra LLM calls and indexing behavior is unchanged.
 chunk_context_enabled: false
@@ -226,6 +239,15 @@ hybrid_retrieval_rrf_k: 60
 hierarchical_chunking_enabled: false
 hierarchical_parent_chunk_size: 512
 hierarchical_auto_merge_threshold: 0.5
+# Structure-aware chunking: split HTML/Markdown sources on headings before
+# token-bound chunking, keeping sections and tables intact. Changes what is
+# embedded, so toggling forces a one-time index rebuild.
+structure_aware_chunking_enabled: false
+# Cross-encoder rerank (rerank_strategy: cross_encoder) via the DashScope
+# TextReRank API. rerank_max_chunks bounds the per-call cost; chunks beyond
+# the cap keep lexical order after the reranked head.
+rerank_model: gte-rerank-v2
+rerank_max_chunks: 32
 # Style-only persona for the agent/RAG prompts: trump or none.
 agent_persona_style: trump
 dashscope_request_timeout: 120

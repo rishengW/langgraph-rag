@@ -268,6 +268,46 @@ class SessionLifecycleService:
             or session
         )
 
+    async def migrate_to_isolated_store(self, session: ChatSession) -> ChatSession:
+        """Move a defaults-mode session onto its own isolated Chroma store.
+
+        Used by upload indexing: an upload must never pollute the shared
+        corpus, so the session first gets the same per-thread
+        chroma_dir/collection that explicit-URL sessions use. Mirrors
+        ``refresh`` — build the replacement graph under the factory lock,
+        then swap via ``update_sources``. Re-embeds the configured source
+        URLs into the session store (one-time cost per session).
+        """
+
+        if session.isolated_chroma:
+            return session
+
+        session_settings = self._dependencies.settings_for_session(
+            self._settings,
+            list(self._settings.source_urls),
+            session.thread_id,
+            True,
+        )
+        async with self._graph_factory_lock:
+            graph = await asyncio.to_thread(
+                self._dependencies.build_graph,
+                session_settings,
+                True,
+                self._checkpointer,
+                session.thread_id,
+            )
+        return (
+            self._sessions.update_sources(
+                session.thread_id,
+                graph=graph,
+                settings=session_settings,
+                source_urls=list(session.source_urls),
+                source_mode=session.source_mode,
+                isolated_chroma=True,
+            )
+            or session
+        )
+
     def sync_graph_owned_sources(self, session: ChatSession, values: Any) -> None:
         """Persist graph-discovered URLs after a completely successful turn."""
 
@@ -540,9 +580,7 @@ def serialize_history(messages: Iterable[Any]) -> tuple[HistoryEntry, ...]:
             # kwargs (queued by the upload endpoint); replay them as chips.
             pending_attachments = tuple(
                 item
-                for item in (
-                    getattr(message, "additional_kwargs", {}) or {}
-                ).get("attachments", ())
+                for item in (getattr(message, "additional_kwargs", {}) or {}).get("attachments", ())
                 if isinstance(item, dict)
             )
         if role == "assistant" and (

@@ -363,24 +363,176 @@ def rerank_retrieved_context(
     if len(chunks) <= 1:
         return content
 
-    strategy = _rerank_strategy(settings)
-    if strategy == "embedding":
-        ranked_chunks = _rank_chunks_by_embedding(question, chunks, settings)
-    elif strategy == "hybrid":
-        ranked_chunks = _rank_chunks_by_hybrid_score(question, chunks, settings)
-    else:
-        ranked_chunks = _rank_chunks(question, chunks)
-    return "\n\n".join(ranked_chunks)
+    scores = _rerank_scores(question, chunks, settings)
+    return "\n\n".join(chunks[index] for index in _ranked_indices(scores))
+
+
+def build_sourced_context(
+    question: str,
+    retrieved_message: Any,
+    settings: Settings | None = None,
+) -> tuple[str, list[str]]:
+    """Return reranked context with numbered source headers, plus the URL list.
+
+    Each chunk from a traceable document is prefixed with a
+    ``[n] Source: <url>`` header so the generate prompt can require [n]
+    citations that are verifiable against the returned URL list. Falls back to
+    the legacy plain-text context (and an empty URL list) when citations are
+    disabled or the tool message carries no document artifacts.
+    """
+
+    if settings is not None and not getattr(settings, "rag_citations_enabled", True):
+        return rerank_retrieved_context(question, retrieved_message, settings), []
+
+    pairs = _document_pairs_from_message(retrieved_message)
+    if not pairs:
+        return rerank_retrieved_context(question, retrieved_message, settings), []
+
+    if len(pairs) > 1:
+        scores = _rerank_scores(question, [text for text, _ in pairs], settings)
+        pairs = [pairs[index] for index in _ranked_indices(scores)]
+
+    numbering: dict[str, int] = {}
+    urls: list[str] = []
+    blocks: list[str] = []
+    for text, url in pairs:
+        if url:
+            if url not in numbering:
+                numbering[url] = len(urls) + 1
+                urls.append(url)
+            blocks.append(f"[{numbering[url]}] Source: {url}\n{text}")
+        else:
+            blocks.append(text)
+    return "\n\n".join(blocks), urls
+
+
+# Citation markers the rag prompt asks the model to emit. The lookbehind keeps
+# ASCII word characters adjacent (so ``array[3]`` in code is left alone) while
+# still allowing markers right after spaces, punctuation, or CJK text.
+_CITATION_MARKER_RE = re.compile(r"(?<![A-Za-z0-9_])[\[【]\s*(\d{1,3})\s*[\]】]")
+
+
+def validate_citations(answer: str, source_urls: list[str]) -> tuple[str, list[str]]:
+    """Strip citation markers that point past the retrieved source list.
+
+    Keeps ``[n]`` markers that address ``source_urls`` (normalizing full-width
+    brackets to ASCII), removes the rest, and appends a ``Sources:`` footer
+    mapping each surviving number to its URL. Returns ``(text, cited_urls)``.
+    """
+
+    if not source_urls:
+        return answer, []
+
+    upper = len(source_urls)
+
+    def _keep(match: Any) -> str:
+        number = int(match.group(1))
+        return f"[{number}]" if 1 <= number <= upper else ""
+
+    cleaned = _CITATION_MARKER_RE.sub(_keep, answer)
+    # Tidy the gaps stripped markers leave behind.
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+([.,;:!?，。；：！？、）】\]])", r"\1", cleaned)
+
+    cited: list[int] = []
+    for match in _CITATION_MARKER_RE.finditer(cleaned):
+        number = int(match.group(1))
+        if number not in cited:
+            cited.append(number)
+
+    if not cited:
+        return cleaned, []
+
+    footer = "\n\nSources:\n" + "\n".join(
+        f"[{number}] {source_urls[number - 1]}" for number in cited
+    )
+    return cleaned.rstrip() + footer, [source_urls[number - 1] for number in cited]
 
 
 def _rerank_strategy(settings: Settings | None) -> str:
     if settings is None:
         return "lexical"
     strategy = settings.rerank_strategy.strip().lower()
-    if strategy not in ("lexical", "embedding", "hybrid"):
+    if strategy not in ("lexical", "embedding", "hybrid", "cross_encoder"):
         logger.warning("Unknown rerank strategy %r; using lexical", strategy)
         return "lexical"
     return strategy
+
+
+def _rerank_scores(
+    question: str,
+    chunks: list[str],
+    settings: Settings | None,
+) -> list[float]:
+    strategy = _rerank_strategy(settings)
+    if strategy == "embedding":
+        return _embedding_scores(question, chunks, settings)
+    if strategy == "hybrid":
+        return _hybrid_scores(question, chunks, settings)
+    if strategy == "cross_encoder":
+        return _cross_encoder_scores(question, chunks, settings)
+    return _lexical_scores(question, chunks)
+
+
+def _cross_encoder_scores(
+    question: str,
+    chunks: list[str],
+    settings: Settings | None,
+) -> list[float]:
+    """Cross-encoder relevance via the DashScope TextReRank API.
+
+    Chunks past ``rerank_max_chunks`` keep lexical order after the reranked
+    head so one giant context cannot turn into an unbounded rerank call. Any
+    API/shape failure falls back to lexical scores, mirroring the
+    embedding-strategy fallback.
+    """
+
+    lexical = _lexical_scores(question, chunks)
+    if settings is None or not chunks:
+        return lexical
+
+    max_chunks = max(1, int(getattr(settings, "rerank_max_chunks", 32)))
+    head = chunks[:max_chunks]
+    tail_count = len(chunks) - len(head)
+    if not head:
+        return lexical
+
+    try:
+        from dashscope import TextReRank
+
+        from src.utils.retry import dashscope_call_with_retry
+
+        response = dashscope_call_with_retry(
+            TextReRank,
+            {
+                "model": getattr(settings, "rerank_model", "gte-rerank-v2"),
+                "query": question,
+                "documents": head,
+                "top_n": len(head),
+                "api_key": settings.dashscope_api_key,
+                "return_documents": False,
+            },
+        )
+        ranked = (response.output or {}).get("results") or []
+    except Exception as exc:
+        logger.warning("Cross-encoder rerank failed; using lexical rerank: %s", exc)
+        return lexical
+
+    # Scores for the reranked head; the tail keeps its lexical score minus a
+    # constant so it never outranks a reranked head entry.
+    scores = [-1.0] * len(chunks)
+    for position, entry in enumerate(ranked, 1):
+        index = int(entry.get("index", -1))
+        if 0 <= index < len(head):
+            scores[index] = float(len(ranked) - position + 1)
+    for index in range(len(head)):
+        if scores[index] < 0.0:
+            scores[index] = 0.0
+    if tail_count:
+        lexical_head_min = min(scores[: len(head)]) if head else 0.0
+        for offset, lexical_score in enumerate(lexical[len(head) :]):
+            scores[len(head) + offset] = min(lexical_score, lexical_head_min) - 1.0
+    return scores
 
 
 def _document_chunks_from_message(message: Any) -> list[str]:
@@ -413,43 +565,76 @@ def _split_retrieved_chunks(content: str) -> list[str]:
     return [chunk for chunk in chunks if chunk]
 
 
-def _rank_chunks(question: str, chunks: list[str]) -> list[str]:
+def _document_pairs_from_message(message: Any) -> list[tuple[str, str]]:
+    """Return ``(text, source_url)`` pairs from a tool message artifact.
+
+    Artifacts are Documents on the direct path and plain dicts after the MCP
+    pipeline sanitizer (which preserves page_content/metadata structure); both
+    shapes are handled here.
+    """
+
+    artifact = getattr(message, "artifact", None)
+    if not isinstance(artifact, list):
+        return []
+
+    pairs: list[tuple[str, str]] = []
+    for document in artifact:
+        text = _document_text(document).strip()
+        if not text:
+            continue
+        pairs.append((text, _document_source(document)))
+    return pairs
+
+
+def _document_source(document: Any) -> str:
+    metadata = getattr(document, "metadata", None)
+    if not isinstance(metadata, dict) and isinstance(document, dict):
+        metadata = document.get("metadata")
+    if not isinstance(metadata, dict):
+        return ""
+    for key in ("source", "url"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _ranked_indices(scores: list[float]) -> list[int]:
+    """Chunk indices ordered by descending score, ties keeping original order."""
+
+    return [
+        index for index, _score in sorted(enumerate(scores), key=lambda item: (-item[1], item[0]))
+    ]
+
+
+def _lexical_scores(question: str, chunks: list[str]) -> list[float]:
     query_tokens: set[str] = _question_tokens(question)
     query_phrases: set[str] = _query_phrases(question)
-    scored: list[tuple[int, int, str]] = []
-    for index, chunk in enumerate(chunks):
-        score: int = _lexical_relevance_score(query_tokens, query_phrases, chunk)
-        scored.append((score, index, chunk))
-    return [chunk for _, _, chunk in sorted(scored, key=lambda item: (-item[0], item[1]))]
+    return [float(_lexical_relevance_score(query_tokens, query_phrases, chunk)) for chunk in chunks]
 
 
-def _rank_chunks_by_embedding(
+def _embedding_scores(
     question: str,
     chunks: list[str],
     settings: Settings | None,
-) -> list[str]:
+) -> list[float]:
     if settings is None:
-        return _rank_chunks(question, chunks)
+        return _lexical_scores(question, chunks)
     try:
-        scores = _embedding_relevance_scores(question, chunks, settings)
+        return _embedding_relevance_scores(question, chunks, settings)
     except Exception as exc:
         logger.warning("Embedding rerank failed; using lexical rerank: %s", exc)
-        return _rank_chunks(question, chunks)
-    return _rank_chunks_by_scores(scores, chunks)
+        return _lexical_scores(question, chunks)
 
 
-def _rank_chunks_by_hybrid_score(
+def _hybrid_scores(
     question: str,
     chunks: list[str],
     settings: Settings | None,
-) -> list[str]:
-    query_tokens: set[str] = _question_tokens(question)
-    query_phrases: set[str] = _query_phrases(question)
-    lexical_scores = [
-        float(_lexical_relevance_score(query_tokens, query_phrases, chunk)) for chunk in chunks
-    ]
+) -> list[float]:
+    lexical_scores = _lexical_scores(question, chunks)
     if settings is None:
-        return _rank_chunks_by_scores(lexical_scores, chunks)
+        return lexical_scores
     try:
         embedding_scores = _embedding_relevance_scores(question, chunks, settings)
     except Exception as exc:
@@ -457,8 +642,8 @@ def _rank_chunks_by_hybrid_score(
             "Hybrid rerank embedding score failed; using lexical rerank: %s",
             exc,
         )
-        return _rank_chunks_by_scores(lexical_scores, chunks)
-    scores = [
+        return lexical_scores
+    return [
         lexical + embedding
         for lexical, embedding in zip(
             _normalize_scores(lexical_scores),
@@ -466,7 +651,6 @@ def _rank_chunks_by_hybrid_score(
             strict=False,
         )
     ]
-    return _rank_chunks_by_scores(scores, chunks)
 
 
 def _embedding_relevance_scores(
@@ -486,14 +670,6 @@ def _build_rerank_embeddings(settings: Settings) -> Any:
     from ...rag.embeddings import build_embeddings
 
     return build_embeddings(settings)
-
-
-def _rank_chunks_by_scores(scores: list[float], chunks: list[str]) -> list[str]:
-    scored = [
-        (score, index, chunk)
-        for index, (score, chunk) in enumerate(zip(scores, chunks, strict=False))
-    ]
-    return [chunk for _, _, chunk in sorted(scored, key=lambda item: (-item[0], item[1]))]
 
 
 def _normalize_scores(scores: list[float]) -> list[float]:
@@ -622,7 +798,7 @@ def grade_documents_factory(
         chain = dated_grade_prompt | llm_with_tool
 
         question = question_resolver(state)
-        retrieved_docs_text = rerank_retrieved_context(
+        retrieved_docs_text, _sources = build_sourced_context(
             question,
             state["messages"][-1],
             settings,
@@ -821,7 +997,7 @@ def generate_factory(
     def generate(state: dict[str, Any]) -> dict[str, list[AIMessage]]:
         logger.info("GENERATE")
         question = question_resolver(state)
-        retrieved_docs_text = rerank_retrieved_context(
+        retrieved_docs_text, source_urls = build_sourced_context(
             question,
             state["messages"][-1],
             settings,
@@ -831,6 +1007,7 @@ def generate_factory(
         dated_prompt = rag_prompt(rag_persona).partial(current_date=date.today().isoformat())
         rag_chain = dated_prompt | plain_llm() | StrOutputParser()
 
+        cited_urls: list[str] = []
         try:
             answer = invoke_with_retry(
                 rag_chain,
@@ -838,12 +1015,25 @@ def generate_factory(
                 max_retries=settings.dashscope_max_retries,
             )
             text = answer if isinstance(answer, str) else str(answer)
-            response = AIMessage(content=strip_citation_artifacts(text))
+            text, cited_urls = validate_citations(strip_citation_artifacts(text), source_urls)
+            response = AIMessage(content=text)
         except Exception as exc:
             logger.error("Generate error: %s", exc)
-            response = AIMessage(content=build_extractive_answer(question, retrieved_docs_text))
+            fallback_text = build_extractive_answer(question, retrieved_docs_text)
+            # The degraded path still attributes its source set wholesale: the
+            # extractive answer is drawn from those chunks.
+            cited_urls = list(source_urls)
+            if cited_urls:
+                footer = "\n\nSources:\n" + "\n".join(
+                    f"[{index}] {url}" for index, url in enumerate(cited_urls, 1)
+                )
+                fallback_text += footer
+            response = AIMessage(content=fallback_text)
 
-        return {"messages": [response]}
+        output: dict[str, Any] = {"messages": [response]}
+        if cited_urls:
+            output["source_urls"] = cited_urls
+        return output
 
     return generate
 

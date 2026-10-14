@@ -25,6 +25,7 @@ from .session_lifecycle import (
     serialize_history,
 )
 from .turn_execution import TurnExecutionDependencies, TurnExecutionService
+from .upload_indexing import delete_indexed_upload, index_saved_upload
 
 __all__ = [
     "ChatApplicationError",
@@ -46,5 +47,7 @@ __all__ = [
     "TurnExecutionService",
     "TurnRequest",
     "TurnResult",
+    "delete_indexed_upload",
+    "index_saved_upload",
     "serialize_history",
 ]

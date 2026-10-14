@@ -116,6 +116,18 @@ def test_web_search_and_page_load_defaults_align_with_yaml():
     )
     assert settings.rerank_strategy == "lexical"
     assert defaults["rerank_strategy"] == settings.rerank_strategy
+    assert settings.rag_citations_enabled is True
+    assert defaults["rag_citations_enabled"] == settings.rag_citations_enabled
+    assert settings.upload_indexing_enabled is False
+    assert defaults["upload_indexing_enabled"] == settings.upload_indexing_enabled
+    assert settings.upload_indexing_max_chunks == 2000
+    assert defaults["upload_indexing_max_chunks"] == settings.upload_indexing_max_chunks
+    assert settings.structure_aware_chunking_enabled is False
+    assert defaults["structure_aware_chunking_enabled"] == settings.structure_aware_chunking_enabled
+    assert settings.rerank_model == "gte-rerank-v2"
+    assert defaults["rerank_model"] == settings.rerank_model
+    assert settings.rerank_max_chunks == 32
+    assert defaults["rerank_max_chunks"] == settings.rerank_max_chunks
     assert settings.amap_api_timeout_seconds == 10
     assert defaults["amap_api_timeout_seconds"] == settings.amap_api_timeout_seconds
     assert "amap_web_service_key" not in defaults
@@ -574,6 +586,32 @@ def test_load_settings_accepts_rerank_strategy_env(tmp_path, monkeypatch):
     settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
 
     assert settings.rerank_strategy == "hybrid"
+
+
+def test_load_settings_accepts_rag_citations_enabled_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("RAG_CITATIONS_ENABLED", "false")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.rag_citations_enabled is False
+
+
+def test_load_settings_accepts_new_rag_flags_from_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "env-secret")
+    monkeypatch.setenv("UPLOAD_INDEXING_ENABLED", "true")
+    monkeypatch.setenv("STRUCTURE_AWARE_CHUNKING_ENABLED", "true")
+    monkeypatch.setenv("RERANK_MODEL", "gte-rerank")
+    monkeypatch.setenv("RERANK_MAX_CHUNKS", "16")
+    monkeypatch.setenv("RERANK_STRATEGY", "cross_encoder")
+
+    settings = load_settings(env_file=tmp_path / ".env-missing", config_file=None)
+
+    assert settings.upload_indexing_enabled is True
+    assert settings.structure_aware_chunking_enabled is True
+    assert settings.rerank_model == "gte-rerank"
+    assert settings.rerank_max_chunks == 16
+    assert settings.rerank_strategy == "cross_encoder"
 
 
 def test_load_settings_deepseek_provider(tmp_path, monkeypatch):

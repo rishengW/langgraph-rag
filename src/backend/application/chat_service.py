@@ -142,6 +142,16 @@ class ChatApplicationService:
         with self._quotas.acquire(trusted_principal):
             return await self._lifecycle.delete(thread_id, trusted_principal)
 
+    async def migrate_to_isolated_store(self, session: ChatSession) -> ChatSession:
+        """Move a defaults-mode session onto its isolated Chroma store.
+
+        Used by the upload endpoint before indexing so uploads never touch the
+        shared corpus. No extra quota charge: the migration is part of the
+        upload request's already-acquired lease.
+        """
+
+        return await self._lifecycle.migrate_to_isolated_store(session)
+
 
 class Lock(Protocol):
     """Minimal blocking lock contract used by chat sessions."""

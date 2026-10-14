@@ -5,12 +5,14 @@ from .common import (
     agent_factory,
     build_chat_agent_factory,
     build_extractive_answer,
+    build_sourced_context,
     chat_question_resolver,
     generate_factory,
     grade_documents_factory,
     message_text,
     new_chat_model,
     rewrite_factory,
+    validate_citations,
 )
 from .condense import condense_question_factory, format_history, latest_user_index
 from .decompose import DECOMPOSE_MAX_SUBQUESTIONS, decompose_factory
@@ -47,6 +49,7 @@ __all__ = [
     "agent_factory",
     "build_chat_agent_factory",
     "build_extractive_answer",
+    "build_sourced_context",
     "chat_question_resolver",
     "condense_question_factory",
     "decompose_factory",
@@ -73,5 +76,6 @@ __all__ = [
     "new_chat_model",
     "rewrite_factory",
     "search_queries_factory",
+    "validate_citations",
     "web_answer_factory",
 ]

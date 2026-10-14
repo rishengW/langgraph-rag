@@ -1,0 +1,242 @@
+
+===== P1 sympy.factorint / primefactors sign & zero semantics =====
+factorint(-6) = {2: 1, 3: 1, -1: 1}
+factorint(6) = {2: 1, 3: 1}
+factorint(0) = {0: 1}
+factorint(1) = {}
+factorint(-1) = {-1: 1}
+factorint(-12) = {2: 2, 3: 1, -1: 1}
+factorint(12) = {2: 2, 3: 1}
+primefactors(0) = []
+primefactors(1) = []
+primefactors(-1) = []
+primefactors(-6) = [2, 3]
+primefactors(6) = [2, 3]
+
+===== P2 number_theory_tool: sign / zero / uncaught paths =====
+factorize      {'number': -6} -> '-6 = -1 * 2 * 3'
+factorize      {'number': 0} -> '0 has no prime factorization.'
+prime_factors  {'number': 0} -> 'distinct prime factors of 0: none'
+prime_factors  {'number': -6} -> 'distinct prime factors of -6: [2, 3]'
+is_prime       {'number': -7} -> '-7 is not prime.'
+next_prime     {'number': 0} -> 'next prime after 0 = 2'
+gcd            {'number': 0, 'second_number': 0} -> 'gcd(0, 0) = 0'
+lcm            {'number': 0, 'second_number': 0} -> 'lcm(0, 0) = 0'
+to_base        {'number': -255, 'base': 16} -> '-255 in base 16 = -ff'
+to_base        {'number': 0, 'base': 2} -> '0 in base 2 = 0'
+
+===== P3 math_tool RCE reachability (read-only payload) =====
+payload: __import__('os').getcwd()
+evaluate    -> marker=False out='Math evaluation failed for "__import__(\'os\').getcwd()": Sympify of expression \'could not parse \'C:\\\\Users\\\\OMEN\\\\AppData\\\\Local\\\\Temp\'\' failed, becaus'
+solve       -> marker=False out='Math evaluation failed for "__import__(\'os\').getcwd() = 0": SympifyError: \'C:\\\\Users\\\\OMEN\\\\AppData\\\\Local\\\\Temp\''
+derivative  -> marker=False out='Math evaluation failed for "__import__(\'os\').getcwd()": Sympify of expression \'could not parse \'C:\\\\Users\\\\OMEN\\\\AppData\\\\Local\\\\Temp\'\' failed, becaus'
+simplify    -> marker=False out='Math evaluation failed for "__import__(\'os\').getcwd()": Sympify of expression \'could not parse \'C:\\\\Users\\\\OMEN\\\\AppData\\\\Local\\\\Temp\'\' failed, becaus'
+limit       -> marker=False out="Math evaluation failed for '1/x': Sympify of expression 'could not parse 'C:\\\\Users\\\\OMEN\\\\AppData\\\\Local\\\\Temp'' failed, because of exception being r"
+series      -> marker=False out="Math evaluation failed for 'exp(x)': Sympify of expression 'could not parse 'C:\\\\Users\\\\OMEN\\\\AppData\\\\Local\\\\Temp'' failed, because of exception bein"
+integral    -> marker=False out="Math evaluation failed for 'x': Sympify of expression 'could not parse 'C:\\\\Users\\\\OMEN\\\\AppData\\\\Local\\\\Temp'' failed, because of exception being rai"
+
+===== P3b parse_expr default namespace exposes builtins? =====
+__import__ -> builtins builtin_function_or_method <built-in function __import__>
+os.system      RAISED AttributeError
+getattr(1,'a') RAISED AttributeError
+
+===== P3c math_tool: int-returning read-only payload = SILENT success? =====
+   __import__('os').getpid()    -> "__import__('os').getpid() = 11020.0000000000"
+   __import__('os').getppid()   -> "__import__('os').getppid() = 4444.00000000000"
+   __import__('sys').maxsize    -> "__import__('sys').maxsize = 9.22337203685478E+18"
+   __import__('len').__self__   -> 'Math evaluation failed for "__import__(\'len\').__self__": No module named \'len\''
+   min(1,2)                     -> 'min(1,2) = 1.00000000000000'
+   real getpid for reference: 11020
+
+===== P3d sympy constructors that re-sympify their string arg =====
+   ns+nsimplify  ('1/2') -> Half: 1/2
+   ns+solveset   ('1/2') -> EmptySet: EmptySet
+   ns+Poly       ('1/2') RAISED GeneratorsNeeded
+   ns+Function   ('1/2') -> UndefinedFunction: 1/2
+   ns+Piecewise  ('1/2') RAISED TypeError
+   ns+Rational   ('1/2') -> Half: 1/2
+   ns+Integer    ('1/2') RAISED ValueError
+
+===== P3e IS THE RECOMMENDED FIX STILL BYPASSABLE? =====
+sandbox = exec('from sympy import *', ns); ns['__builtins__']={}; global_dict=ns
+real parent pid =  4444
+   __import__('os').getppid()                     BLOCKED AttributeError
+   nsimplify("__import__('os').getppid()")        BLOCKED AttributeError
+   compile("__import__('os').getppid()",0,'eval') BLOCKED SympifyError
+   nsimplify('1/2')                               -> Half = 1/2
+   sin(0) + 1                                     -> One = 1
+
+===== P4 linalg_tool RCE reachability (read-only payload) =====
+rank         -> 'rank = 2'
+solve        -> 'solution x = [4434, -4429/2]'
+multiply     -> 'product =\n[7, 4452]\n[15, 13348]'
+determinant  -> 'determinant = -13328'
+transpose    -> 'transpose =\n[4444, 3]\n[2, 4]'
+eigenvalues  -> 'eigenvalues: 2224 - sqrt(4928406) (multiplicity 1), sqrt(4928406) + 2224 (multiplicity 1)'
+
+===== P4b linalg: dimension bound / ragged / bool / float =====
+rank       {'matrix': '[[True]]'}                                 -> 'Linear algebra failed: matrix has non-numeric or ragged rows: booleans are not valid matri'
+rank       {'matrix': '[[1.5]]'}                                  -> 'rank = 1'
+rank       {'matrix': '[]'}                                       -> 'Linear algebra failed: matrix must be a non-empty list of rows.'
+rank       {'matrix': '[[1,2],[3]]'}                              -> 'Linear algebra failed: matrix has non-numeric or ragged rows: mismatched dimensions'
+rank       {'matrix': "{'a': 1}"}                                 -> 'Linear algebra failed: matrix must be a non-empty list of rows.'
+multiply   {'matrix': '[[1]]', 'matrix_b': '[[1],[2]]'}           -> 'Linear algebra failed: incompatible shapes for multiply: 1x1 and 2x1.'
+
+===== P5 math_tool behavioural semantics =====
+   parse_expr('doctest'  ) -> LazyFunction callable=True
+   parse_expr('factorint') -> function callable=True
+   parse_expr('solveset' ) -> function callable=True
+   parse_expr('exec'     ) -> builtin_function_or_method callable=True
+   parse_expr('eval'     ) -> builtin_function_or_method callable=True
+   parse_expr('open'     ) -> builtin_function_or_method callable=True
+   parse_expr('compile'  ) -> builtin_function_or_method callable=True
+integral    {'expression': 'x', 'lower_bound': '0'}        -> 'integral of x dx = x**2/2 + C'
+integral    {'expression': 'x', 'upper_bound': '1'}        -> 'integral of x dx = x**2/2 + C'
+limit       {'expression': '1/x', 'point': '0', 'directi   -> 'limit of 1/x as x->0 (+) = oo'
+limit       {'expression': '1/x', 'point': '0', 'directi   -> 'limit of 1/x as x->0 (-) = -oo'
+series      {'expression': 'exp(x)', 'order': 20}          -> 'series of exp(x) around x=0 (order 20) = 1 + x + x**2/2 + x**3/6 + x**4/24 + x**5/120 + x**6/720 + x**7/5040 + x**8/40320 + x**9/362880 + x**10/362880'
+solve       {'expression': 'a = b = c'}                    -> "Math evaluation failed for 'a = b = c': invalid syntax (<string>, line 1)"
+solve       {'expression': '2*x + 1 = 5'}                  -> 'solve(2*x + 1 = 5, x) -> x = 2'
+evaluate    {'expression': '1/0'}                          -> '1/0 = zoo'
+evaluate    {'expression': '2**99999'}                     -> '2**99999 = 4.99501046507192E+30102'
+derivative  {'expression': 'sin(x)', 'variable': 'sin(x)   -> 'd/dsin(x)(sin(x)) = 0'
+derivative  {'expression': 'f(x)', 'variable': 'f'}        -> 'd/df(f*x) = x'
+evaluate    {'expression': 'Integer(1) + 2'}               -> 'Integer(1) + 2 = 3.00000000000000'
+evaluate    {'expression': "nsimplify('0')"}               -> "nsimplify('0') = 0"
+
+===== P6 statistics_tool: inf / nan / overflow / ReDoS =====
+1e999        UNCAUGHT OverflowError: cannot convert float infinity to integer
+-1e999       UNCAUGHT OverflowError: cannot convert float infinity to integer
+1e-999       -> 'Descriptive statistics:\n\n| Statistic | Value |\n| --- | --- |\n| Count | 1 |\n| Sum | 0 |\n| Mean | 0 |\n| Median |'
+nan          -> 'Statistics requires at least one number.'
+inf          -> 'Statistics requires at least one number.'
+1, 2, abc, 4 -> 'Descriptive statistics:\n\n| Statistic | Value |\n| --- | --- |\n| Count | 3 |\n| Sum | 7 |\n| Mean | 2.33333 |\n| Me'
+.            -> 'Statistics requires at least one number.'
+e            -> 'Statistics requires at least one number.'
+1,2,3,       -> 'Descriptive statistics:\n\n| Statistic | Value |\n| --- | --- |\n| Count | 3 |\n| Sum | 6 |\n| Mean | 2 |\n| Median |'
+
+===== P7 datetime_tool: difference / Z / awareness =====
+difference        {'start': '2026-06-30T15:00', 'end': '2026-06-30T11:00'}       -> 'Difference between 2026-06-30T15:00:00 and 2026-06-30T11:00:00: -0 day(s), 4 hour(s), 0 minute(s) (total -1 days)'
+difference        {'start': '2026-06-30T15:00', 'end': '2026-07-01T17:00'}       -> 'Difference between 2026-06-30T15:00:00 and 2026-07-01T17:00:00: 1 day(s), 2 hour(s), 0 minute(s) (total 1 days)'
+difference        {'start': '2026-06-30T15:00', 'end': '2026-07-01T17:00+08:00   -> 'Difference between 2026-06-30T15:00:00+00:00 and 2026-07-01T17:00:00+08:00: 0 day(s), 18 hour(s), 0 minute(s) (total 0 days)'
+difference        {'start': '2026-06-30T15:00:00.999', 'end': '2026-07-01T17:0   -> 'Difference between 2026-06-30T15:00:00.999000 and 2026-07-01T17:00:00: 1 day(s), 1 hour(s), 59 minute(s) (total 1 days)'
+convert_timezone  {'start': '2026-06-30T15:00', 'timezone_name': 'UTC', 'to_ti   -> '2026-06-30T15:00:00+00:00 (UTC) = 2026-07-01T00:00:00+09:00 (Asia/Tokyo)'
+now               {}                                                             -> 'Current date/time: 2026-10-09T22:33:27 (Friday)'
+add               {'start': '2026-06-30T23:30', 'hours': 2}                      -> '2026-06-30T23:30:00 + (0d 2h 0m) = 2026-07-01T01:30:00 (Wednesday)'
+convert_timezone  {'start': '2026-03-08T02:30', 'timezone_name': 'America/New_   -> '2026-03-08T02:30:00-05:00 (America/New_York) = 2026-03-08T07:30:00+00:00 (UTC)'
+
+===== P8 _amap: parse / mode / bounds / optional_float overflow =====
+parse_latlon('121.47,31.23') = None
+parse_latlon('31.23,121.47') = AMapPosition(lng=121.47, lat=31.23)
+parse_lnglat('1,2,3')        = None
+parse_lnglat([100.0,20.0])   = AMapPosition(lng=100.0, lat=20.0)
+normalize_travel_mode checks:
+   bus          -> None
+   driving      -> 'driving'
+   garbage      -> 'driving'
+                -> 'driving'
+   None         -> 'driving'
+     WALK       -> 'walking'
+   airplane     -> 'driving'
+   bike         -> 'cycling'
+route_bounds cross antimeridian: {'southwest': {'lng': -179, 'lat': 0}, 'northeast': {'lng': 179, 'lat': 0}}
+_sample_positions(n=7,limit=5): [0.0, 2.0, 3.0, 4.0, 6.0]
+_sample_positions(n=6,limit=5): [0.0, 1.0, 2.0, 4.0, 5.0]
+_sample_positions(n=8,limit=4): [0.0, 2.0, 5.0, 7.0]
+parse_polyline max_points=0: []
+_optional_float(1e999               ) -> None
+_optional_float(999999999999999999  ) -> None
+_optional_float(999999999999999999  ) -> None
+_optional_float(-5                  ) -> -5.0
+_optional_float(abc                 ) -> None
+_optional_float(None                ) -> None
+_optional_float([1, 2]              ) -> None
+
+===== P8b _amap: envelope validation leniency + secret redaction =====
+pois-no-status -> {'pois': []}
+bad-status     -> AMapAPIError: AMap bad-status failed: key=*** leaked
+v4-err         -> AMapAPIError: AMap v4-err failed: key=*** bad key
+route-ok       -> {'route': {'paths': []}}
+safe_amap_error: boom ?key=***&foo=bar
+safe_amap_error: {'key': '***', 'x': 1}
+safe_amap_error: AMAP_WEB_SERVICE_KEY=*** here
+
+===== P8c _amap parse_route_result with hostile-but-plausible payload =====
+distance_m: None duration_s: None
+steps: 1 step0: go key=*** now
+bounds: {'southwest': {'lng': 120.0, 'lat': 30.0}, 'northeast': {'lng': 120.2, 'lat': 30.2}}
+
+===== P9 _geocoding: match score vs APPROXIMATE MATCH gate =====
+CONFIDENT_MATCH_SCORE = 0.6
+q='上海'         name='上海浦东软件园祖冲之园'            city='上海'   -> name_score=1.00 city_score=1.00 max=1.00
+q='上海'         name='随便一个楼'                  city='上海'   -> name_score=0.00 city_score=1.00 max=1.00
+q='apple'      name='Pineapple Farm'         city=''     -> name_score=1.00 city_score=0.00 max=1.00
+q='a'          name='Apple Pie Shop At Home' city=''     -> name_score=1.00 city_score=0.00 max=1.00
+q='北京饭店'       name='北京饭店'                   city='北京'   -> name_score=1.00 city_score=0.33 max=1.00
+
+===== P9b _geocoding: geocode_place with a fake requester (no network) =====
+http calls made: 1
+  '随便一个楼, 浦东, 上海, China' score=1.00 is_confident=True source=poi
+
+===== P9c _geocoding: clean_place_query + dead-code check in _place_from_amap =====
+   '在地图上找出上海的位置'                      -> '上海'
+   'where is the apple pie shop'      -> 'the apple pie shop'
+   '地图'                               -> '地图'
+   'the'                              -> 'the'
+   '的'                                -> '的'
+_place_from_amap(name='', term='') -> None
+
+===== P10 currency: charset / rate paths (no network) =====
+   build path would be: https://api.frankfurter.dev/v2/rate/..//EUR
+   build path would be: https://api.frankfurter.dev/v2/rate/USD/EUR
+   build path would be: https://api.frankfurter.dev/v2/rate/USD/../../../ETC/PASSWD
+   payload={'rate': '1.09', 'date': '20   -> '100 USD = 109.0000 EUR\nExchange rate: 1 USD = 1.090000 EUR\nRate date: 2026-10-09'
+   payload={'rate': 0}                    -> '100 USD = 0.0000 EUR\nExchange rate: 1 USD = 0.000000 EUR'
+   payload={'rate': 'abc'}                UNCAUGHT ValueError: could not convert string to float: 'abc'
+   payload={'rate': None}                 -> 'Currency conversion failed for USD to EUR: no exchange rate'
+   same-currency short circuit -> 100 USD = 100 USD; rate: 1.0.
+
+===== P11 wikipedia: trim / url / hostile payload shapes =====
+   _page_url('Title'       ) -> 'https://en.wikipedia.org/wiki/Title'
+   _page_url('A B'         ) -> 'https://en.wikipedia.org/wiki/A_B'
+   _page_url('AT&T/LTE'    ) -> 'https://en.wikipedia.org/wiki/AT%26T/LTE'
+   _page_url('a/b/c?x=1'   ) -> 'https://en.wikipedia.org/wiki/a/b/c%3Fx%3D1'
+   _page_url('日本語'         ) -> 'https://en.wikipedia.org/wiki/%E6%97%A5%E6%9C%AC%E8%AA%9E'
+   _page_url(''            ) -> 'https://en.wikipedia.org/wiki/'
+   _trim_summary long -> 'x x x x x x x x x...'
+   _trim_summary newline -> 'a b c'
+   list         -> 'Wikipedia results for: q\n- 1: No summary available.\n  URL: https://en.wikipedia.org/wiki/1'
+   search=str   UNCAUGHT AttributeError: 'str' object has no attribute 'get'
+   pages=list   -> 'No Wikipedia results found for: q'
+   good         -> 'Wikipedia results for: q\n- Seven: Hello world\n  URL: https://en.wikipedia.org/wiki/Seven'
+
+===== P12 weather: description / resolve / table =====
+   _weather_description(0     ) -> 'clear sky'
+   _weather_description(95    ) -> 'thunderstorm'
+   _weather_description(96    ) -> 'weather code 96'
+   _weather_description(99    ) -> 'weather code 99'
+   _weather_description(95.0  ) -> 'thunderstorm'
+   _weather_description(46    ) -> 'weather code 46'
+   _weather_description(None  ) -> ''
+   _weather_description('bad' ) -> ''
+   no-units      -> 87 chars, table rows=0
+   full          -> 372 chars, table rows=5
+   ragged-daily  -> 113 chars, table rows=2
+
+===== P12b weather: resolve_location with hostile geojson =====
+   missing lat key UNCAUGHT KeyError 'latitude'
+   only latitude    -> None
+   only longitude   -> None
+   nothing          -> None
+
+===== P13 stock: hostile ticker-object shapes (no network) =====
+   normal     -> 'Stock quote for AAPL: 100.00 USD\nDay change: +1.00 (+1.01%)'
+   strings    UNCAUGHT ValueError: could not convert string to float: '1,234.56'
+   none-price -> 'No current stock quote found for AAPL.'
+   volume-str UNCAUGHT ValueError: invalid literal for int() with base 10: '1,000'
+   nan-prev   -> 'Stock quote for AAPL: 100.00 USD\nDay change: +nan (+nan%)'
+   zero-prev  -> 'Stock quote for AAPL: 100.00 USD\nDay change: +100.00 (+0.00%)'
+   neg-prev   -> 'Stock quote for AAPL: 100.00 USD\nDay change: +105.00 (-2100.00%)'
+   inf-price  -> 'Stock quote for AAPL: inf USD'
+
+DONE

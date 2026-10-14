@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
 from langchain_core.documents import Document
@@ -399,6 +400,317 @@ def test_rerank_retrieved_context_hybrid_combines_scores(
     )
 
     assert context.split("\n\n")[0] == "PAI reinforcement learning exact guide"
+
+
+def test_rerank_cross_encoder_strategy_orders_by_api_response(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(rerank_strategy="cross_encoder")
+    message = ToolMessage(
+        content="first chunk\n\nsecond chunk",
+        tool_call_id="call_1",
+    )
+
+    class FakeResponse:
+        status_code = 200
+        code = None
+        message = ""
+        output = {
+            "results": [{"index": 1, "relevance_score": 0.9}, {"index": 0, "relevance_score": 0.1}]
+        }
+
+    class FakeTextReRank:
+        def call(self, **kwargs):
+            assert kwargs["documents"] == ["first chunk", "second chunk"]
+            assert kwargs["top_n"] == 2
+            return FakeResponse()
+
+    import types
+
+    fake_dashscope = types.ModuleType("dashscope")
+    fake_dashscope.TextReRank = FakeTextReRank()
+    monkeypatch.setitem(sys.modules, "dashscope", fake_dashscope)
+
+    context = common_nodes.rerank_retrieved_context(
+        "some question",
+        message,
+        settings,
+    )
+
+    assert context.split("\n\n")[0] == "second chunk"
+
+
+def test_rerank_cross_encoder_falls_back_to_lexical_on_error(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(rerank_strategy="cross_encoder")
+    message = ToolMessage(
+        content="PAI reinforcement learning guide\n\ngeneric other text",
+        tool_call_id="call_1",
+    )
+
+    class FailingTextReRank:
+        def call(self, **kwargs):
+            raise RuntimeError("api down")
+
+    import types
+
+    fake_dashscope = types.ModuleType("dashscope")
+    fake_dashscope.TextReRank = FailingTextReRank()
+    monkeypatch.setitem(sys.modules, "dashscope", fake_dashscope)
+
+    context = common_nodes.rerank_retrieved_context(
+        "How does PAI use reinforcement learning?",
+        message,
+        settings,
+    )
+
+    # Lexical fallback: the PAI chunk still wins.
+    assert context.split("\n\n")[0] == "PAI reinforcement learning guide"
+
+
+def test_rerank_cross_encoder_caps_head_and_keeps_tail_after(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings(
+        rerank_strategy="cross_encoder",
+        rerank_max_chunks=2,
+    )
+    message = ToolMessage(
+        content="alpha needle chunk\n\nbeta chunk\n\ngamma needle chunk",
+        tool_call_id="call_1",
+    )
+
+    class FakeResponse:
+        status_code = 200
+        code = None
+        message = ""
+        output = {
+            "results": [{"index": 0, "relevance_score": 0.5}, {"index": 1, "relevance_score": 0.4}]
+        }
+
+    class FakeTextReRank:
+        def call(self, **kwargs):
+            # Only the first two chunks reach the API.
+            assert kwargs["documents"] == ["alpha needle chunk", "beta chunk"]
+            return FakeResponse()
+
+    import types
+
+    fake_dashscope = types.ModuleType("dashscope")
+    fake_dashscope.TextReRank = FakeTextReRank()
+    monkeypatch.setitem(sys.modules, "dashscope", fake_dashscope)
+
+    context = common_nodes.rerank_retrieved_context(
+        "alpha question",
+        message,
+        settings,
+    )
+
+    chunks = context.split("\n\n")
+    # The reranked head occupies positions 1-2; the tail stays after it.
+    assert chunks[:2] == ["alpha needle chunk", "beta chunk"]
+    assert "gamma needle chunk" in chunks[2:]
+
+
+def test_build_sourced_context_numbers_sources_and_reranks(isolated_settings):
+    settings = isolated_settings()
+    message = ToolMessage(
+        content="generic cloud setup notes\n\nPAI reinforcement learning reward model guide",
+        tool_call_id="call_1",
+        artifact=[
+            Document(
+                page_content="generic cloud setup notes",
+                metadata={"source": "https://example.test/cloud"},
+            ),
+            Document(
+                page_content="PAI reinforcement learning reward model guide",
+                metadata={"source": "https://example.test/pai"},
+            ),
+        ],
+    )
+
+    context, urls = common_nodes.build_sourced_context(
+        "How does PAI use reinforcement learning reward models?",
+        message,
+        settings,
+    )
+
+    assert urls == ["https://example.test/pai", "https://example.test/cloud"]
+    assert context.split("\n\n") == [
+        "[1] Source: https://example.test/pai\nPAI reinforcement learning reward model guide",
+        "[2] Source: https://example.test/cloud\ngeneric cloud setup notes",
+    ]
+
+
+def test_build_sourced_context_dedupes_repeated_source_urls(isolated_settings):
+    settings = isolated_settings()
+    message = ToolMessage(
+        content="chunk a\n\nchunk b",
+        tool_call_id="call_1",
+        artifact=[
+            Document(page_content="chunk a", metadata={"source": "https://example.test/x"}),
+            Document(page_content="chunk b", metadata={"source": "https://example.test/x"}),
+        ],
+    )
+
+    context, urls = common_nodes.build_sourced_context("chunk", message, settings)
+
+    assert urls == ["https://example.test/x"]
+    assert context.count("[1] Source: https://example.test/x") == 2
+
+
+def test_build_sourced_context_falls_back_without_artifacts(isolated_settings):
+    settings = isolated_settings()
+    message = ToolMessage(
+        content="plain chunk one\n\nplain chunk two",
+        tool_call_id="call_1",
+    )
+
+    context, urls = common_nodes.build_sourced_context("plain chunk", message, settings)
+
+    assert urls == []
+    assert "[1] Source:" not in context
+
+
+def test_build_sourced_context_disabled_flag_returns_plain_context(isolated_settings):
+    settings = isolated_settings(rag_citations_enabled=False)
+    message = ToolMessage(
+        content="chunk",
+        tool_call_id="call_1",
+        artifact=[
+            Document(page_content="chunk", metadata={"source": "https://example.test/x"}),
+        ],
+    )
+
+    context, urls = common_nodes.build_sourced_context("chunk", message, settings)
+
+    assert urls == []
+    assert context == "chunk"
+
+
+def test_build_sourced_context_accepts_sanitized_dict_artifacts(isolated_settings):
+    """The MCP pipeline sanitizer converts Documents to plain dicts; the
+    provenance reader must still recover text and source URL from them."""
+    settings = isolated_settings()
+    message = ToolMessage(
+        content="chunk text",
+        tool_call_id="call_1",
+        artifact=[
+            {
+                "page_content": "chunk text",
+                "metadata": {"source": "https://example.test/dict"},
+            }
+        ],
+    )
+
+    context, urls = common_nodes.build_sourced_context("chunk", message, settings)
+
+    assert urls == ["https://example.test/dict"]
+    assert context == "[1] Source: https://example.test/dict\nchunk text"
+
+
+def test_validate_citations_strips_out_of_range_markers():
+    answer = "PAI supports RLHF [1] and deployment [9] plus more [2]."
+    sources = ["https://example.test/a", "https://example.test/b"]
+
+    text, cited = common_nodes.validate_citations(answer, sources)
+
+    assert "[9]" not in text
+    assert "[1]" in text and "[2]" in text
+    assert cited == ["https://example.test/a", "https://example.test/b"]
+    assert text.endswith("Sources:\n[1] https://example.test/a\n[2] https://example.test/b")
+
+
+def test_validate_citations_no_markers_no_footer():
+    text, cited = common_nodes.validate_citations(
+        "An answer without citations.",
+        ["https://example.test/a"],
+    )
+
+    assert cited == []
+    assert text == "An answer without citations."
+
+
+def test_validate_citations_leaves_code_indexing_alone():
+    answer = "Use array[3] for the third element [1]."
+
+    text, cited = common_nodes.validate_citations(answer, ["https://example.test/a"])
+
+    assert "array[3]" in text
+    assert cited == ["https://example.test/a"]
+
+
+def test_generate_appends_validated_citations_and_source_urls(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings()
+
+    monkeypatch.setattr(
+        common_nodes,
+        "new_chat_model",
+        lambda _settings: RunnableLambda(
+            lambda _payload: AIMessage(content="PAI supports reward models [1] and EAS [5].")
+        ),
+    )
+
+    generate = common_nodes.generate_factory(settings)
+    result = generate(
+        {
+            "messages": [
+                HumanMessage(content="How does PAI train models?"),
+                ToolMessage(
+                    content="PAI reinforcement learning reward model guide",
+                    tool_call_id="call_1",
+                    artifact=[
+                        Document(
+                            page_content="PAI reinforcement learning reward model guide",
+                            metadata={"source": "https://example.test/pai"},
+                        ),
+                    ],
+                ),
+            ],
+        }
+    )
+
+    answer = result["messages"][-1].content
+    assert "[5]" not in answer
+    assert "[1]" in answer
+    assert answer.endswith("Sources:\n[1] https://example.test/pai")
+    assert result["source_urls"] == ["https://example.test/pai"]
+
+
+def test_generate_without_artifact_keeps_legacy_behavior(
+    monkeypatch,
+    isolated_settings,
+):
+    settings = isolated_settings()
+
+    monkeypatch.setattr(
+        common_nodes,
+        "new_chat_model",
+        lambda _settings: RunnableLambda(lambda _payload: AIMessage(content="plain answer")),
+    )
+
+    generate = common_nodes.generate_factory(settings)
+    result = generate(
+        {
+            "messages": [
+                HumanMessage(content="How does PAI train models?"),
+                ToolMessage(
+                    content="PAI reinforcement learning reward model guide",
+                    tool_call_id="call_1",
+                ),
+            ],
+        }
+    )
+
+    assert result["messages"][-1].content == "plain answer"
+    assert "source_urls" not in result
 
 
 def test_grade_documents_uses_reranked_context_and_binary_score(

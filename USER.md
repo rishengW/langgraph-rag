@@ -7,6 +7,15 @@ human.timezone: "Asia/Shanghai"
 human.focus:
   - "coding"
 ---
+---
+summary: "User profile record"
+autoclaw.schema: "agent-profile/v1"
+human.name: "User"
+human.call: "User"
+human.timezone: "Asia/Shanghai"
+human.focus:
+  - "coding"
+---
 
 # USER.md - About Your Human
 

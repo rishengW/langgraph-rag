@@ -44,6 +44,8 @@ from src.backend.application import (
     TurnExecutionDependencies,
     TurnExecutionService,
     TurnRequest,
+    delete_indexed_upload,
+    index_saved_upload,
     serialize_history,
 )
 from src.backend.graph.builder import build_lightweight_graph
@@ -393,9 +395,7 @@ def _graph_inputs_for_turn(
 # page"). Reuse the web_answer URL pattern, which already refuses URLs glued
 # to CJK prose, and require the link to sit outside the trailing prose: only
 # a short "URL, (comma) help me read it" tail is allowed after the link.
-_URL_DIRECT_RE = re.compile(
-    r"https?://[^\s<>()\[\]{}\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+"
-)
+_URL_DIRECT_RE = re.compile(r"https?://[^\s<>()\[\]{}\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+")
 # Reading-intent tail: a short phrase AFTER the link that asks to read it
 # ("能帮我看看这个链接里面是什么内容？"). Any link-adjacent filler plus common
 # read/summarize verbs; a tail longer than this or naming a topic (search-like)
@@ -429,7 +429,7 @@ def _direct_fetch_urls(message: str) -> list[str]:
     head = text[: matches[0].start()]
     if head.strip() and not _URL_DIRECT_TAIL_RE.match(head):
         return []
-    tail = text[matches[-1].end():]
+    tail = text[matches[-1].end() :]
     if not _URL_DIRECT_TAIL_RE.match(tail):
         return []
     seen: set[str] = set()
@@ -521,6 +521,26 @@ def _download_response(
         filename=safe_name,
         background=BackgroundTask(on_close),
     )
+
+
+def _relative_upload_path(*, settings: Settings, thread_id: str, filename: str) -> str:
+    """Tool-ready relative path of one session upload, with the same guards.
+
+    Used by the DELETE endpoint to remove the file's indexed chunks; shares
+    the sanitize/containment rules of ``delete_session_upload`` so a mismatched
+    name yields the same not-found behavior instead of deleting foreign chunks.
+    """
+
+    safe_name = sanitize_filename(filename)
+    if not safe_name or safe_name != filename:
+        raise ResourceNotFoundError("Resource not found.")
+    upload_dir = session_upload_dir(settings, thread_id)
+    root = Path(settings.file_read_root).expanduser().resolve()
+    try:
+        relative = (upload_dir / safe_name).resolve().relative_to(root).as_posix()
+    except (ValueError, OSError):
+        raise ResourceNotFoundError("Resource not found.") from None
+    return relative
 
 
 def _build_chat_application_service(
@@ -1030,6 +1050,26 @@ def create_app(
         semaphore = asyncio.Semaphore(min(4, max(1, len(files))))
         name_locks: dict[str, asyncio.Lock] = {}
 
+        session_obj = sessions.get(thread_id)
+        base_indexing = session_obj is not None and bool(
+            getattr(session_obj.settings, "upload_indexing_enabled", False)
+        )
+        if base_indexing and session_obj is not None and not session_obj.isolated_chroma:
+            # Uploads must never pollute the shared corpus: migrate this
+            # defaults-mode session onto its isolated store once, before any
+            # file in this batch is indexed.
+            service = _build_chat_application_service(
+                settings=settings,
+                sessions=sessions,
+                graph_factory_lock=get_chat_graph_factory_lock(fastapi_request),
+                checkpointer=getattr(app.state, "chat_checkpointer", None),
+                extraction_runtime=getattr(app.state, "extraction_runtime", None),
+            )
+            indexed_session = await service.migrate_to_isolated_store(session_obj)
+            # Re-resolve: migration swapped the session's graph/settings in the
+            # registry, so index against the updated object.
+            session_obj = sessions.get(thread_id) or indexed_session
+
         async def process_upload(
             upload: UploadFile,
         ) -> tuple[UploadedFile | None, str | None]:
@@ -1053,6 +1093,26 @@ def create_app(
             finally:
                 await upload.close()
 
+            indexed_error: str | None = None
+            if base_indexing and session_obj is not None:
+                try:
+                    await asyncio.to_thread(
+                        index_saved_upload,
+                        session=session_obj,
+                        relative_path=result.relative_path,
+                    )
+                except Exception as exc:
+                    # The file itself saved fine; a parsing/embedding failure
+                    # must not wipe it — report it so the client shows the file
+                    # as readable-but-not-searchable.
+                    logger.warning(
+                        "Upload indexing failed for %s on thread %s: %s",
+                        name,
+                        thread_id,
+                        exc,
+                    )
+                    indexed_error = f"{name}: saved, but could not index it for search ({exc})."
+
             uploaded = UploadedFile(
                 filename=result.filename,
                 relative_path=result.relative_path,
@@ -1065,7 +1125,7 @@ def create_app(
                 thread_id,
                 result.relative_path,
             )
-            return uploaded, None
+            return uploaded, indexed_error
 
         lease = quotas.acquire(principal)
         try:
@@ -1179,6 +1239,30 @@ def create_app(
             filename,
             thread_id,
         )
+        # Best-effort: drop this file's indexed chunks too so retrieval no
+        # longer returns content the user just removed. Failure only logs —
+        # the file itself is already gone.
+        delete_target = sessions.get_owned(thread_id, principal)
+        if delete_target is not None:
+            try:
+                relative = await asyncio.to_thread(
+                    _relative_upload_path,
+                    settings=settings,
+                    thread_id=thread_id,
+                    filename=filename,
+                )
+                await asyncio.to_thread(
+                    delete_indexed_upload,
+                    session=delete_target,
+                    relative_path=relative,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Could not delete indexed chunks for %r on thread %s: %s",
+                    filename,
+                    thread_id,
+                    exc,
+                )
         # The upload-context SystemMessage from an earlier turn still sits in
         # the checkpoint and would keep listing the deleted file. Clearing the
         # announced set makes the remaining files look new again, so the next

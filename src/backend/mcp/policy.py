@@ -782,6 +782,16 @@ class _OutputSanitizer:
             return value if math.isfinite(value) else self._text(str(value))
         if depth >= self._max_depth:
             return self._text(_TRUNCATION_MARKER)
+        # LangChain Documents (retriever artifacts) are not Mappings; without
+        # this branch they degrade to an unstructured repr string and lose
+        # metadata (source URLs) that downstream citation grounding needs.
+        page_content = getattr(value, "page_content", None)
+        doc_metadata = getattr(value, "metadata", None)
+        if isinstance(page_content, str) and isinstance(doc_metadata, Mapping):
+            return self._mapping(
+                {"page_content": page_content, "metadata": dict(doc_metadata)},
+                depth,
+            )
         if isinstance(value, Mapping):
             return self._mapping(value, depth)
         if isinstance(value, (tuple, list)):

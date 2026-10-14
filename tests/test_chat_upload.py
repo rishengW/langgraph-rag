@@ -727,3 +727,155 @@ def test_delete_upload_re_announces_remaining(monkeypatch, isolated_settings, tm
         assert len(system_texts) == 2
         assert b_path in system_texts[1]
         assert a_path not in system_texts[1]
+
+
+def _indexing_client(
+    monkeypatch,
+    isolated_settings,
+    tmp_path,
+):
+    """Client whose upload-indexing path is faked at the ChromaRetriever seam.
+
+    The real store is not built in tests; instead the provider class used by
+    the indexing service is replaced with a recorder, so the endpoint wiring
+    (migration, flags, delete-by-source) is exercised without embeddings or
+    network access.
+    """
+    import threading
+
+    from src.backend.application import upload_indexing as upload_indexing_module
+
+    settings = isolated_settings(
+        source_urls=["https://chat-default.test"],
+        web_search_enabled=False,
+        file_read_enabled=True,
+        file_read_root=str(tmp_path / "files"),
+        file_read_max_bytes=1_000_000,
+        upload_indexing_enabled=True,
+    )
+    monkeypatch.setattr(chat_api, "load_settings", lambda: settings)
+    monkeypatch.setattr(
+        chat_api,
+        "build_chat_graph",
+        lambda *args, **kwargs: _FakeGraph(),
+    )
+
+    lock = threading.Lock()
+    indexed: list[dict] = []
+    deleted: list[str] = []
+
+    class FakeProvider:
+        def __init__(self, provider_settings, **_kwargs) -> None:
+            self.settings = provider_settings
+
+        def index_documents(self, documents, *, parent_docstore_additions=None):
+            with lock:
+                indexed.append(
+                    {
+                        "count": len(documents),
+                        "sources": sorted({d.metadata.get("source", "") for d in documents}),
+                    }
+                )
+            return len(documents)
+
+        def delete_documents_by_source(self, source):
+            with lock:
+                deleted.append(source)
+            return 0
+
+    monkeypatch.setattr(
+        upload_indexing_module,
+        "ChromaRetriever",
+        FakeProvider,
+    )
+    return (
+        TestClient(chat_api.create_app()),
+        settings,
+        {"indexed": indexed, "deleted": deleted},
+    )
+
+
+def test_upload_indexes_file_when_enabled(monkeypatch, isolated_settings, tmp_path):
+    client, settings, calls = _indexing_client(monkeypatch, isolated_settings, tmp_path)
+    with client:
+        thread_id = _start_thread(client)
+        response = client.post(
+            f"/chat/{thread_id}/upload",
+            files={
+                "files": (
+                    "notes.txt",
+                    b"Substantial content about retrieval pipelines, embedding "
+                    b"indexes, chunk storage, and grounded question answering.",
+                    "text/plain",
+                )
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["errors"] == []
+        assert calls["indexed"], "upload should have been indexed"
+        assert all(
+            call["sources"] == [f"chat_uploads/{thread_id}/notes.txt"] for call in calls["indexed"]
+        )
+        # Migration to an isolated store must have happened before indexing.
+        session = client.app.state.session_registry.get(thread_id)
+        assert session.isolated_chroma is True
+
+
+def test_upload_indexing_failure_reports_error_but_saves_file(
+    monkeypatch, isolated_settings, tmp_path
+):
+    client, settings, calls = _indexing_client(monkeypatch, isolated_settings, tmp_path)
+
+    class FailingProvider:
+        def __init__(self, provider_settings, **_kwargs) -> None:
+            raise RuntimeError("no vector store")
+
+    monkeypatch.setattr(
+        "src.backend.application.upload_indexing.ChromaRetriever",
+        FailingProvider,
+    )
+    with client:
+        thread_id = _start_thread(client)
+        response = client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("notes.txt", b"some readable content", "text/plain")},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        # The file saved and is listed; the indexing failure is reported.
+        assert [f["filename"] for f in body["files"]] == ["notes.txt"]
+        assert body["errors"]
+        assert "could not index it for search" in body["errors"][0]
+
+
+def test_delete_upload_removes_indexed_chunks(monkeypatch, isolated_settings, tmp_path):
+    client, settings, calls = _indexing_client(monkeypatch, isolated_settings, tmp_path)
+    with client:
+        thread_id = _start_thread(client)
+        client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("notes.txt", b"some readable content", "text/plain")},
+        )
+        calls["deleted"].clear()
+
+        response = client.delete(f"/chat/{thread_id}/files/notes.txt")
+        assert response.status_code == 200
+        assert calls["deleted"] == [f"chat_uploads/{thread_id}/notes.txt"]
+
+
+def test_upload_indexing_disabled_keeps_legacy_behavior(monkeypatch, isolated_settings, tmp_path):
+    client, settings, calls = _indexing_client(monkeypatch, isolated_settings, tmp_path)
+    with client:
+        thread_id = _start_thread(client)
+        session = client.app.state.session_registry.get(thread_id)
+        from dataclasses import replace as _replace
+
+        session.settings = _replace(session.settings, upload_indexing_enabled=False)
+        response = client.post(
+            f"/chat/{thread_id}/upload",
+            files={"files": ("notes.txt", b"content", "text/plain")},
+        )
+        assert response.status_code == 200
+        assert response.json()["errors"] == []
+        assert calls["indexed"] == []
+        assert session.isolated_chroma is False

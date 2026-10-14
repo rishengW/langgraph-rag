@@ -279,6 +279,17 @@ class Settings:
     document_quality_recency_bias_days: int = 365
     # REFACTOR: Optional post-retrieval re-ranking strategy.
     rerank_strategy: str = "lexical"
+    # REFACTOR: Source-URL provenance for RAG answers. Retrieved chunks are
+    # numbered with their source URL in the prompt, the model cites [n], and
+    # out-of-range citations are stripped before the answer is returned.
+    rag_citations_enabled: bool = True
+    # REFACTOR: Index uploaded session files into the session's Chroma store
+    # so retrieval covers them. Requires file_read_enabled (uploads already
+    # depend on it); off keeps uploads editing-tool-only like before.
+    upload_indexing_enabled: bool = False
+    # Bound on chunks per uploaded file; larger files are skipped with an
+    # upload error rather than silently costing an unbounded embed pass.
+    upload_indexing_max_chunks: int = 2000
     # REFACTOR: Optional LLM contextual chunk prefixes (Anthropic-style). Off by
     # default: no extra LLM calls and indexing behavior is unchanged.
     chunk_context_enabled: bool = False
@@ -300,6 +311,16 @@ class Settings:
     hierarchical_chunking_enabled: bool = False
     hierarchical_parent_chunk_size: int = 512
     hierarchical_auto_merge_threshold: float = 0.5
+    # REFACTOR: Structure-aware chunking for HTML and Markdown sources: split
+    # on headings first (HTMLHeaderTextSplitter / MarkdownHeaderTextSplitter),
+    # then bound each section with the regular splitter. Changes what is
+    # embedded, so toggling forces a one-time index rebuild.
+    structure_aware_chunking_enabled: bool = False
+    # REFACTOR: Cross-encoder rerank strategy (rerank_strategy="cross_encoder")
+    # via the DashScope TextReRank API. Chunks beyond rerank_max_chunks keep
+    # lexical order after the reranked head to bound API cost.
+    rerank_model: str = "gte-rerank-v2"
+    rerank_max_chunks: int = 32
     dashscope_request_timeout: int = 120
     dashscope_max_retries: int = 3
     dashscope_http_base_url: str = ""

@@ -117,16 +117,25 @@ def _copy_documents(documents: Sequence[Document]) -> list[Document]:
 class DateAwareWebBaseLoader(WebBaseLoader):
     """WebBaseLoader variant that preserves publication-date metadata."""
 
+    def __init__(self, *args: Any, structure_aware: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.structure_aware = bool(structure_aware)
+
     def lazy_load(self) -> Iterator[Document]:
         """Lazy load text and add publication metadata extracted from raw HTML."""
 
         for path in self.web_paths:
             soup = self._scrape(path, bs_kwargs=self.bs_kwargs)
-            text = soup.get_text(**self.bs_get_text_kwargs)
             metadata = _build_metadata(soup, path)
             published_date = _extract_publication_date(str(soup), metadata)
             if published_date is not None:
                 metadata["publication_date"] = published_date.isoformat()
+            if self.structure_aware:
+                section_documents = _html_section_documents(str(soup), metadata)
+                if section_documents:
+                    yield from section_documents
+                    continue
+            text = soup.get_text(**self.bs_get_text_kwargs)
             yield Document(page_content=text, metadata=metadata)
 
 
@@ -134,6 +143,90 @@ def _extract_publication_date(html: str, metadata: dict[str, Any]) -> date | Non
     from ..web_search.date_extractor import extract_publication_date
 
     return extract_publication_date(html, metadata)
+
+
+# Heading tags used for HTML section splitting, most significant first.
+_HTML_HEADERS_TO_SPLIT_ON = (
+    ("h1", "h1"),
+    ("h2", "h2"),
+    ("h3", "h3"),
+    ("h4", "h4"),
+)
+
+
+def _html_section_documents(html: str, base_metadata: dict[str, Any]) -> list[Document]:
+    """Split one fetched HTML page into one Document per heading section.
+
+    Raw HTML is only available inside the loader (before text extraction), so
+    this runs there; each section keeps the page's base metadata plus a
+    ``section`` label. Falls back to an empty list on any splitter failure so
+    the caller can keep the whole-page document.
+    """
+
+    from langchain_text_splitters import HTMLHeaderTextSplitter
+
+    try:
+        splitter = HTMLHeaderTextSplitter(headers_to_split_on=list(_HTML_HEADERS_TO_SPLIT_ON))
+        sections = splitter.split_text(html)
+    except Exception as exc:
+        logger.warning("HTML structure split failed; keeping whole-page text: %s", exc)
+        return []
+
+    documents: list[Document] = []
+    for section in sections:
+        text = (section.page_content or "").strip()
+        if not text:
+            continue
+        metadata = dict(base_metadata)
+        section_meta = dict(getattr(section, "metadata", {}) or {})
+        # The splitter accumulates ancestor headings on each section; the most
+        # specific (deepest) heading identifies the section best.
+        label = (
+            section_meta.get("h4")
+            or section_meta.get("h3")
+            or section_meta.get("h2")
+            or section_meta.get("h1")
+        )
+        if label:
+            metadata["section"] = str(label)
+        documents.append(Document(page_content=text, metadata=metadata))
+    return documents
+
+
+def split_markdown_sections(documents: Sequence[Document]) -> list[Document]:
+    """Split markdown documents into one Document per heading section.
+
+    Applies to documents whose text starts with a heading marker; anything
+    else passes through unchanged. Section documents keep the base metadata
+    plus a ``section`` label so the regular token splitter still bounds them.
+    """
+
+    from langchain_text_splitters import MarkdownHeaderTextSplitter
+
+    results: list[Document] = []
+    for document in documents:
+        content = (document.page_content or "").lstrip()
+        if not content.startswith("#"):
+            results.append(document)
+            continue
+        try:
+            splitter = MarkdownHeaderTextSplitter(
+                headers_to_split_on=[("#", "h1"), ("##", "h2"), ("###", "h3")],
+                strip_headers=False,
+            )
+            sections = splitter.split_text(content)
+        except Exception as exc:
+            logger.warning("Markdown structure split failed; keeping whole text: %s", exc)
+            results.append(document)
+            continue
+        for section in sections:
+            metadata = dict(document.metadata)
+            section_meta = dict(getattr(section, "metadata", {}) or {})
+            label = section_meta.get("h3") or section_meta.get("h2") or section_meta.get("h1")
+            if label:
+                metadata["section"] = str(label)
+            results.append(Document(page_content=section.page_content or "", metadata=metadata))
+    return results
 
 
 class PdfAwareLoader:
@@ -146,9 +239,10 @@ class PdfAwareLoader:
     decodes the binary body into megabytes of noise and indexes it as prose.
     """
 
-    def __init__(self, url: str, page_timeout: int) -> None:
+    def __init__(self, url: str, page_timeout: int, *, structure_aware: bool = False) -> None:
         self.url = url
         self.page_timeout = page_timeout
+        self.structure_aware = bool(structure_aware)
 
     def load(self) -> list[Document]:
         from ..web_search.pdf_loader import PdfPageLoader, is_pdf_url, looks_like_pdf_payload
@@ -160,6 +254,7 @@ class PdfAwareLoader:
             DateAwareWebBaseLoader(
                 self.url,
                 requests_kwargs={"timeout": self.page_timeout},
+                structure_aware=self.structure_aware,
             ).load()
         )
         if any(looks_like_pdf_payload(document.page_content or "") for document in documents):
@@ -168,8 +263,13 @@ class PdfAwareLoader:
         return documents
 
 
-def default_loader_factory(url: str, page_timeout: int) -> PdfAwareLoader:
-    return PdfAwareLoader(url, page_timeout)
+def default_loader_factory(
+    url: str,
+    page_timeout: int,
+    *,
+    structure_aware: bool = False,
+) -> PdfAwareLoader:
+    return PdfAwareLoader(url, page_timeout, structure_aware=structure_aware)
 
 
 def default_splitter_factory(
@@ -340,6 +440,7 @@ def load_and_split_documents(
     chunk_context_cache: ChunkContextCache | None = None,
     loader_factory: LoaderFactory = default_loader_factory,
     splitter_factory: SplitterFactory = default_splitter_factory,
+    structure_aware: bool = False,
 ) -> list[Document]:
     docs = load_source_documents(
         source_urls,
@@ -356,6 +457,10 @@ def load_and_split_documents(
             "All loaded source documents were filtered out before indexing. "
             "No documents met the configured content quality thresholds."
         )
+    if structure_aware:
+        docs = split_markdown_sections(docs)
+        if not docs:
+            raise RuntimeError("Structure-aware splitting produced no documents for indexing.")
     splits = split_documents(
         docs,
         chunk_size=chunk_size,
@@ -363,11 +468,7 @@ def load_and_split_documents(
         splitter_factory=splitter_factory,
     )
     # REFACTOR: Optional LLM contextual prefixes; None config keeps legacy chunks.
-    if (
-        chunk_context_config is not None
-        and chunk_context_config.enabled
-        and chat_model is not None
-    ):
+    if chunk_context_config is not None and chunk_context_config.enabled and chat_model is not None:
         splits = apply_chunk_context(
             splits,
             config=chunk_context_config,

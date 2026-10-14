@@ -22,7 +22,7 @@ from .chunk_context import (
     ChunkContextCache,
     ChunkContextConfig,
 )
-from .document_loader import load_and_split_documents
+from .document_loader import default_loader_factory, load_and_split_documents
 from .document_quality import DocumentQualityConfig
 from .embeddings import build_embeddings
 from .llamaindex_adapter import (
@@ -81,6 +81,9 @@ def _embedding_config(settings: Settings) -> dict[str, int | str | bool | None]:
         # with node ids), so toggling or resizing it must rebuild as well.
         "hierarchical_chunking_enabled": settings.hierarchical_chunking_enabled,
         "hierarchical_parent_chunk_size": settings.hierarchical_parent_chunk_size,
+        # Structure-aware chunking changes what is embedded (one chunk per
+        # heading section), so toggling it must rebuild as well.
+        "structure_aware_chunking_enabled": settings.structure_aware_chunking_enabled,
     }
 
 
@@ -236,6 +239,36 @@ def _documents_from_vectorstore(vectorstore: Any) -> list[Document]:
     ]
 
 
+def _delete_chunks_by_source(vectorstore: Any, source: str) -> int:
+    """Delete every persisted chunk whose metadata source matches ``source``.
+
+    Makes re-indexing one upload idempotent: the old chunks for that file are
+    removed before the new ones are added, so nothing accumulates across
+    re-uploads of the same filename.
+    """
+
+    collection = getattr(vectorstore, "_collection", None)
+    get = getattr(collection, "get", None)
+    delete = getattr(collection, "delete", None)
+    if not callable(get) or not callable(delete):
+        return 0
+    try:
+        data = get(where={"source": source})
+    except Exception as exc:
+        logger.warning("Could not look up chunks for source %r: %s", source, exc)
+        return 0
+    ids = list((data or {}).get("ids") or [])
+    if not ids:
+        return 0
+    try:
+        delete(ids=ids)
+    except Exception as exc:
+        logger.warning("Could not delete %d chunk(s) for source %r: %s", len(ids), source, exc)
+        return 0
+    logger.info("Deleted %d existing chunk(s) for source %r", len(ids), source)
+    return len(ids)
+
+
 class _ProviderBackedLangChainRetriever(LangChainBaseRetriever):
     """LangChain retriever facade over a ChromaRetriever provider.
 
@@ -377,12 +410,89 @@ class ChromaRetriever:
                 f"document set ({source_count} URL(s)). Use this for questions "
                 "about the provided article or custom links."
             ),
+            # Keep the Document list on the ToolMessage artifact so downstream
+            # nodes can recover per-chunk source URLs for citation grounding.
+            response_format="content_and_artifact",
         )
 
     def rebuild(self, urls: list[str] | None = None) -> None:
         if urls is not None:
             self.settings = replace(self.settings, source_urls=list(urls))
         self._retriever = self._build_langchain_retriever(rebuild=True)
+
+    def index_documents(
+        self,
+        documents: list[Document],
+        *,
+        parent_docstore_additions: Any | None = None,
+    ) -> int:
+        """Add parsed upload chunks to the persisted store without a rebuild.
+
+        Idempotent per ``metadata["source"]``: existing chunks with the same
+        source are deleted first so re-uploading a file replaces its chunks.
+        Returns the number of chunks added. The live graph tool's enhanced
+        retrieval state (BM25/corpus nodes) is refreshed from the persisted
+        store only on the next provider build — see ``as_tool`` callers.
+        """
+
+        vectorstore = self._vectorstore
+        if vectorstore is None or not hasattr(vectorstore, "add_documents"):
+            raise RuntimeError("no loaded vectorstore; build the provider first.")
+        if not documents:
+            return 0
+
+        sources = sorted(
+            {
+                str(document.metadata.get("source") or "")
+                for document in documents
+                if document.metadata.get("source")
+            }
+        )
+        for source in sources:
+            _delete_chunks_by_source(vectorstore, source)
+
+        try:
+            vectorstore.add_documents(documents)
+        except Exception as exc:
+            raise RuntimeError(f"could not add chunks to the vector store: {exc}") from exc
+
+        if (
+            parent_docstore_additions is not None
+            and self.settings.hierarchical_chunking_enabled
+        ):
+            # persist_docstore writes the WHOLE store, so merge the additions
+            # into the loaded docstore first — persisting the additions alone
+            # would drop every previously indexed parent.
+            merged = parent_docstore_additions
+            existing = self._parent_docstore or load_docstore(self.settings.chroma_dir)
+            if existing is not None:
+                add_documents = getattr(existing, "add_documents", None)
+                if callable(add_documents):
+                    added = list(
+                        getattr(parent_docstore_additions, "docs", {}).values()
+                    )
+                    if added:
+                        existing.add_documents(added)
+                    merged = existing
+            persist_docstore(merged, self.settings.chroma_dir)
+            self._parent_docstore = merged
+
+        # Refresh hybrid/hierarchical state from the persisted contents so this
+        # provider instance (and any later graph build) sees the new chunks.
+        self._prepare_enhanced_retrieval(
+            vectorstore,
+            built_documents=None,
+            built_docstore=None,
+        )
+        return len(documents)
+
+    def delete_documents_by_source(self, source: str) -> int:
+        """Remove all chunks for one source from the persisted store."""
+
+        vectorstore = self._vectorstore
+        if vectorstore is None or not source:
+            return 0
+        return _delete_chunks_by_source(vectorstore, source)
 
     def as_langchain_retriever(self) -> Any:
         """Return the legacy LangChain retriever object."""
@@ -443,6 +553,17 @@ class ChromaRetriever:
                 settings.chroma_dir / CHUNK_CONTEXT_CACHE_FILENAME
             )
 
+        structure_aware = bool(getattr(settings, "structure_aware_chunking_enabled", False))
+        if structure_aware:
+            # Section splitting needs the raw HTML, which only the loader holds;
+            # swap in a structure-aware loader factory for this build.
+            def _structure_loader_factory(url: str, page_timeout: int) -> Any:
+                return default_loader_factory(url, page_timeout, structure_aware=True)
+
+            loader_factory: Any = _structure_loader_factory
+        else:
+            loader_factory = default_loader_factory
+
         built_docstore: Any | None = None
         if settings.hierarchical_chunking_enabled:
             # REFACTOR: Parent/child split; children are embedded, parents are
@@ -452,6 +573,7 @@ class ChromaRetriever:
                 page_load_timeout=settings.page_load_timeout,
                 max_concurrent_loads=settings.page_load_max_concurrency,
                 page_load_cache_ttl_seconds=settings.page_load_cache_ttl_seconds,
+                loader_factory=loader_factory,
                 quality_config=DocumentQualityConfig(
                     enabled=settings.document_quality_filter_enabled,
                     min_text_length=settings.document_quality_min_text_length,
@@ -477,8 +599,10 @@ class ChromaRetriever:
                 page_load_timeout=settings.page_load_timeout,
                 max_concurrent_loads=settings.page_load_max_concurrency,
                 page_load_cache_ttl_seconds=settings.page_load_cache_ttl_seconds,
+                loader_factory=loader_factory,
                 chunk_size=settings.chunk_size,
                 chunk_overlap=settings.chunk_overlap,
+                structure_aware=structure_aware,
                 quality_config=DocumentQualityConfig(
                     enabled=settings.document_quality_filter_enabled,
                     min_text_length=settings.document_quality_min_text_length,

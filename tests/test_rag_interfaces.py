@@ -538,11 +538,12 @@ def test_chroma_retriever_tool_uses_legacy_name_and_description(monkeypatch, moc
     def fake_build(self: ChromaRetriever, *, rebuild: bool = False):
         return fake_retriever
 
-    def fake_create_retriever_tool(retriever, name: str, description: str):
+    def fake_create_retriever_tool(retriever, name: str, description: str, **kwargs):
         created.update(
             retriever=retriever,
             name=name,
             description=description,
+            **kwargs,
         )
         return "tool"
 
@@ -555,6 +556,9 @@ def test_chroma_retriever_tool_uses_legacy_name_and_description(monkeypatch, moc
     assert created["retriever"] is fake_retriever
     assert created["name"] == "retrieve_source_documents"
     assert "1 URL(s)" in str(created["description"])
+    # Artifact passthrough is load-bearing: downstream citation grounding reads
+    # per-chunk source URLs from the ToolMessage artifact.
+    assert created["response_format"] == "content_and_artifact"
 
 
 def test_release_chroma_system_handles_cache_without_refcount_lock(monkeypatch, tmp_path):
@@ -644,8 +648,10 @@ def test_chroma_retriever_rebuilds_incompatible_persisted_store(
             "page_load_timeout": settings.page_load_timeout,
             "max_concurrent_loads": 3,
             "page_load_cache_ttl_seconds": settings.page_load_cache_ttl_seconds,
+            "loader_factory": chroma_module.default_loader_factory,
             "chunk_size": settings.chunk_size,
             "chunk_overlap": settings.chunk_overlap,
+            "structure_aware": settings.structure_aware_chunking_enabled,
             "quality_config": DocumentQualityConfig(
                 enabled=settings.document_quality_filter_enabled,
                 min_text_length=settings.document_quality_min_text_length,

@@ -235,10 +235,12 @@ Use the following retrieved context to answer the question.
 If you do not know the answer from the context after semantic matching, say that
 you do not know. Keep the answer concise.
 
-CITATIONS: the context below has no numbers, IDs, or line numbers. If you refer
-to a source, use its full URL. Never invent bracketed reference markers, source
-indexes, line ranges, or footnote symbols such as [1], 【199†L91-L126】, or
-[oaicite:0].
+CITATIONS: each context chunk is headed by a numbered source line in the form
+"[n] Source: <url>". When you use information from a chunk, cite it inline by
+appending its number in brackets, e.g. [1] or [2]. Only cite numbers that
+appear in the context. Never invent source numbers, URLs, line ranges, or
+footnote symbols such as 【199†L91-L126】 or [oaicite:0]. If no chunk has a
+numbered source header, do not use bracketed citations at all.
 
 Question:
 {question}

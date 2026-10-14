@@ -197,6 +197,12 @@ SETTING_ENV_NAMES = {
     "document_quality_min_similarity": "DOCUMENT_QUALITY_MIN_SIMILARITY",
     "document_quality_recency_bias_days": "DOCUMENT_QUALITY_RECENCY_BIAS_DAYS",
     "rerank_strategy": "RERANK_STRATEGY",
+    "rag_citations_enabled": "RAG_CITATIONS_ENABLED",
+    "upload_indexing_enabled": "UPLOAD_INDEXING_ENABLED",
+    "upload_indexing_max_chunks": "UPLOAD_INDEXING_MAX_CHUNKS",
+    "structure_aware_chunking_enabled": "STRUCTURE_AWARE_CHUNKING_ENABLED",
+    "rerank_model": "RERANK_MODEL",
+    "rerank_max_chunks": "RERANK_MAX_CHUNKS",
     "agent_persona_style": "AGENT_PERSONA_STYLE",
     "llm_provider": "LLM_PROVIDER",
     "deepseek_model": "DEEPSEEK_MODEL",
@@ -468,6 +474,8 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "dashscope_request_timeout",
         "dashscope_max_retries",
         "file_read_max_bytes",
+        "upload_indexing_max_chunks",
+        "rerank_max_chunks",
     ):
         if name == "embedding_dimension":
             return parse_optional_int(None if value is None else str(value), default)
@@ -596,14 +604,19 @@ def _coerce_setting(name: str, value: Any, default: Any = None) -> Any:
         "chunk_context_enabled",
         "hybrid_retrieval_enabled",
         "hierarchical_chunking_enabled",
+        "rag_citations_enabled",
+        "upload_indexing_enabled",
+        "structure_aware_chunking_enabled",
     ):
         return parse_bool(value, bool(default))
     if name in ("web_search_provider",):
         return str(value).strip().lower() or str(default)
     if name == "rerank_strategy":
         strategy = str(value).strip().lower() or str(default or "lexical")
-        if strategy not in ("lexical", "embedding", "hybrid"):
-            raise ValueError("rerank_strategy must be one of: lexical, embedding, hybrid")
+        if strategy not in ("lexical", "embedding", "hybrid", "cross_encoder"):
+            raise ValueError(
+                "rerank_strategy must be one of: lexical, embedding, hybrid, cross_encoder"
+            )
         return strategy
     if name == "agent_persona_style":
         if value is None:
